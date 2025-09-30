@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users: each user can read/create/update their own document
+    match /users/{uid} {
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow read, update: if request.auth != null && request.auth.uid == uid;
+
+      // Nested orders under a user
+      match /orders/{orderId} {
+        allow create, read, update: if request.auth != null && request.auth.uid == uid;
+        allow delete: if false;
+      }
+    }
+
+    // Public menu reads
+    match /categories/{doc} {
+      allow read: if true;
+      allow write: if false; // Only via console/admin
+    }
+    match /menuItems/{doc} {
+      allow read: if true;
+      allow write: if false; // Only via console/admin
+    }
+
+    // Top-level orders (legacy). Prefer nested: users/{uid}/orders/{orderId}
+    match /orders/{doc} {
+      // Optional: only allow create when userId matches auth uid
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // Items catalog
+    match /items/{doc} {
+      allow read: if true;
+      allow write: if false; // Lock by default; manage via server/console
+    }
+  }
+}

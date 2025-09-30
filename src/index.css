@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+	/* App/Layout */
+	.app-shell { @apply min-h-screen flex flex-col; }
+	.page-wrap { @apply container mx-auto px-4; }
+
+	/* Navbar */
+	.nav-sticky { @apply sticky top-2 z-50 px-2; }
+	.nav-wrap { @apply container mx-auto bg-transparent shadow-none border-0 rounded-xl; }
+	.brand-logo { @apply h-10 w-auto object-contain; }
+	.search-box { @apply w-full bg-base-100 border border-base-300 rounded-xl shadow-sm px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3; }
+	.v-sep { @apply opacity-30; }
+
+	/* Cards & Surfaces */
+	.card-surface { @apply bg-base-100 shadow hover:shadow-md transition; }
+	.panel { @apply bg-base-100 p-4; }
+	.panel-side { @apply bg-base-100 min-h-full w-96 p-4 space-y-4; }
+	.panel-footer { @apply mt-auto pt-4 border-t; }
+	.img-thumb { @apply w-28 h-28 object-cover rounded-xl; }
+	.img-thumb-sm { @apply w-14 h-14 object-cover rounded; }
+
+	/* Sections */
+	.section-title { @apply text-xl font-semibold; }
+	.menu-grid { @apply grid gap-4 sm:grid-cols-2 lg:grid-cols-3; }
+	.strip { @apply bg-base-200 rounded-xl p-4 md:p-6; }
+
+	/* No DaisyUI aliases here to avoid @apply on non-utility classes */
+}
+
+/* Blur background when auth modal is open */
+.blur-when-auth-open {
+	filter: blur(2px);
+	transform: scale(0.995);
+	transition: filter 0.15s ease, transform 0.15s ease;
+	pointer-events: none; /* prevent clicks on blurred background */
+}
