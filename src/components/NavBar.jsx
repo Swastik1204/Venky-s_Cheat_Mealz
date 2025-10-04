@@ -1,39 +1,36 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import logo from '../assets/logo.png'
 import useDeliveryLocation from '../hooks/useDeliveryLocation'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { MdLocationOn, MdShoppingCart, MdLogin, MdPerson } from 'react-icons/md'
+import { MdLocationOn, MdShoppingCart, MdLogin, MdPerson, MdReceiptLong, MdSearch } from 'react-icons/md'
+import { fetchMenuCategories } from '../lib/data'
 
 export default function NavBar() {
   const [scrolled, setScrolled] = useState(false)
-  const [theme, setTheme] = useState('venkys')
+  const [theme, setTheme] = useState('venkys_light')
   const { totalQty } = useCart()
-  // On mount, respect any previously chosen theme in localStorage
   useEffect(() => {
     const root = document.documentElement
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('theme')
-      if (saved === 'dark' || saved === 'venkys') {
+      if (saved === 'venkys_dark' || saved === 'venkys_light') {
         setTheme(saved)
         root.setAttribute('data-theme', saved)
       } else {
-        // enforce default custom theme
-        localStorage.setItem('theme', 'venkys')
-        root.setAttribute('data-theme', 'venkys')
-        setTheme('venkys')
+        localStorage.setItem('theme', 'venkys_light')
+        root.setAttribute('data-theme', 'venkys_light')
+        setTheme('venkys_light')
       }
     } else {
-      root.setAttribute('data-theme', 'venkys')
+      root.setAttribute('data-theme', 'venkys_light')
     }
   }, [])
-  // Ensure whenever theme state changes, apply it
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
-  // Scroll listener for subtle opacity animation
   useEffect(() => {
     const onScroll = () => {
       setScrolled(window.scrollY > 8)
@@ -42,7 +39,7 @@ export default function NavBar() {
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
-  const isDark = theme === 'dark'
+  const isDark = theme === 'venkys_dark'
   const { label: locLabel, loading: isLocating, locate } = useDeliveryLocation('Durgapur')
   const { user, logout } = useAuth()
   const { openAuth } = useUI()
@@ -53,18 +50,102 @@ export default function NavBar() {
     const local = email.split('@')[0]
     return local || 'User'
   })()
+  // Search state
+  const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [allSearchItems, setAllSearchItems] = useState([]) // {type:'category'|'item', label, cat?, veg?, price?}
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const searchWrapRef = useRef(null)
+  const inputRef = useRef(null)
+  const navigate = useNavigate()
+
+  // Load categories + items once for client-side searching
+  useEffect(() => {
+    fetchMenuCategories().then(cats => {
+      const coll = []
+      cats.forEach(cat => {
+        coll.push({ type: 'category', label: cat.id, cat: cat.id })
+        if (Array.isArray(cat.items)) {
+          cat.items.forEach(it => {
+            coll.push({ type: 'item', label: it.name, cat: cat.id, veg: it.veg !== false, price: it.price })
+          })
+        }
+      })
+      setAllSearchItems(coll)
+    }).catch(()=>{})
+  }, [])
+
+  const results = (() => {
+    if (!query.trim()) return []
+    const q = query.trim().toLowerCase()
+    return allSearchItems
+      .filter(x => x.label?.toLowerCase().includes(q))
+      .slice(0, 12)
+  })()
+
+  // Close on outside click
+  useEffect(() => {
+    function onDoc(e) {
+      if (!searchWrapRef.current) return
+      if (!searchWrapRef.current.contains(e.target)) {
+        setSearchOpen(false)
+        setActiveIndex(-1)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  function executeSearch(value) {
+    const v = (value ?? query).trim()
+    if (!v) return
+    setSearchOpen(false)
+    setActiveIndex(-1)
+    navigate(`/search?q=${encodeURIComponent(v)}`)
+  }
+
+  const onKeyDown = useCallback((e) => {
+    if (!searchOpen) return
+    if (['ArrowDown','ArrowUp','Enter','Escape'].includes(e.key)) {
+      e.preventDefault()
+    }
+    if (e.key === 'ArrowDown') {
+      setActiveIndex(i => Math.min(results.length - 1, i + 1))
+    } else if (e.key === 'ArrowUp') {
+      setActiveIndex(i => Math.max(0, (i === -1 ? 0 : i - 1)))
+    } else if (e.key === 'Escape') {
+      setSearchOpen(false); setActiveIndex(-1)
+    } else if (e.key === 'Enter') {
+      const chosen = results[activeIndex]
+      if (chosen) {
+        executeSearch(chosen.label)
+      } else {
+        executeSearch(query)
+      }
+    }
+  }, [results, activeIndex, searchOpen, query])
+
+  useEffect(() => {
+    if (searchOpen) {
+      document.addEventListener('keydown', onKeyDown)
+    } else {
+      document.removeEventListener('keydown', onKeyDown)
+    }
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [searchOpen, onKeyDown])
+
   return (
-    <div className="nav-sticky">
-      <div className={`nav-wrap transition-opacity duration-300 ${scrolled ? 'opacity-100 shadow-sm' : 'opacity-90'} backdrop-blur supports-[backdrop-filter]:bg-base-100/80`}>        
-        <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2">
+    <div className="nav-sticky w-full">
+      <div className={`w-full transition-colors duration-300 border-b border-base-300/50 bg-base-100/80 backdrop-blur supports-[backdrop-filter]:bg-base-100/70 ${scrolled ? 'shadow-sm' : ''}`}>        
+        <div className="max-w-7xl mx-auto flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-2">
           {/* Left: Logo */}
           <Link to="/" className="shrink-0" aria-label="Home">
             <img src={logo} alt="Venky's" className="brand-logo" />
           </Link>
 
           {/* Middle: Search box */}
-          <div className="flex-1 min-w-0">
-            <div className="search-box">
+          <div className="flex-1 min-w-0" ref={searchWrapRef}>
+            <div className={`relative w-full bg-base-100 border border-base-300 rounded-xl shadow-sm px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 focus-within:ring-2 focus-within:ring-primary/40 transition ${searchOpen ? 'ring-2 ring-primary/40' : ''}`}>            
               {/* Location pin */}
               <MdLocationOn className="w-5 h-5 text-secondary" />
               <button
@@ -81,42 +162,82 @@ export default function NavBar() {
                   <path fillRule="evenodd" d="M6.72 9.22a.75.75 0 0 1 1.06.02L12 13.94l4.22-4.7a.75.75 0 1 1 1.1 1.02l-4.75 5.29a1.25 1.25 0 0 1-1.86 0L6.7 10.3a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
                 </svg>
               </button>
-              <span className="v-sep hidden sm:inline">|</span>
-              {/* Search icon */}
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 opacity-60">
-                <path fillRule="evenodd" d="M10.5 3.75a6.75 6.75 0 1 0 4.245 12.037l3.734 3.734a.75.75 0 1 0 1.06-1.06l-3.734-3.735A6.75 6.75 0 0 0 10.5 3.75Zm-5.25 6.75a5.25 5.25 0 1 1 10.5 0 5.25 5.25 0 0 1-10.5 0Z" clipRule="evenodd" />
-              </svg>
+              <span className="hidden sm:inline opacity-30">|</span>
               <input
                 type="text"
                 placeholder="Search for restaurant, cuisine or a dish"
+                ref={inputRef}
+                value={query}
+                onChange={(e)=> { setQuery(e.target.value); setSearchOpen(true) }}
+                onFocus={() => setSearchOpen(true)}
                 className="flex-1 min-w-0 bg-transparent outline-none text-sm sm:text-base"
               />
+              {query && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  className="btn btn-ghost btn-xs"
+                  onClick={()=> { setQuery(''); setActiveIndex(-1); inputRef.current?.focus() }}
+                >✕</button>
+              )}
+              {/* Search icon now on right */}
+              <button
+                type="button"
+                aria-label="Search"
+                className="btn btn-primary btn-xs h-7 min-h-0 px-2 flex items-center gap-1 rounded-lg shadow-sm"
+                onClick={() => executeSearch()}
+              >
+                <MdSearch className="w-4 h-4" />
+                <span className="hidden sm:inline text-xs font-medium">Search</span>
+              </button>
+              {searchOpen && results.length > 0 && (
+                <div className="absolute left-0 top-full mt-2 w-full z-50">
+                  <ul className="menu menu-sm bg-base-100/95 backdrop-blur border border-base-300/60 rounded-xl shadow-lg max-h-80 overflow-auto divide-y divide-base-300/40">
+                    {results.map((r,i)=>(
+                      <li key={r.type + r.label + i}>
+                        <button
+                          className={`flex items-center gap-3 justify-start w-full px-3 py-2 text-left ${i===activeIndex ? 'bg-primary/10' : ''}`}
+                          onMouseEnter={()=> setActiveIndex(i)}
+                          onMouseDown={(e)=> { e.preventDefault(); executeSearch(r.label) }}
+                        >
+                          {r.type==='item' ? (
+                            r.veg !== false ? (
+                              <span className="w-4 h-4 rounded-sm border-2 border-green-600 relative" aria-label="Veg" title="Veg"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-green-600" style={{top:0,bottom:0,left:0,right:0}} /></span>
+                            ) : (
+                              <span className="w-4 h-4 rounded-sm border-2 border-rose-600 relative" aria-label="Non-Veg" title="Non-Veg"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-rose-600" style={{top:0,bottom:0,left:0,right:0}} /></span>
+                            )
+                          ) : (
+                            <span className="w-4 h-4 rounded-sm border-2 border-secondary relative opacity-70" aria-label="Category" title="Category"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-secondary" style={{top:0,bottom:0,left:0,right:0}} /></span>
+                          )}
+                          <span className="truncate flex-1">{r.label}</span>
+                          {r.type==='item' && r.price !== undefined && r.price !== '' && (
+                            <span className="text-xs tabular-nums opacity-70">₹{r.price}</span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Right: Theme toggle + Cart button */}
           <div className="shrink-0 flex items-center gap-2">
-            {/* DaisyUI theme controller (venkys <-> dark) */}
             <label aria-label="Toggle theme" className="btn btn-ghost btn-square swap swap-rotate">
-              {/* this hidden checkbox controls the state */}
               <input
                 type="checkbox"
                 className="theme-controller"
-                value={isDark ? 'venkys' : 'dark'}
                 checked={isDark}
                 onChange={(e) => {
-                  const next = e.target.checked ? 'dark' : 'venkys'
+                  const next = e.target.checked ? 'venkys_dark' : 'venkys_light'
                   setTheme(next)
                   try { localStorage.setItem('theme', next) } catch {}
                 }}
               />
-
-              {/* sun icon (shows in dark mode) */}
               <svg className="swap-on h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z" />
               </svg>
-
-              {/* moon icon (shows in light mode) */}
               <svg className="swap-off h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                 <path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z" />
               </svg>
@@ -124,33 +245,33 @@ export default function NavBar() {
             {/* Auth actions */}
             {!user ? (
               <div className="hidden sm:flex items-center gap-2">
-                <button className="btn btn-sm" onClick={() => openAuth('login')}>
+                <button className="btn btn-secondary btn-sm" onClick={() => openAuth('login')}>
                   <MdLogin className="w-4 h-4 mr-1.5" />
                   Login
                 </button>
               </div>
             ) : (
               <div className="dropdown dropdown-end">
-                <div tabIndex={0} role="button" className="btn btn-ghost btn-sm px-2">
-                  <div className="flex items-center gap-2">
-                    <div className="avatar">
-                      <div className="w-8 rounded-full bg-base-300 text-base-content grid place-items-center">
-                        <MdPerson className="w-5 h-5 opacity-80 relative top-[4px]" />
-                      </div>
+                <div tabIndex={0} role="button" className="btn btn-ghost btn-sm px-2 gap-2">
+                  <div className="avatar">
+                    <div className="w-8 rounded-full bg-base-300 text-base-content grid place-items-center">
+                      <MdPerson className="w-5 h-5 opacity-80 relative top-[4px]" />
                     </div>
-                    <span className="hidden md:inline max-w-[8rem] truncate">{displayLabel}</span>
                   </div>
+                  <span className="hidden md:inline max-w-[8rem] truncate font-medium">{displayLabel}</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 opacity-70" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.08 1.04l-4.25 4.25a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd"/></svg>
                 </div>
-                <ul tabIndex={0} className="menu menu-sm dropdown-content bg-base-100 rounded-box z-[1] mt-3 w-52 p-2 shadow">
-                  <li><Link to="/orders">My Orders</Link></li>
-                  <li><button onClick={logout}>Logout</button></li>
+                <ul tabIndex={0} className="menu menu-sm dropdown-content bg-base-100/95 backdrop-blur rounded-xl z-[1] mt-2 w-56 p-2 shadow-lg border border-base-300/40">
+                  <li><Link to="/profile" className="flex items-center gap-2"><MdPerson className="w-4 h-4" /> Profile</Link></li>
+                  <li><Link to="/profile#orders" className="flex items-center gap-2"><MdReceiptLong className="w-4 h-4" /> Orders</Link></li>
+                  <li className="mt-1"><button onClick={logout} className="text-error">Logout</button></li>
                 </ul>
               </div>
             )}
 
             <div className="indicator">
               {totalQty > 0 && (
-                <span className="indicator-item badge badge-primary badge-xs top-0 right-0 translate-x-1/3 -translate-y-1/3">
+                <span className="indicator-item badge badge-secondary badge-xs top-0 right-0 translate-x-1/3 -translate-y-1/3">
                   {totalQty}
                 </span>
               )}

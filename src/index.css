@@ -6,38 +6,54 @@
 @tailwind utilities;
 
 @layer components {
-	/* App/Layout */
 	.app-shell { @apply min-h-screen flex flex-col; }
 	.page-wrap { @apply container mx-auto px-4; }
-
-	/* Navbar */
-	.nav-sticky { @apply sticky top-2 z-50 px-2; }
+	/* Make navbar flush to top & give it a full-width subtle backdrop so content doesn't peek above */
+	.nav-sticky { @apply sticky top-0 z-50 px-2 bg-base-100/80 backdrop-blur supports-[backdrop-filter]:bg-base-100/70; }
 	.nav-wrap { @apply container mx-auto bg-transparent shadow-none border-0 rounded-xl; }
 	.brand-logo { @apply h-10 w-auto object-contain; }
 	.search-box { @apply w-full bg-base-100 border border-base-300 rounded-xl shadow-sm px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3; }
 	.v-sep { @apply opacity-30; }
-
-	/* Cards & Surfaces */
 	.card-surface { @apply bg-base-100 shadow hover:shadow-md transition; }
 	.panel { @apply bg-base-100 p-4; }
 	.panel-side { @apply bg-base-100 min-h-full w-96 p-4 space-y-4; }
 	.panel-footer { @apply mt-auto pt-4 border-t; }
 	.img-thumb { @apply w-28 h-28 object-cover rounded-xl; }
 	.img-thumb-sm { @apply w-14 h-14 object-cover rounded; }
-
-	/* Sections */
-	.section-title { @apply text-xl font-semibold; }
-	/* 2 columns on mobile, 4 on large screens */
-	.menu-grid { @apply grid gap-4 grid-cols-2 lg:grid-cols-4; }
-	.strip { @apply bg-base-200 rounded-xl p-4 md:p-6; }
-
-	/* No DaisyUI aliases here to avoid @apply on non-utility classes */
+	.section-title { @apply text-xl font-semibold relative inline-block; }
+	.section-title::after { content:""; display:block; width:2.5rem; height:0.25rem; border-radius:9999px; background-color:var(--color-secondary); margin-top:0.25rem; }
+	.strip-accent { background-color:color-mix(in srgb, var(--color-primary) 5%, transparent); }
 }
 
-/* Blur background when auth modal is open */
 .blur-when-auth-open {
 	filter: blur(2px);
 	transform: scale(0.995);
 	transition: filter 0.15s ease, transform 0.15s ease;
 	pointer-events: none; /* prevent clicks on blurred background */
 }
+@layer base {
+	:root[data-theme='venkys_light'], [data-theme='venkys_light'] {
+		--color-primary:#f59e0b; --color-primary-content:#1f1400;
+		--color-secondary:#ef4444; --color-secondary-content:#ffffff;
+		--color-accent:#f59e0b; --color-accent-content:#1f1400;
+		--color-neutral:#1f2937; --color-neutral-content:#f3f4f6;
+		--color-base-100:#ffffff; --color-base-200:#f5f5f5; --color-base-300:#e5e7eb; --color-base-content:#111827;
+		--color-info:#f59e0b; --color-info-content:#1f1400;
+		--color-success:#16a34a; --color-success-content:#ffffff;
+		--color-warning:#f59e0b; --color-warning-content:#1f1400;
+		--color-error:#ef4444; --color-error-content:#ffffff;
+	}
+	:root[data-theme='venkys_dark'], [data-theme='venkys_dark'] {
+		--color-primary:#fbbf24; --color-primary-content:#1f1400;
+		--color-secondary:#f87171; --color-secondary-content:#1f1400;
+		--color-accent:#f59e0b; --color-accent-content:#1f1400;
+		--color-neutral:#111827; --color-neutral-content:#f3f4f6;
+		--color-base-100:#1e1e21; --color-base-200:#232327; --color-base-300:#2c2c31; --color-base-content:#f3f4f6;
+		--color-info:#f59e0b; --color-info-content:#1f1400;
+		--color-success:#22c55e; --color-success-content:#062b12;
+		--color-warning:#f59e0b; --color-warning-content:#1f1400;
+		--color-error:#ef4444; --color-error-content:#2b0a0a;
+	}
+}
+
+.brand-gradient-bg { background: linear-gradient(135deg,#f59e0b 0%,#ef4444 100%); }

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchMenuCategories } from '../lib/data'
+import { fetchMenuCategories, fetchLatestUserOrder } from '../lib/data'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import MenuItemCard from '../components/MenuItemCard'
 import FilterBar from '../components/FilterBar'
 import CategoriesBar from '../components/CategoriesBar'
@@ -13,6 +15,10 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [vegFilter, setVegFilter] = useState('all') // all | veg | nonveg
+  const [activeOrder, setActiveOrder] = useState(null)
+  const { user } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   useEffect(() => {
     let mounted = true
@@ -27,6 +33,7 @@ export default function Home() {
             id: `${c.id}-${idx}-${(it.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
             name: it.name,
             price: it.price,
+            veg: it.veg === false ? false : true, // keep veg flag from DB (missing -> true)
             categoryId: c.id,
             category: c.id,
           }))
@@ -37,6 +44,37 @@ export default function Home() {
       .finally(() => mounted && setLoading(false))
     return () => { mounted = false }
   }, [])
+
+  // Load latest order for banner
+  useEffect(() => {
+    if (!user) { setActiveOrder(null); return }
+    let active = true
+    fetchLatestUserOrder(user.uid).then(o => {
+      if (active) setActiveOrder(o && o.status !== 'delivered' ? o : null)
+    })
+    const id = setInterval(() => {
+      fetchLatestUserOrder(user.uid).then(o => {
+        if (active) setActiveOrder(o && o.status !== 'delivered' ? o : null)
+      })
+    }, 15000) // poll every 15s for demo
+    return () => { active = false; clearInterval(id) }
+  }, [user])
+
+  // Respond to navigation state for scrolling (Home / Menu shortcuts)
+  useEffect(() => {
+    if (location.state?.scrollToTop) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      // clean state
+      navigate(location.pathname, { replace: true })
+    } else if (location.state?.scrollTo === 'menu') {
+      const el = document.getElementById('menu')
+      if (el) el.scrollIntoView({ behavior: 'smooth' })
+      navigate(location.pathname, { replace: true })
+    } else if (location.hash === '#menu') {
+      const el = document.getElementById('menu')
+      if (el) el.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [location, navigate])
 
   // Map Firestore categories to CategoriesBar items (id, label, optional href)
   const categoryBarItems = useMemo(() =>
@@ -66,6 +104,17 @@ export default function Home() {
 
   return (
     <div className="page-wrap py-6">
+      {activeOrder && (
+        <div className="alert bg-base-200/70 border border-base-300/60 mb-6 flex flex-col sm:flex-row sm:items-center gap-2">
+          <span className="text-sm">
+            Order <strong>#{activeOrder.id.slice(-6)}</strong> status: <span className="font-semibold">{activeOrder.status}</span>
+          </span>
+          <div className="text-xs opacity-70">(auto-refreshing)</div>
+          <div className="ml-auto text-xs flex gap-2">
+            <a href="/profile#orders" className="link link-primary">View</a>
+          </div>
+        </div>
+      )}
       <div className="mt-2">
         <CategoriesBar items={categoryBarItems} />
       </div>
@@ -76,22 +125,24 @@ export default function Home() {
   <FilterBar vegFilter={vegFilter} onVegChange={setVegFilter} />
 
       {categories.length > 0 ? (
-        categories.map((cat) => (
-          <section key={cat.id} className="mb-10" id={cat.id}>
-            <h3 className="text-2xl font-bold mb-4">{cat.name}</h3>
-            <div className="menu-grid">
-              {filtered
-                .filter((m) => m.categoryId === cat.id)
-                .map((item) => (
+        categories.map((cat) => {
+          const catItems = filtered.filter((m) => m.categoryId === cat.id)
+          if (catItems.length === 0) return null
+          return (
+            <section key={cat.id} className="mb-10" id={cat.id}>
+              <h3 className="text-2xl font-bold mb-4">{cat.name}</h3>
+              <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                {catItems.map((item) => (
                   <MenuItemCard key={item.id} item={item} />
                 ))}
-            </div>
-          </section>
-        ))
+              </div>
+            </section>
+          )
+        })
       ) : (
         <section className="mb-10" id="all-items">
           <h3 className="text-2xl font-bold mb-4">All items</h3>
-          <div className="menu-grid">
+          <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {filtered.map((item) => (
               <MenuItemCard key={item.id} item={item} />
             ))}

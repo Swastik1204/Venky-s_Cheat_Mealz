@@ -1,5 +1,5 @@
 // Data layer for Firestore
-import { collection, doc, getDocs, getDoc, query, where, addDoc, setDoc, serverTimestamp, orderBy, deleteDoc, arrayUnion } from 'firebase/firestore'
+import { collection, doc, getDocs, getDoc, query, where, addDoc, setDoc, serverTimestamp, orderBy, deleteDoc, arrayUnion, writeBatch } from 'firebase/firestore'
 import { db } from './firebase'
 
 function isPermissionDenied(err) {
@@ -42,29 +42,68 @@ export async function fetchMenuItems(activeOnly = true) {
 
 export async function createOrder({ userId = null, customer = {}, items }) {
   const subtotal = items.reduce((sum, it) => sum + it.price * it.qty, 0)
-  if (userId) {
-    // Preferred: nested under users/{uid}/orders/{orderId}
-    const ordersCol = collection(db, 'users', userId, 'orders')
-    const ref = await addDoc(ordersCol, {
-      customer,
-      items,
-      subtotal,
-      status: 'placed',
-      createdAt: serverTimestamp(),
-    })
-    return ref.id
-  } else {
-    // Legacy top-level orders
-    const docRef = await addDoc(collection(db, 'orders'), {
-      userId,
-      customer,
-      items,
-      subtotal,
-      status: 'placed',
-      createdAt: serverTimestamp(),
-    })
-    return docRef.id
+  const base = {
+    userId: userId || null,
+    customer,
+    items,
+    subtotal,
+    status: 'placed',
+    payment: customer.payment || { method: 'cod', status: 'pending' },
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   }
+  if (userId) {
+    // Generate a shared ID for top-level and nested doc
+    const ordersTopCol = collection(db, 'orders')
+    const topRef = doc(ordersTopCol) // create a new doc reference with random id
+    const orderId = topRef.id
+    await setDoc(topRef, base)
+    const nestedRef = doc(db, 'users', userId, 'orders', orderId)
+    await setDoc(nestedRef, base)
+    return orderId
+  }
+  const docRef = await addDoc(collection(db, 'orders'), base)
+  return docRef.id
+}
+
+// Update order status/payment (supports both nested and legacy top-level orders)
+export async function updateOrder(userId, orderId, data) {
+  const patch = { ...data, updatedAt: serverTimestamp() }
+  // Update top-level
+  await setDoc(doc(db, 'orders', orderId), patch, { merge: true })
+  if (userId) {
+    await setDoc(doc(db, 'users', userId, 'orders', orderId), patch, { merge: true })
+  }
+}
+
+// Fetch single order
+export async function fetchOrder(userId, orderId) {
+  const ref = userId ? doc(db, 'users', userId, 'orders', orderId) : doc(db, 'orders', orderId)
+  const snap = await getDoc(ref)
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null
+}
+
+// Fetch all top-level orders (admin view)
+export async function fetchAllOrders() {
+  try {
+    const snap = await getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc')))
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  } catch (err) {
+    console.error('[firestore] fetchAllOrders failed', err)
+    return []
+  }
+}
+
+export function nextOrderStatus(current) {
+  const flow = ['placed', 'preparing', 'ready', 'delivered']
+  const idx = flow.indexOf(current)
+  return idx === -1 ? flow[0] : (idx < flow.length - 1 ? flow[idx + 1] : flow[idx])
+}
+
+export async function fetchLatestUserOrder(userId) {
+  if (!userId) return null
+  const orders = await fetchUserOrders(userId)
+  return orders.length ? orders[0] : null
 }
 
 export async function fetchUserOrders(userId) {
@@ -174,26 +213,80 @@ export async function fetchMenuCategories() {
 
 export async function upsertMenuCategory(name) {
   const ref = doc(db, 'menu', name)
-  // No timestamps – minimal schema
-  await setDoc(ref, { name }, { merge: true })
+  // Ensure doc exists WITHOUT overwriting existing fields/items. Previous buggy version
+  // wrote { merge: true } as data which wiped existing items and left a stray field.
+  await setDoc(ref, {}, { merge: true })
   return name
 }
 
 export async function appendMenuItems(categoryName, items) {
   const ref = doc(db, 'menu', categoryName)
-  // Ensure the category document exists (creates the collection implicitly if missing)
-  await setDoc(ref, { name: categoryName, items: [] }, { merge: true })
+  // Ensure doc exists safely (no destructive overwrite)
+  await setDoc(ref, {}, { merge: true })
   for (const it of items) {
-    const item = { name: it.name, price: Number(it.price) || 0 }
+    const item = { name: it.name, price: Number(it.price) || 0, veg: it.veg === false ? false : true }
     await setDoc(ref, { items: arrayUnion(item) }, { merge: true })
   }
   return true
 }
 
+// High-level safe adder: prevents duplicates (case-insensitive), merges by skipping existing
+// Accepts raw items: [{ name, price, veg }]
+export async function addMenuItems(categoryName, rawItems) {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) return { added: 0, skipped: 0 }
+  const ref = doc(db, 'menu', categoryName)
+  const snap = await getDoc(ref)
+  const existing = snap.exists() && Array.isArray(snap.data().items) ? snap.data().items : []
+  const existingNames = new Set(existing.map(i => (i.name || '').trim().toLowerCase()))
+  const toAdd = []
+  let skipped = 0
+  for (const r of rawItems) {
+    const name = (r.name || '').trim()
+    if (!name) { skipped++; continue }
+    const key = name.toLowerCase()
+    if (existingNames.has(key)) { skipped++; continue }
+    existingNames.add(key)
+    toAdd.push({ name, price: Number(r.price) || 0, veg: r.veg === false ? false : true })
+  }
+  if (toAdd.length) {
+    await appendMenuItems(categoryName, toAdd)
+  } else {
+    // Ensure doc exists even if nothing added
+    if (!snap.exists()) await setDoc(ref, {}, { merge: true })
+  }
+  return { added: toAdd.length, skipped }
+}
+
 // Replace the whole items array for a category (used for inline edits)
 export async function setMenuItems(categoryName, items) {
   const ref = doc(db, 'menu', categoryName)
-  await setDoc(ref, { items: items.map((it) => ({ name: it.name, price: Number(it.price) || 0 })) }, { merge: true })
+  // Preserve veg flag; default to true if missing
+  await setDoc(
+    ref,
+    {
+      items: items.map((it) => ({
+        name: it.name,
+        price: Number(it.price) || 0,
+        veg: it.veg === false ? false : true,
+      })),
+    },
+    { merge: true },
+  )
+  return true
+}
+
+// Remove a single item from a category by name (case-insensitive first match)
+export async function removeMenuItem(categoryName, itemName) {
+  if (!categoryName || !itemName) return false
+  const ref = doc(db, 'menu', categoryName)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return false
+  const data = snap.data()
+  const items = Array.isArray(data.items) ? data.items : []
+  const idx = items.findIndex(it => (it.name || '').trim().toLowerCase() === itemName.trim().toLowerCase())
+  if (idx === -1) return false
+  const next = items.filter((_, i) => i !== idx)
+  await setDoc(ref, { items: next }, { merge: true })
   return true
 }
 
@@ -207,9 +300,34 @@ export async function renameMenuCategory(oldName, newName) {
   const data = oldSnap.exists() ? oldSnap.data() : { items: [] }
   const items = Array.isArray(data.items) ? data.items : []
   const newRef = doc(db, 'menu', to)
-  await setDoc(newRef, { name: to, items }, { merge: true })
+  // Only copy items; do not store name field
+  await setDoc(newRef, { items }, { merge: true })
   await deleteDoc(oldRef)
   return to
+}
+
+// One-time migration: remove stale `name` fields from `menu` collection documents
+export async function migrateRemoveCategoryNameFields() {
+  try {
+    const snap = await getDocs(collection(db, 'menu'))
+    const batch = writeBatch(db)
+    let count = 0
+    snap.forEach(d => {
+      const data = d.data()
+      const needsStrip = Object.prototype.hasOwnProperty.call(data, 'name') || Object.prototype.hasOwnProperty.call(data, 'merge')
+      if (needsStrip) {
+        const items = Array.isArray(data.items) ? data.items : []
+        // Rewrite doc ONLY with items array (drops stale keys like name/merge)
+        batch.set(doc(db, 'menu', d.id), { items }, { merge: false })
+        count++
+      }
+    })
+    if (count > 0) await batch.commit()
+    return count
+  } catch (err) {
+    console.error('[firestore] migrateRemoveCategoryNameFields failed', err)
+    return 0
+  }
 }
 
 // CSV utilities

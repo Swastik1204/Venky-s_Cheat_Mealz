@@ -5,7 +5,7 @@ A lightweight Swiggy/Zomato-style ordering experience for a single local restaur
 ## Tech
 - React (JS only)
 - Vite
-- Tailwind CSS v4 + DaisyUI
+- Tailwind CSS v4 + DaisyUI (two custom themes: `venkys_light`, `venkys_dark`)
 - React Router
 
 ## Quick Start
@@ -35,13 +35,13 @@ npm run preview
 - `src/components/MenuItemCard.jsx` — Menu card with View/Add actions
 - `src/pages/Home.jsx` — Menu listing by category
 - `src/pages/Checkout.jsx` — Cart management + order summary
-- `src/index.css` — Tailwind layers (Tailwind v4 + DaisyUI plugin)
-- `tailwind.config.js` — DaisyUI + custom theme (yellow/red)
+- `src/index.css` — Tailwind layers + small custom component layer (DaisyUI plugin declared only in config)
+- `tailwind.config.js` — DaisyUI plugin + dual custom themes (yellow = primary, red = secondary)
 - `postcss.config.js` — Tailwind v4 PostCSS plugin config
 
 ## Notes
 - Tailwind v4 uses the `@tailwindcss/postcss` plugin. The config is already set.
-- DaisyUI is included via the `@plugin` directive inside `index.css` and must remain for styling.
+- DaisyUI is included via the Tailwind config `plugins: [daisyui]` (no `@plugin` directive needed in `index.css`). Do not remove the plugin configuration.
 - If your editor flags `@tailwind` / `@plugin` as unknown at-rules, they are handled at build time (safe to ignore).
 
 ## Next Ideas
