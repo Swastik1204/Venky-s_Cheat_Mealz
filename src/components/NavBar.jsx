@@ -1,27 +1,61 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import logo from '../assets/logo.png'
 import useDeliveryLocation from '../hooks/useDeliveryLocation'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { MdLocationOn } from 'react-icons/md'
+import { MdLocationOn, MdShoppingCart, MdLogin, MdPerson } from 'react-icons/md'
 
 export default function NavBar() {
+  const [scrolled, setScrolled] = useState(false)
+  const [theme, setTheme] = useState('venkys')
   const { totalQty } = useCart()
   // On mount, respect any previously chosen theme in localStorage
   useEffect(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('theme') : null
     const root = document.documentElement
-    if (saved) root.setAttribute('data-theme', saved)
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('theme')
+      if (saved === 'dark' || saved === 'venkys') {
+        setTheme(saved)
+        root.setAttribute('data-theme', saved)
+      } else {
+        // enforce default custom theme
+        localStorage.setItem('theme', 'venkys')
+        root.setAttribute('data-theme', 'venkys')
+        setTheme('venkys')
+      }
+    } else {
+      root.setAttribute('data-theme', 'venkys')
+    }
   }, [])
-  const isDark = typeof window !== 'undefined' ? localStorage.getItem('theme') === 'dark' : false
+  // Ensure whenever theme state changes, apply it
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
+  // Scroll listener for subtle opacity animation
+  useEffect(() => {
+    const onScroll = () => {
+      setScrolled(window.scrollY > 8)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+  const isDark = theme === 'dark'
   const { label: locLabel, loading: isLocating, locate } = useDeliveryLocation('Durgapur')
   const { user, logout } = useAuth()
   const { openAuth } = useUI()
+  const displayLabel = (() => {
+    const name = user?.displayName?.trim()
+    if (name) return name.split(/\s+/)[0]
+    const email = user?.email || ''
+    const local = email.split('@')[0]
+    return local || 'User'
+  })()
   return (
     <div className="nav-sticky">
-      <div className="nav-wrap">
+      <div className={`nav-wrap transition-opacity duration-300 ${scrolled ? 'opacity-100 shadow-sm' : 'opacity-90'} backdrop-blur supports-[backdrop-filter]:bg-base-100/80`}>        
         <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2">
           {/* Left: Logo */}
           <Link to="/" className="shrink-0" aria-label="Home">
@@ -68,10 +102,11 @@ export default function NavBar() {
               <input
                 type="checkbox"
                 className="theme-controller"
-                value="dark"
-                defaultChecked={isDark}
+                value={isDark ? 'venkys' : 'dark'}
+                checked={isDark}
                 onChange={(e) => {
                   const next = e.target.checked ? 'dark' : 'venkys'
+                  setTheme(next)
                   try { localStorage.setItem('theme', next) } catch {}
                 }}
               />
@@ -89,19 +124,21 @@ export default function NavBar() {
             {/* Auth actions */}
             {!user ? (
               <div className="hidden sm:flex items-center gap-2">
-                <button className="btn btn-sm" onClick={() => openAuth('login')}>Login</button>
-                <button className="btn btn-sm btn-outline" onClick={() => openAuth('signup')}>Sign up</button>
+                <button className="btn btn-sm" onClick={() => openAuth('login')}>
+                  <MdLogin className="w-4 h-4 mr-1.5" />
+                  Login
+                </button>
               </div>
             ) : (
               <div className="dropdown dropdown-end">
-                <div tabIndex={0} role="button" className="btn btn-ghost">
+                <div tabIndex={0} role="button" className="btn btn-ghost btn-sm px-2">
                   <div className="flex items-center gap-2">
-                    <div className="avatar placeholder">
-                      <div className="w-7 rounded-full bg-base-300 text-base-content">
-                        <span className="text-xs">{(user.displayName || user.email || 'U').slice(0, 1).toUpperCase()}</span>
+                    <div className="avatar">
+                      <div className="w-8 rounded-full bg-base-300 text-base-content grid place-items-center">
+                        <MdPerson className="w-5 h-5 opacity-80 relative top-[4px]" />
                       </div>
                     </div>
-                    <span className="hidden md:inline max-w-[10rem] truncate">{user.displayName || user.email}</span>
+                    <span className="hidden md:inline max-w-[8rem] truncate">{displayLabel}</span>
                   </div>
                 </div>
                 <ul tabIndex={0} className="menu menu-sm dropdown-content bg-base-100 rounded-box z-[1] mt-3 w-52 p-2 shadow">
@@ -111,10 +148,20 @@ export default function NavBar() {
               </div>
             )}
 
-            <label htmlFor="cart-drawer" className="btn btn-primary whitespace-nowrap cursor-pointer">
-              <span className="hidden md:inline">Cart</span>
-              <span className="badge badge-sm ml-2">{totalQty}</span>
-            </label>
+            <div className="indicator">
+              {totalQty > 0 && (
+                <span className="indicator-item badge badge-primary badge-xs top-0 right-0 translate-x-1/3 -translate-y-1/3">
+                  {totalQty}
+                </span>
+              )}
+              <label
+                htmlFor="cart-drawer"
+                className="btn btn-ghost btn-square cursor-pointer"
+                aria-label="Open cart"
+              >
+                <MdShoppingCart className="w-6 h-6" />
+              </label>
+            </div>
           </div>
         </div>
       </div>

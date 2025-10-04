@@ -5,20 +5,14 @@ import FilterBar from '../components/FilterBar'
 import CategoriesBar from '../components/CategoriesBar'
 
 
-// Demo category bubbles (can be swapped with dynamic categories if images stored)
-const demoCategories = [
-  { id: 'rolls', label: 'Rolls', image: 'https://images.unsplash.com/photo-1526318472351-c75fcf070305?q=80&w=300' },
-  { id: 'snacks', label: 'Snacks', image: 'https://images.unsplash.com/photo-1478144592103-25e218a04891?q=80&w=300' },
-  { id: 'main-course', label: 'Main Course', image: 'https://images.unsplash.com/photo-1605478217831-949d7a04a1ab?q=80&w=300' },
-  { id: 'desserts', label: 'Desserts', image: 'https://images.unsplash.com/photo-1541976076758-347942db1970?q=80&w=300' },
-  { id: 'beverages', label: 'Beverages', image: 'https://images.unsplash.com/photo-1517705008128-361805f42e86?q=80&w=300' },
-]
+// CategoriesBar will be populated dynamically from Firestore categories
 
 export default function Home() {
   const [categories, setCategories] = useState([]) // docs from 'menu'
   const [menu, setMenu] = useState([]) // flattened items with categoryId
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
+  const [vegFilter, setVegFilter] = useState('all') // all | veg | nonveg
 
   useEffect(() => {
     let mounted = true
@@ -44,11 +38,21 @@ export default function Home() {
     return () => { mounted = false }
   }, [])
 
+  // Map Firestore categories to CategoriesBar items (id, label, optional href)
+  const categoryBarItems = useMemo(() =>
+    categories.map((c) => ({ id: c.id, label: c.name, href: `#${c.id}` })),
+    [categories]
+  )
+
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase()
-    if (!term) return menu
-    return menu.filter((m) => (m.name || '').toLowerCase().includes(term))
-  }, [menu, q])
+    return menu.filter((m) => {
+      if (term && !(m.name || '').toLowerCase().includes(term)) return false
+      if (vegFilter === 'veg') return m.veg !== false // treat undefined as veg
+      if (vegFilter === 'nonveg') return m.veg === false
+      return true
+    })
+  }, [menu, q, vegFilter])
 
   if (loading) {
     return (
@@ -63,13 +67,13 @@ export default function Home() {
   return (
     <div className="page-wrap py-6">
       <div className="mt-2">
-        <CategoriesBar items={demoCategories} />
+        <CategoriesBar items={categoryBarItems} />
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-8 mb-3" id="menu">
         <h2 className="section-title">Menu</h2>
       </div>
-  <FilterBar />
+  <FilterBar vegFilter={vegFilter} onVegChange={setVegFilter} />
 
       {categories.length > 0 ? (
         categories.map((cat) => (

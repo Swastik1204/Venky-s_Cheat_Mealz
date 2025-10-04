@@ -27,7 +27,8 @@
 
 	/* Sections */
 	.section-title { @apply text-xl font-semibold; }
-	.menu-grid { @apply grid gap-4 sm:grid-cols-2 lg:grid-cols-3; }
+	/* 2 columns on mobile, 4 on large screens */
+	.menu-grid { @apply grid gap-4 grid-cols-2 lg:grid-cols-4; }
 	.strip { @apply bg-base-200 rounded-xl p-4 md:p-6; }
 
 	/* No DaisyUI aliases here to avoid @apply on non-utility classes */

@@ -1,4 +1,6 @@
 import { useCart } from '../context/CartContext'
+import { MdDelete } from 'react-icons/md'
+import { MdRemoveShoppingCart } from 'react-icons/md'
 import { Link } from 'react-router-dom'
 
 export default function CartDrawer({ children }) {
@@ -12,14 +14,17 @@ export default function CartDrawer({ children }) {
       </div>
       <div className="drawer-side z-50">
         <label htmlFor="cart-drawer" aria-label="close sidebar" className="drawer-overlay"></label>
-        <ul className="menu w-80 sm:w-96 min-h-full p-4 space-y-4 bg-base-100">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold">Your Cart</h2>
-            <button className="btn btn-ghost btn-sm" onClick={clear}>Clear</button>
-          </div>
+          <ul className="menu w-72 sm:w-80 min-h-full p-4 space-y-4 bg-base-100">
+            <div className="flex items-center">
+              <h2 className="text-xl font-bold">Your Cart</h2>
+            </div>
           <div className="divide-y">
             {entries.length === 0 ? (
-              <div className="py-8 text-center opacity-70">Your cart is empty.</div>
+                <div className="py-14 text-center">
+                  <MdRemoveShoppingCart className="w-16 h-16 mx-auto mb-3 opacity-30" />
+                  <div className="font-medium opacity-80">Your cart is empty</div>
+                  <div className="text-sm opacity-60">Add items to get started</div>
+                </div>
             ) : (
               entries.map(({ item: it, qty }) => (
                 <div key={it.id} className="py-3 flex items-center gap-3">
@@ -33,7 +38,13 @@ export default function CartDrawer({ children }) {
                     <div className="text-sm opacity-70">₹{it.price} x {qty}</div>
                   </div>
                   <div className="join">
-                    <button className="btn btn-xs join-item" onClick={() => setQty(it.id, Math.max(1, qty - 1))}>-</button>
+                    {qty > 1 ? (
+                      <button className="btn btn-xs join-item" onClick={() => setQty(it.id, Math.max(1, qty - 1))}>-</button>
+                    ) : (
+                      <button className="btn btn-xs join-item" aria-label="Remove item" onClick={() => remove(it.id)}>
+                        <MdDelete className="w-4 h-4" />
+                      </button>
+                    )}
                     <input className="input input-xs input-bordered w-12 text-center join-item" value={qty} onChange={(e)=> {
                       const n = Number(e.target.value)
                       setQty(it.id, Number.isFinite(n) && n > 0 ? Math.floor(n) : 1)
