@@ -10,7 +10,24 @@ export default function MenuItemCard({ item }) {
   const img = (!imgError && (item.imageUrl || item.img)) || null
   const rating = item.rating
   const discount = item.discount || item.offer // optional fields
-  const etaMin = item.eta || item.time || item.duration || 25 // fallback ETA
+  // ETA removed per request (previously fallback 25 min)
+  function hasSeenItemInfo(id) {
+    try {
+      const raw = localStorage.getItem('itemInfoSeen')
+      if (!raw) return false
+      const arr = JSON.parse(raw)
+      return Array.isArray(arr) && arr.includes(id)
+    } catch { return false }
+  }
+  function handleAddClick() {
+    if (item.storeClosed) return
+    const key = item.id || `${item.categoryId || ''}:${item.name}`
+    if (hasSeenItemInfo(key)) {
+      add(item)
+    } else {
+      openItem(item)
+    }
+  }
 
   return (
     <div className="group relative rounded-2xl border border-base-300/40 bg-base-100 p-4 shadow-sm hover:shadow-md transition flex flex-col gap-3">
@@ -19,7 +36,7 @@ export default function MenuItemCard({ item }) {
           <img
             src={img}
             alt={item.name}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03] sm:object-cover object-contain"
             onError={() => setImgError(true)}
             loading="lazy"
           />
@@ -65,11 +82,13 @@ export default function MenuItemCard({ item }) {
       )}
       <div className="flex items-center justify-between text-sm text-base-content/70">
         <span>₹{item.price} <span className="opacity-70">for one</span></span>
-        <span>{etaMin} min</span>
+        {/* ETA removed */}
       </div>
       <div className="flex gap-2 pt-1">
         <button className="btn btn-outline btn-primary btn-sm" onClick={() => openItem(item)}>View</button>
-        <button className="btn btn-secondary btn-sm" onClick={() => add(item)}>Add</button>
+        <button className="btn btn-secondary btn-sm" disabled={item.storeClosed} title={item.storeClosed ? 'Store closed' : 'Add to cart'} onClick={handleAddClick}>
+          {item.storeClosed ? 'Closed' : 'Add'}
+        </button>
       </div>
     </div>
   )

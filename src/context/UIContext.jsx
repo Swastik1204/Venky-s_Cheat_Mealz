@@ -51,8 +51,28 @@ export function UIProvider({ children }) {
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>
 }
 
+let _uiWarned = false
 export function useUI() {
   const ctx = useContext(UIContext)
-  if (!ctx) throw new Error('useUI must be used within UIProvider')
-  return ctx
+  if (ctx) return ctx
+  // Fallback (prevents hard crash if provider ordering issue). Warn once.
+  if (!_uiWarned) {
+    console.warn('[UIContext] useUI called outside of provider – returning no-op fallback. Wrap app with <UIProvider/> to enable full functionality.')
+    _uiWarned = true
+  }
+  const genId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2))
+  return {
+    selectedItem: null,
+    openItem: () => {},
+    closeItem: () => {},
+    authMode: null,
+    openAuth: () => {},
+    closeAuth: () => {},
+    toasts: [],
+    pushToast: () => genId(),
+    dismissToast: () => {},
+    confirm: () => {},
+    confirmState: null,
+    resolveConfirm: () => {},
+  }
 }

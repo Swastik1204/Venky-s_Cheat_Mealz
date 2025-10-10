@@ -4,6 +4,7 @@ import CartDrawer from '../components/CartDrawer'
 import ItemModal from '../components/ItemModal'
 import Dock from '../components/QuickDock'
 import AuthModal from '../components/AuthModal'
+import InstallPWA from '../components/InstallPWA'
 import { useUI } from '../context/UIContext'
 import useAdaptiveScale from '../hooks/useAdaptiveScale'
 
@@ -28,6 +29,7 @@ export default function Layout() {
       </div>
       {/* Keep modal outside blurred container */}
       <AuthModal />
+  <InstallPWA />
       {/* Toast stack */}
       <div className="fixed z-[60] bottom-20 right-4 flex flex-col gap-2 w-72">
         {toasts.map(t => (

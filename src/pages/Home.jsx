@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchMenuCategories, fetchLatestUserOrder } from '../lib/data'
+import { fetchMenuCategories, fetchLatestUserOrder, fetchImagesByIds, fetchStoreStatus } from '../lib/data'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import MenuItemCard from '../components/MenuItemCard'
@@ -12,10 +12,12 @@ import CategoriesBar from '../components/CategoriesBar'
 export default function Home() {
   const [categories, setCategories] = useState([]) // docs from 'menu'
   const [menu, setMenu] = useState([]) // flattened items with categoryId
+  const [imageMap, setImageMap] = useState({}) // { imageId: { data, mime } }
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [vegFilter, setVegFilter] = useState('all') // all | veg | nonveg
   const [activeOrder, setActiveOrder] = useState(null)
+  const [storeOpen, setStoreOpen] = useState(true)
   const { user } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
@@ -26,22 +28,36 @@ export default function Home() {
       .then((docs) => {
         if (!mounted) return
         // Normalize categories: id = doc id, name field optional
-        const cats = docs.map((d) => ({ id: d.id, name: d.name || d.id, items: Array.isArray(d.items) ? d.items : [] }))
+        const cats = docs.map((d) => ({
+          id: d.id,
+          name: d.name || d.id,
+            // Preserve category-level imageId so CategoriesBar can render thumbnails
+          imageId: d.imageId || null,
+          items: Array.isArray(d.items) ? d.items : []
+        }))
         // Flatten items and attach categoryId
         const flat = cats.flatMap((c) =>
-          c.items.map((it, idx) => ({
+          (c.items || []).map((it, idx) => ({
             id: `${c.id}-${idx}-${(it.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
             name: it.name,
             price: it.price,
-            veg: it.veg === false ? false : true, // keep veg flag from DB (missing -> true)
+            veg: it.veg === false ? false : true, // missing -> veg
+            active: it.active === false ? false : true,
             categoryId: c.id,
             category: c.id,
+            imageId: it.imageId || null,
           }))
         )
         setCategories(cats)
         setMenu(flat)
+        // Collect imageIds
+        const imageIds = Array.from(new Set(flat.map(i => i.imageId).filter(Boolean)))
+        if (imageIds.length) {
+          fetchImagesByIds(imageIds).then(setImageMap)
+        }
       })
       .finally(() => mounted && setLoading(false))
+    fetchStoreStatus().then(s => { if (mounted) setStoreOpen(s.open !== false) })
     return () => { mounted = false }
   }, [])
 
@@ -77,9 +93,26 @@ export default function Home() {
   }, [location, navigate])
 
   // Map Firestore categories to CategoriesBar items (id, label, optional href)
+  // Resolve category-level images (imageId stored on category doc)
+  const [categoryImageMap, setCategoryImageMap] = useState({}) // { imageId: dataUrl }
+  useEffect(() => {
+    const ids = categories.map(c => c.imageId).filter(Boolean)
+    if (!ids.length) { setCategoryImageMap({}); return }
+    let active = true
+    fetchImagesByIds(ids).then(map => {
+      if (!active) return
+      const out = {}
+      Object.entries(map).forEach(([id, d]) => {
+        out[id] = `data:${d.mime || 'image/*'};base64,${d.data}`
+      })
+      setCategoryImageMap(out)
+    }).catch(()=>{})
+    return () => { active = false }
+  }, [categories])
+
   const categoryBarItems = useMemo(() =>
-    categories.map((c) => ({ id: c.id, label: c.name, href: `#${c.id}` })),
-    [categories]
+    categories.map((c) => ({ id: c.id, label: c.name, href: `#${c.id}`, image: c.imageId && categoryImageMap[c.imageId] })),
+    [categories, categoryImageMap]
   )
 
   const filtered = useMemo(() => {
@@ -88,6 +121,7 @@ export default function Home() {
       if (term && !(m.name || '').toLowerCase().includes(term)) return false
       if (vegFilter === 'veg') return m.veg !== false // treat undefined as veg
       if (vegFilter === 'nonveg') return m.veg === false
+      if (m.active === false) return false
       return true
     })
   }, [menu, q, vegFilter])
@@ -104,6 +138,11 @@ export default function Home() {
 
   return (
     <div className="page-wrap py-6">
+      {!storeOpen && (
+        <div className="alert alert-warning bg-warning/10 border border-warning/30 mb-6 text-sm">
+          <span>The store is currently closed. Browsing only.</span>
+        </div>
+      )}
       {activeOrder && (
         <div className="alert bg-base-200/70 border border-base-300/60 mb-6 flex flex-col sm:flex-row sm:items-center gap-2">
           <span className="text-sm">
@@ -132,9 +171,11 @@ export default function Home() {
             <section key={cat.id} className="mb-10" id={cat.id}>
               <h3 className="text-2xl font-bold mb-4">{cat.name}</h3>
               <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                {catItems.map((item) => (
-                  <MenuItemCard key={item.id} item={item} />
-                ))}
+                {catItems.map((item) => {
+                  const imgObj = item.imageId && imageMap[item.imageId]
+                  const imageUrl = imgObj ? `data:${imgObj.mime || 'image/png'};base64,${imgObj.data}` : undefined
+                  return <MenuItemCard key={item.id} item={{ ...item, imageUrl, storeClosed: !storeOpen }} />
+                })}
               </div>
             </section>
           )
@@ -143,9 +184,11 @@ export default function Home() {
         <section className="mb-10" id="all-items">
           <h3 className="text-2xl font-bold mb-4">All items</h3>
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-            {filtered.map((item) => (
-              <MenuItemCard key={item.id} item={item} />
-            ))}
+            {filtered.map((item) => {
+              const imgObj = item.imageId && imageMap[item.imageId]
+              const imageUrl = imgObj ? `data:${imgObj.mime || 'image/png'};base64,${imgObj.data}` : undefined
+              return <MenuItemCard key={item.id} item={{ ...item, imageUrl }} />
+            })}
           </div>
         </section>
       )}

@@ -12,6 +12,18 @@ export default function ItemModal() {
     if (!selectedItem) return
     // Add the full item object so the cart has all fields
     add(selectedItem)
+    // Mark this item's info as seen so future adds skip the modal
+    try {
+      const key = selectedItem.id || `${selectedItem.categoryId || ''}:${selectedItem.name}`
+      const raw = localStorage.getItem('itemInfoSeen')
+      const arr = raw ? JSON.parse(raw) : []
+      if (Array.isArray(arr)) {
+        if (!arr.includes(key)) arr.push(key)
+        localStorage.setItem('itemInfoSeen', JSON.stringify(arr))
+      } else {
+        localStorage.setItem('itemInfoSeen', JSON.stringify([key]))
+      }
+    } catch {}
     closeItem()
   }
 

@@ -31,7 +31,7 @@ export default function QuickDock() {
 
   return (
     <div className="fixed left-0 right-0 bottom-0 z-50 pointer-events-none">
-      <div className="pointer-events-auto flex w-full bg-base-100/85 backdrop-blur border-t border-base-300/60 shadow-lg">
+      <div id="quick-dock-bar" className="pointer-events-auto flex w-full bg-base-100/85 backdrop-blur border-t border-base-300/60 shadow-lg">
         <button onClick={goHome} className="dock-btn flex-1 flex flex-col items-center justify-center gap-0 py-2 text-xs font-medium hover:bg-base-200/50 transition">
           <MdHome className="icon-mobile" />
           <span className="label-mobile">Home</span>
@@ -40,10 +40,16 @@ export default function QuickDock() {
           <MdRestaurantMenu className="icon-mobile" />
           <span className="label-mobile">Menu</span>
         </button>
-        <label htmlFor="cart-drawer" className="dock-btn relative flex-1 flex flex-col items-center justify-center gap-0 py-2 text-xs font-medium hover:bg-base-200/50 transition cursor-pointer">
-          <MdShoppingCart className="icon-mobile" />
+        <label htmlFor="cart-drawer" className="dock-btn flex-1 flex flex-col items-center justify-center gap-0 py-2 text-xs font-medium hover:bg-base-200/50 transition cursor-pointer">
+          <span className="relative inline-block">
+            <MdShoppingCart className="icon-mobile" />
+            {totalQty > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 h-4 min-h-0 w-4 rounded-full bg-error text-white text-[10px] leading-4 text-center shadow">
+                {totalQty > 9 ? '9+' : totalQty}
+              </span>
+            )}
+          </span>
           <span className="label-mobile">Cart</span>
-          {totalQty > 0 && <span className="badge badge-secondary badge-xs absolute top-1 right-1 translate-x-1/2 -translate-y-1/2">{totalQty}</span>}
         </label>
         {user ? (
           <Link to="/profile" className="dock-btn flex-1 flex flex-col items-center justify-center gap-0 py-2 text-xs font-medium hover:bg-base-200/50 transition">

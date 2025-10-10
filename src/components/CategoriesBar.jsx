@@ -128,15 +128,15 @@ export default function CategoriesBar({ items = [] }) {
       >
         <svg viewBox="0 0 24 24" className="w-6 h-6 md:w-7 md:h-7 text-base-100 drop-shadow" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7"/></svg>
       </button>
-      {/* gradient edge fades */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-base-100 via-base-100/60 to-transparent rounded-l-xl" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-base-100 via-base-100/60 to-transparent rounded-r-xl" />
+  {/* gradient edge fades (only appear when there is hidden overflow on that side) */}
+  <div className={`pointer-events-none absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-base-100 via-base-100/60 to-transparent rounded-l-xl transition-opacity duration-300 ${showLeft ? 'opacity-100' : 'opacity-0'}`} />
+  <div className={`pointer-events-none absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-base-100 via-base-100/60 to-transparent rounded-r-xl transition-opacity duration-300 ${showRight ? 'opacity-100' : 'opacity-0'}`} />
       <div
         ref={scrollerRef}
         className="flex gap-4 sm:gap-6 overflow-x-auto pb-3 snap-x snap-mandatory -mx-2 px-2 [scrollbar-width:none] [-ms-overflow-style:none] no-scrollbar scroll-smooth"
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
-        {items.map((it) => (
+        {items.map((it, i) => (
           <a
             key={it.id}
             href={it.href || '#'}

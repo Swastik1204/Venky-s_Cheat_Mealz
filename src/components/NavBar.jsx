@@ -5,7 +5,7 @@ import logo from '../assets/logo.png'
 import useDeliveryLocation from '../hooks/useDeliveryLocation'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { MdLocationOn, MdShoppingCart, MdLogin, MdPerson, MdReceiptLong, MdSearch } from 'react-icons/md'
+import { MdLocationOn, MdLogin, MdPerson, MdReceiptLong, MdSearch } from 'react-icons/md'
 import { fetchMenuCategories } from '../lib/data'
 
 export default function NavBar() {
@@ -58,6 +58,7 @@ export default function NavBar() {
   const searchWrapRef = useRef(null)
   const inputRef = useRef(null)
   const navigate = useNavigate()
+  const [locPanelOpen, setLocPanelOpen] = useState(false)
 
   // Load categories + items once for client-side searching
   useEffect(() => {
@@ -83,13 +84,14 @@ export default function NavBar() {
       .slice(0, 12)
   })()
 
-  // Close on outside click
+  // Close on outside click for search & location panel
   useEffect(() => {
     function onDoc(e) {
       if (!searchWrapRef.current) return
       if (!searchWrapRef.current.contains(e.target)) {
         setSearchOpen(false)
         setActiveIndex(-1)
+        setLocPanelOpen(false)
       }
     }
     document.addEventListener('mousedown', onDoc)
@@ -146,22 +148,39 @@ export default function NavBar() {
           {/* Middle: Search box */}
           <div className="flex-1 min-w-0" ref={searchWrapRef}>
             <div className={`relative w-full bg-base-100 border border-base-300 rounded-xl shadow-sm px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 focus-within:ring-2 focus-within:ring-primary/40 transition ${searchOpen ? 'ring-2 ring-primary/40' : ''}`}>            
-              {/* Location pin */}
-              <MdLocationOn className="w-5 h-5 text-secondary" />
-              <button
-                type="button"
-                onClick={() => locate().catch(() => {})}
-                className="btn btn-ghost btn-xs sm:btn-sm normal-case px-1 sm:px-2 hidden sm:flex"
-                aria-label="Use current location for delivery"
-              >
-                <span className="hidden sm:inline flex items-center">
-                  {locLabel}
-                  {isLocating && <span className="loading loading-spinner loading-xs ml-2" />}
-                </span>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 opacity-60 ml-1">
-                  <path fillRule="evenodd" d="M6.72 9.22a.75.75 0 0 1 1.06.02L12 13.94l4.22-4.7a.75.75 0 1 1 1.1 1.02l-4.75 5.29a1.25 1.25 0 0 1-1.86 0L6.7 10.3a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
-                </svg>
-              </button>
+              <div className="relative hidden sm:block">
+                <button
+                  type="button"
+                  onClick={() => setLocPanelOpen(o => !o)}
+                  className={`btn btn-ghost btn-xs sm:btn-sm normal-case pl-1 pr-2 flex items-center gap-1 ${locPanelOpen ? 'bg-base-200/50' : ''}`}
+                  aria-haspopup="true"
+                  aria-expanded={locPanelOpen}
+                  aria-label="Delivery location options"
+                >
+                  <MdLocationOn className="w-5 h-5 text-secondary" />
+                  <span className="truncate max-w-[7rem] text-left">{locLabel}</span>
+                  {isLocating && <span className="loading loading-spinner loading-xs ml-1" />}
+                </button>
+                {locPanelOpen && (
+                  <div className="absolute left-0 top-full mt-2 w-60 z-50 rounded-xl border border-base-300/60 bg-base-100/95 backdrop-blur shadow-lg p-2 animate-fade-in">
+                    <button
+                      type="button"
+                      onClick={() => { locate().catch(()=>{}); }}
+                      className="w-full text-left p-3 rounded-lg flex items-start gap-3 hover:bg-base-200/60 transition relative"
+                    >
+                      <span className="text-secondary mt-0.5"><MdLocationOn className="w-5 h-5" /></span>
+                      <span className="flex-1 flex flex-col">
+                        <span className="text-sm font-medium text-secondary">Detect current location</span>
+                        <span className="text-[11px] opacity-60">Using GPS</span>
+                      </span>
+                      {isLocating && <span className="loading loading-spinner loading-xs" />}
+                    </button>
+                    <div className="mt-1 px-2 pb-1 pt-1.5 text-[10px] leading-snug opacity-60">
+                      Current label: <span className="font-medium opacity-80">{locLabel}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
               <span className="hidden sm:inline opacity-30">|</span>
               <input
                 type="text"
@@ -170,7 +189,7 @@ export default function NavBar() {
                 value={query}
                 onChange={(e)=> { setQuery(e.target.value); setSearchOpen(true) }}
                 onFocus={() => setSearchOpen(true)}
-                className="flex-1 min-w-0 bg-transparent outline-none text-sm sm:text-base"
+                className="flex-1 min-w-0 bg-transparent outline-none text-sm sm:text-base placeholder:text-base-content/50 placeholder:opacity-70 focus:placeholder:opacity-60"
               />
               {query && (
                 <button
@@ -222,7 +241,7 @@ export default function NavBar() {
             </div>
           </div>
 
-          {/* Right: Theme toggle + Cart button */}
+          {/* Right: Theme toggle (cart button removed; cart available via QuickDock) */}
           <div className="shrink-0 flex items-center gap-2">
             <label aria-label="Toggle theme" className="btn btn-ghost btn-square swap swap-rotate">
               <input
@@ -269,20 +288,7 @@ export default function NavBar() {
               </div>
             )}
 
-            <div className="indicator">
-              {totalQty > 0 && (
-                <span className="indicator-item badge badge-secondary badge-xs top-0 right-0 translate-x-1/3 -translate-y-1/3">
-                  {totalQty}
-                </span>
-              )}
-              <label
-                htmlFor="cart-drawer"
-                className="btn btn-ghost btn-square cursor-pointer"
-                aria-label="Open cart"
-              >
-                <MdShoppingCart className="w-6 h-6" />
-              </label>
-            </div>
+            {/* Cart button intentionally removed – handled by QuickDock */}
           </div>
         </div>
       </div>

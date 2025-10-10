@@ -1,7 +1,7 @@
 export default function FilterBar({ vegFilter = 'all', onVegChange }) {
   return (
     <div className="flex flex-wrap gap-2 mb-4">
-      <div className="join border border-base-300/70 rounded-lg shadow-sm overflow-hidden">
+      <div className="join rounded-lg shadow-sm overflow-hidden border border-primary/60 bg-base-100/40 backdrop-blur-sm">
         <button
           className={`btn btn-sm join-item ${vegFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => onVegChange && onVegChange('all')}

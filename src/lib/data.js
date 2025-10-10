@@ -1,5 +1,5 @@
 // Data layer for Firestore
-import { collection, doc, getDocs, getDoc, query, where, addDoc, setDoc, serverTimestamp, orderBy, deleteDoc, arrayUnion, writeBatch } from 'firebase/firestore'
+import { collection, doc, getDocs, getDoc, query, where, addDoc, setDoc, serverTimestamp, orderBy, deleteDoc, arrayUnion, writeBatch, runTransaction, limit as fsLimit } from 'firebase/firestore'
 import { db } from './firebase'
 
 function isPermissionDenied(err) {
@@ -40,13 +40,43 @@ export async function fetchMenuItems(activeOnly = true) {
   }
 }
 
-export async function createOrder({ userId = null, customer = {}, items }) {
+// Generate a daily-reset order number like YYYYMMDD-XXX-TYPECODE
+// Uses a top-level collection 'orderCounters' with one document per day (YYYYMMDD).
+export async function generateDailyOrderNo(orderType = 'dine-in') {
+  const type = String(orderType || 'dine-in').toLowerCase()
+  const typeKey = type === 'takeaway' ? 'takeaway' : (type === 'delivery' ? 'delivery' : 'dineIn')
+  const typeCode = type === 'takeaway' ? 'TK' : (type === 'delivery' ? 'DL' : 'DI')
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const dateKey = `${y}${m}${d}` // YYYYMMDD
+  const ref = doc(collection(db, 'orderCounters'), dateKey)
+  const n = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    const data = snap.exists() ? snap.data() : { total: 0 }
+    const total = Number(data.total || 0) + 1
+    const curType = Number(data[typeKey] || 0) + 1
+    tx.set(ref, { date: dateKey, total, [typeKey]: curType, updatedAt: serverTimestamp() }, { merge: true })
+    return total
+  })
+  const seq = String(n).padStart(3, '0')
+  return `${dateKey}-${seq}-${typeCode}`
+}
+
+export async function createOrder({ userId = null, customer = {}, items, orderType = 'delivery', source = 'web', orderNo = null, taxRate = null, taxAmount = null, totalAmount = null }) {
   const subtotal = items.reduce((sum, it) => sum + it.price * it.qty, 0)
   const base = {
     userId: userId || null,
     customer,
     items,
     subtotal,
+    orderType, // 'dine-in' | 'takeaway' | 'delivery'
+    source,    // 'web' | 'pos' | 'app'
+    ...(orderNo ? { orderNo } : {}),
+    ...(taxRate != null ? { taxRate } : {}),
+    ...(taxAmount != null ? { taxAmount } : {}),
+    ...(totalAmount != null ? { totalAmount } : {}),
     status: 'placed',
     payment: customer.payment || { method: 'cod', status: 'pending' },
     createdAt: serverTimestamp(),
@@ -64,6 +94,24 @@ export async function createOrder({ userId = null, customer = {}, items }) {
   }
   const docRef = await addDoc(collection(db, 'orders'), base)
   return docRef.id
+}
+
+// Optional WhatsApp sender. Configure VITE_WHATSAPP_FUNCTION_URL to a server endpoint
+// that triggers WhatsApp Business API using your business number.
+export async function sendWhatsAppInvoice(phone, payload) {
+  try {
+    const url = import.meta.env.VITE_WHATSAPP_FUNCTION_URL
+    if (!url) return { __skipped: 'no_whatsapp_endpoint_configured' }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, payload })
+    })
+    if (!res.ok) return { __error: 'http_error', status: res.status }
+    return await res.json().catch(() => ({}))
+  } catch (e) {
+    return { __error: 'network', message: String(e) }
+  }
 }
 
 // Update order status/payment (supports both nested and legacy top-level orders)
@@ -89,7 +137,26 @@ export async function fetchAllOrders() {
     const snap = await getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc')))
     return snap.docs.map(d => ({ id: d.id, ...d.data() }))
   } catch (err) {
+    if (isPermissionDenied(err)) {
+      // Signal to caller that this is an auth / rules issue
+      return { __error: 'permission-denied', list: [] }
+    }
     console.error('[firestore] fetchAllOrders failed', err)
+    return { __error: 'other', list: [] }
+  }
+}
+
+// Fetch recent orders (most recent first). Optionally filter by source in-memory to avoid index requirements.
+export async function fetchRecentOrders(limitCount = 10, sourceFilter = null) {
+  try {
+    const snap = await getDocs(query(collection(db, 'orders'), orderBy('createdAt', 'desc'), fsLimit(Math.max(10, limitCount))))
+    let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    if (sourceFilter) list = list.filter(o => (o.source || null) === sourceFilter)
+    if (list.length > limitCount) list = list.slice(0, limitCount)
+    return list
+  } catch (err) {
+    if (isPermissionDenied(err)) return []
+    console.error('[firestore] fetchRecentOrders failed', err)
     return []
   }
 }
@@ -113,9 +180,15 @@ export async function fetchUserOrders(userId) {
     if (!nested.empty) {
       return nested.docs.map((d) => ({ id: d.id, ...d.data() }))
     }
-    // Fallback to legacy top-level
-    const snap = await getDocs(query(collection(db, 'orders'), where('userId', '==', userId), orderBy('createdAt', 'desc')))
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    // Fallback to legacy top-level WITHOUT orderBy to avoid composite index requirement; sort in-memory
+    const snap = await getDocs(query(collection(db, 'orders'), where('userId', '==', userId), fsLimit(100)))
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    list.sort((a, b) => {
+      const ta = a.createdAt?.seconds ? a.createdAt.seconds : (a.createdAt?.toMillis ? a.createdAt.toMillis() / 1000 : 0)
+      const tb = b.createdAt?.seconds ? b.createdAt.seconds : (b.createdAt?.toMillis ? b.createdAt.toMillis() / 1000 : 0)
+      return tb - ta
+    })
+    return list
   } catch (err) {
     if (isPermissionDenied(err)) {
       console.warn('[firestore] Orders read denied by rules for current user.', err)
@@ -200,7 +273,27 @@ export async function deleteMenuItem(id) {
 export async function fetchMenuCategories() {
   try {
     const snap = await getDocs(collection(db, 'menu'))
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    let cats = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    // Attempt to apply appearance ordering if present
+    try {
+      const appearanceRef = doc(db, 'miscellaneous', 'appearance')
+      const appSnap = await getDoc(appearanceRef)
+      if (appSnap.exists()) {
+        const data = appSnap.data()
+        if (Array.isArray(data.categoriesOrder) && data.categoriesOrder.length) {
+          const orderMap = new Map(data.categoriesOrder.map((id, idx) => [id, idx]))
+          cats.sort((a,b) => {
+            const ai = orderMap.has(a.id) ? orderMap.get(a.id) : Number.MAX_SAFE_INTEGER
+            const bi = orderMap.has(b.id) ? orderMap.get(b.id) : Number.MAX_SAFE_INTEGER
+            if (ai === bi) return a.id.localeCompare(b.id)
+            return ai - bi
+          })
+        }
+      }
+    } catch (e) {
+      // Non-fatal; ignore ordering if fetch failed
+    }
+    return cats
   } catch (err) {
     if (isPermissionDenied(err)) {
       console.warn('[firestore] Public read denied for menu. Update rules to allow read.', err)
@@ -209,6 +302,66 @@ export async function fetchMenuCategories() {
     console.error('[firestore] fetchMenuCategories failed:', err)
     return []
   }
+}
+
+// Appearance / miscellaneous helpers
+export async function fetchAppearanceSettings() {
+  try {
+    const ref = doc(db, 'miscellaneous', 'appearance')
+    const snap = await getDoc(ref)
+    if (!snap.exists()) return { categoriesOrder: [], __exists: false }
+    const data = snap.data()
+    return { categoriesOrder: Array.isArray(data.categoriesOrder) ? data.categoriesOrder : [], __exists: true }
+  } catch (e) {
+    if (isPermissionDenied(e)) return { categoriesOrder: [], __error: 'permission-denied', __exists: false }
+    return { categoriesOrder: [], __error: 'other', __exists: false }
+  }
+}
+
+export async function saveCategoriesOrder(orderIds) {
+  if (!Array.isArray(orderIds)) return false
+  const ref = doc(db, 'miscellaneous', 'appearance')
+  await setDoc(ref, { categoriesOrder: orderIds, updatedAt: serverTimestamp() }, { merge: true })
+  return true
+}
+
+// Store open/closed flag persistence
+export async function fetchStoreStatus() {
+  try {
+    const snap = await getDoc(doc(db, 'miscellaneous', 'store'))
+    if (!snap.exists()) return { open: true }
+    const data = snap.data()
+    return { open: data.open !== false }
+  } catch (e) {
+    return { open: true, __error: true }
+  }
+}
+
+export async function setStoreOpen(open) {
+  await setDoc(doc(db, 'miscellaneous', 'store'), { open: !!open, updatedAt: serverTimestamp() }, { merge: true })
+  return true
+}
+
+// --- App Settings (GST rate, admin mobile, etc) --- //
+export async function fetchAppSettings() {
+  try {
+    const snap = await getDoc(doc(db, 'miscellaneous', 'settings'))
+    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '' }
+    const d = snap.data()
+    const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
+    const adminMobile = d.adminMobile || ''
+    return { gstRate, adminMobile }
+  } catch (e) {
+    return { gstRate: 0.05, adminMobile: '', __error: true }
+  }
+}
+
+export async function saveAppSettings(partial) {
+  const payload = {}
+  if (partial.gstRate !== undefined) payload.gstRate = Number(partial.gstRate) || 0
+  if (partial.adminMobile !== undefined) payload.adminMobile = String(partial.adminMobile || '')
+  await setDoc(doc(db, 'miscellaneous', 'settings'), { ...payload, updatedAt: serverTimestamp() }, { merge: true })
+  return true
 }
 
 export async function upsertMenuCategory(name) {
@@ -225,6 +378,9 @@ export async function appendMenuItems(categoryName, items) {
   await setDoc(ref, {}, { merge: true })
   for (const it of items) {
     const item = { name: it.name, price: Number(it.price) || 0, veg: it.veg === false ? false : true }
+    // active flag optional (default true); only persist if explicitly false to save space
+    if (it.active === false) item.active = false
+    if (it.imageId) item.imageId = it.imageId
     await setDoc(ref, { items: arrayUnion(item) }, { merge: true })
   }
   return true
@@ -268,6 +424,8 @@ export async function setMenuItems(categoryName, items) {
         name: it.name,
         price: Number(it.price) || 0,
         veg: it.veg === false ? false : true,
+        ...(it.active === false ? { active: false } : {}),
+        ...(it.imageId ? { imageId: it.imageId } : {}),
       })),
     },
     { merge: true },
@@ -358,4 +516,147 @@ export async function bulkImportItemsFromCsv(csvText) {
   const promises = items.map((it) => addItem(it))
   await Promise.all(promises)
   return items.length
+}
+
+// --- Cart Persistence --- //
+export async function loadCart(uid) {
+  if (!uid) return {}
+  try {
+    const ref = doc(db, 'users', uid, 'meta', 'cart')
+    const snap = await getDoc(ref)
+    if (!snap.exists()) return {}
+    const data = snap.data()
+    return data.items || {}
+  } catch (e) {
+    if (isPermissionDenied(e)) {
+      return { __error: 'permission-denied' }
+    }
+    console.warn('loadCart failed', e)
+    return { __error: 'other' }
+  }
+}
+
+export async function saveCart(uid, cartItems) {
+  if (!uid) return
+  try {
+    const ref = doc(db, 'users', uid, 'meta', 'cart')
+    // cartItems shape: { [id]: { item, qty } }
+    await setDoc(ref, { items: cartItems, updatedAt: serverTimestamp() }, { merge: true })
+  } catch (e) {
+    if (isPermissionDenied(e)) {
+      return { __error: 'permission-denied' }
+    }
+    console.warn('saveCart failed', e)
+    return { __error: 'other' }
+  }
+}
+
+// --- User Profile & Addresses --- //
+export async function fetchUserProfile(uid) {
+  if (!uid) return null
+  try {
+    const snap = await getDoc(doc(db, 'users', uid))
+    if (!snap.exists()) return null
+    return { id: snap.id, ...snap.data() }
+  } catch (e) {
+    console.warn('fetchUserProfile failed', e)
+    return null
+  }
+}
+
+export async function updateUserProfile(uid, data) {
+  if (!uid) return
+  await setDoc(doc(db, 'users', uid), { ...data, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+export async function addAddress(uid, address) {
+  if (!uid) return
+  const ref = doc(db, 'users', uid, 'meta', 'addresses')
+  const snap = await getDoc(ref)
+  const list = snap.exists() && Array.isArray(snap.data().list) ? snap.data().list : []
+  const id = address.id || crypto.randomUUID()
+  const normalized = { id, name: address.name || '', line1: address.line1 || '', line2: address.line2 || '', city: address.city || '', state: address.state || '', zip: address.zip || '', landmark: address.landmark || '', phone: address.phone || '', tag: address.tag || 'Other' }
+  const next = [...list, normalized]
+  // If first address, also set defaultId
+  const payload = { list: next, updatedAt: serverTimestamp() }
+  if (list.length === 0) payload.defaultId = id
+  await setDoc(ref, payload, { merge: true })
+  return id
+}
+
+export async function updateAddress(uid, id, patch) {
+  if (!uid) return
+  const ref = doc(db, 'users', uid, 'meta', 'addresses')
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return
+  const data = snap.data()
+  const list = Array.isArray(data.list) ? data.list : []
+  const next = list.map(a => a.id === id ? { ...a, ...patch } : a)
+  await setDoc(ref, { list: next, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+export async function deleteAddress(uid, id) {
+  if (!uid) return
+  const ref = doc(db, 'users', uid, 'meta', 'addresses')
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return
+  const data = snap.data()
+  const list = Array.isArray(data.list) ? data.list : []
+  const next = list.filter(a => a.id !== id)
+  const payload = { list: next, updatedAt: serverTimestamp() }
+  if (data.defaultId === id) {
+    payload.defaultId = next.length ? next[0].id : null
+  }
+  await setDoc(ref, payload, { merge: true })
+}
+
+export async function fetchAddresses(uid) {
+  if (!uid) return []
+  const ref = doc(db, 'users', uid, 'meta', 'addresses')
+  const snap = await getDoc(ref)
+  if (!snap.exists()) return { list: [], defaultId: null }
+  const data = snap.data()
+  return { list: Array.isArray(data.list) ? data.list : [], defaultId: data.defaultId || null }
+}
+
+export async function setDefaultAddress(uid, id) {
+  if (!uid || !id) return
+  const ref = doc(db, 'users', uid, 'meta', 'addresses')
+  await setDoc(ref, { defaultId: id, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+// --- Image storage (base64) --- //
+// Stores raw base64 (without data: prefix) plus MIME. Returns image id.
+// Optional meta: { ownerType: 'category'|'item', categoryId, itemName }
+export async function saveBase64Image(base64, mime, meta = {}) {
+  if (!base64) throw new Error('No image data')
+  const imagesCol = collection(db, 'images')
+  const ref = doc(imagesCol)
+  const payload = { data: base64, mime: mime || null, createdAt: serverTimestamp() }
+  if (meta && typeof meta === 'object') {
+    const { ownerType, categoryId, itemName } = meta
+    if (ownerType) payload.ownerType = ownerType
+    if (categoryId) payload.categoryId = categoryId
+    if (itemName) payload.itemName = itemName
+  }
+  await setDoc(ref, payload)
+  return ref.id
+}
+
+export async function fetchImagesByIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return {}
+  const unique = Array.from(new Set(ids.filter(Boolean)))
+  const out = {}
+  await Promise.all(unique.map(async (id) => {
+    try {
+      const snap = await getDoc(doc(db, 'images', id))
+      if (snap.exists()) {
+        const d = snap.data()
+        out[id] = d
+      }
+    } catch (e) {
+      console.warn('fetchImagesByIds failed for', id, e)
+    }
+  }))
+  return out
 }

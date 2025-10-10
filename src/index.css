@@ -57,3 +57,36 @@
 }
 
 .brand-gradient-bg { background: linear-gradient(135deg,#f59e0b 0%,#ef4444 100%); }
+
+/* Uniform placeholder color across themes (slightly dimmed base content) */
+input::placeholder, textarea::placeholder {
+	color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+	opacity: .7; /* ensure visibility in dark mode */
+}
+
+/* Simple confetti animation for order success */
+.confetti { position: absolute; inset: -10vh 0 0 0; overflow: hidden; pointer-events: none; }
+.confetti > span {
+	position: absolute;
+	top: -10vh;
+	width: 8px;
+	height: 14px;
+	border-radius: 1px;
+	opacity: .95;
+	transform: translateY(-10vh) rotate(0deg);
+	animation-name: confetti-fall;
+	animation-timing-function: linear;
+	animation-fill-mode: forwards;
+}
+@keyframes confetti-fall {
+	100% { transform: translateY(110vh) rotate(360deg); opacity: .95; }
+}
+
+/* Subtle strobing/pulse for install button */
+.strobe {
+	animation: strobePulse 1.6s ease-in-out infinite;
+}
+@keyframes strobePulse {
+	0%, 100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.7); transform: translateZ(0); }
+	50% { box-shadow: 0 0 0 12px rgba(250, 204, 21, 0.0); transform: translateZ(0); }
+}
