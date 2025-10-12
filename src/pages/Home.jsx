@@ -46,15 +46,14 @@ export default function Home() {
             categoryId: c.id,
             category: c.id,
             imageId: it.imageId || null,
+            // pass-through for item modal details
+            components: Array.isArray(it.components) ? it.components : [],
+            isCustom: !!it.isCustom,
           }))
         )
         setCategories(cats)
         setMenu(flat)
-        // Collect imageIds
-        const imageIds = Array.from(new Set(flat.map(i => i.imageId).filter(Boolean)))
-        if (imageIds.length) {
-          fetchImagesByIds(imageIds).then(setImageMap)
-        }
+        // Item images are loaded later in a category-by-category sequence (see dedicated effect below)
       })
       .finally(() => mounted && setLoading(false))
     fetchStoreStatus().then(s => { if (mounted) setStoreOpen(s.open !== false) })
@@ -125,6 +124,45 @@ export default function Home() {
       return true
     })
   }, [menu, q, vegFilter])
+
+  // Strict image loading chronology:
+  // 1) Categories bar images (handled above)
+  // 2) Then one category at a time in the current appearance order
+  useEffect(() => {
+    if (categories.length === 0) return
+    let cancelled = false
+    // Build sequential batches per category
+    const perCategoryIds = categories.map(c => ({
+      id: c.id,
+      imageIds: Array.from(new Set((Array.isArray(c.items) ? c.items : []).map(i => i.imageId).filter(Boolean)))
+    })).filter(x => x.imageIds.length)
+    if (perCategoryIds.length === 0) return
+    // Run sequentially to focus network on one category at a time
+    async function run() {
+      // Let the categories bar paint first
+      await new Promise(r => requestAnimationFrame(r))
+      for (const batch of perCategoryIds) {
+        if (cancelled) return
+        const ids = [...batch.imageIds]
+        // Even within the category, fetch in small chunks to keep UI responsive
+        const CHUNK = 12
+        while (ids.length && !cancelled) {
+          const slice = ids.splice(0, CHUNK)
+          try {
+            const res = await fetchImagesByIds(slice)
+            if (cancelled) return
+            setImageMap(prev => ({ ...prev, ...res }))
+          } catch { /* ignore network hiccups for individual slices */ }
+          // Yield to main thread briefly between slices
+          await new Promise(r => setTimeout(r, 0))
+        }
+        // Optional small gap between categories to smoothen LCP
+        await new Promise(r => setTimeout(r, 20))
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [categories])
 
   if (loading) {
     return (

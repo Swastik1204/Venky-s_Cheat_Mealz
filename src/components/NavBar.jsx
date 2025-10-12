@@ -6,28 +6,35 @@ import useDeliveryLocation from '../hooks/useDeliveryLocation'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { MdLocationOn, MdLogin, MdPerson, MdReceiptLong, MdSearch } from 'react-icons/md'
-import { fetchMenuCategories } from '../lib/data'
+import { fetchMenuCategories, getUserTheme, setUserTheme } from '../lib/data'
 
 export default function NavBar() {
   const [scrolled, setScrolled] = useState(false)
   const [theme, setTheme] = useState('venkys_light')
   const { totalQty } = useCart()
+  const { user, logout } = useAuth()
   useEffect(() => {
     const root = document.documentElement
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('theme')
-      if (saved === 'venkys_dark' || saved === 'venkys_light') {
-        setTheme(saved)
-        root.setAttribute('data-theme', saved)
-      } else {
-        localStorage.setItem('theme', 'venkys_light')
-        root.setAttribute('data-theme', 'venkys_light')
-        setTheme('venkys_light')
+    async function initTheme() {
+      let saved = null
+      try { saved = localStorage.getItem('theme') } catch {}
+      // If user is logged in, prefer their cloud theme
+      let cloud = null
+      if (user) {
+        try { cloud = await getUserTheme(user.uid) } catch {}
       }
-    } else {
-      root.setAttribute('data-theme', 'venkys_light')
+      const next = (cloud === 'venkys_dark' || cloud === 'venkys_light') ? cloud : (saved === 'venkys_dark' ? 'venkys_dark' : 'venkys_light')
+      setTheme(next)
+      root.setAttribute('data-theme', next)
+      // if user exists and local differs, sync up to cloud
+      if (user && cloud !== next) {
+        try { await setUserTheme(user.uid, next) } catch {}
+      }
+      // persist to local for guests
+      try { localStorage.setItem('theme', next) } catch {}
     }
-  }, [])
+    initTheme()
+  }, [user])
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
@@ -41,7 +48,7 @@ export default function NavBar() {
   }, [])
   const isDark = theme === 'venkys_dark'
   const { label: locLabel, loading: isLocating, locate } = useDeliveryLocation('Durgapur')
-  const { user, logout } = useAuth()
+  // user obtained earlier
   const { openAuth } = useUI()
   const displayLabel = (() => {
     const name = user?.displayName?.trim()
@@ -248,10 +255,11 @@ export default function NavBar() {
                 type="checkbox"
                 className="theme-controller"
                 checked={isDark}
-                onChange={(e) => {
+                onChange={async (e) => {
                   const next = e.target.checked ? 'venkys_dark' : 'venkys_light'
                   setTheme(next)
                   try { localStorage.setItem('theme', next) } catch {}
+                  if (user) { try { await setUserTheme(user.uid, next) } catch {} }
                 }}
               />
               <svg className="swap-on h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">

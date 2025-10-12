@@ -28,6 +28,8 @@ export default function AdminBiller() {
   const [confettiActive, setConfettiActive] = useState(false)
   const [appSettings, setAppSettings] = useState({ gstRate: 0.05, adminMobile: '' })
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [reviewPhone, setReviewPhone] = useState('')
+  const [reviewPhoneError, setReviewPhoneError] = useState('')
   // Calculator & tendering
   const [showCalc, setShowCalc] = useState(false)
   const [calcExpr, setCalcExpr] = useState('')
@@ -177,6 +179,11 @@ export default function AdminBiller() {
 
   async function submitBill() {
     if (!lines.length) { pushToast('Add items to bill', 'error'); return }
+    // Validate phone number if provided: must be Indian 10-digit (strict)
+    if (reviewPhone && !/^\d{10}$/.test(reviewPhone.replace(/\D/g,''))) {
+      setReviewPhoneError('Enter 10-digit Indian mobile number')
+      return
+    }
     try {
       setSubmitting(true)
       const orderItems = lines.map(({ item, qty }) => ({ name: item.name, price: Number(item.price) || 0, qty }))
@@ -186,23 +193,50 @@ export default function AdminBiller() {
         servedBy: user?.email || user?.uid || 'biller',
         payment: { method: payMethod, status: 'paid' },
       }
+      let createdOrderNo = null
       if (editOrder && editOrder.id) {
         await updateOrder(null, editOrder.id, { items: orderItems, subtotal, customer, orderType: 'dine-in', source: 'pos', taxRate: gstRate, taxAmount: gstAmount, totalAmount: grandTotal })
         pushToast(`Order updated #${editOrder.orderNo || editOrder.id}`, 'success')
         setEditOrder(null)
         await refreshRecent()
       } else {
-        const orderNo = await generateDailyOrderNo('dine-in')
-        const id = await createOrder({ userId: null, customer, items: orderItems, orderType: 'dine-in', source: 'pos', orderNo, taxRate: gstRate, taxAmount: gstAmount, totalAmount: grandTotal })
-        setSuccess({ id, orderNo, items: orderItems, subtotal, gstAmount, total: grandTotal })
-        pushToast(`Bill created #${orderNo}`, 'success')
+        createdOrderNo = await generateDailyOrderNo('dine-in')
+        const id = await createOrder({ userId: null, customer, items: orderItems, orderType: 'dine-in', source: 'pos', orderNo: createdOrderNo, taxRate: gstRate, taxAmount: gstAmount, totalAmount: grandTotal })
+  setSuccess({ id, orderNo: createdOrderNo, items: orderItems, subtotal, gstAmount, total: grandTotal, gstRate })
+        pushToast(`Bill created #${createdOrderNo}`, 'success')
         await refreshRecent()
       }
+      // Build and send customer messages (WhatsApp full, SMS short) if phone provided
+      try {
+        const phoneRaw = (reviewPhone || '').replace(/\D/g,'')
+        if (phoneRaw && phoneRaw.length === 10) {
+          const store = appSettings || {}
+          const header = `*${"Venky's Cheat Mealz"}*\n${store.shopAddress ? store.shopAddress + "\n" : ''}${store.shopPhone ? '📞 ' + store.shopPhone + "\n" : ''}${store.chefName ? '👨‍🍳 ' + store.chefName + "\n" : ''}`
+          const linesText = orderItems.map(it => `• ${it.name} × ${it.qty} — ₹${(it.price||0)* (it.qty||0)}`).join('\n')
+          const totals = `Subtotal: ₹${subtotal}\nGST (${Math.round(gstRate*100)}%): ₹${gstAmount}\n*Total: ₹${grandTotal}*`
+          const thank = '\n\nThank you for dining with us!'
+          const finalOrderNo = (editOrder?.orderNo) || createdOrderNo || ''
+          const fullMsg = `${header}\nOrder #${finalOrderNo}\n\n${linesText}\n\n${totals}${thank}`
+          const logoUrl = `${location.origin}/icons/logo.png`
+          // WhatsApp (rich content through your backend template); we pass payload as before
+          try { await sendWhatsAppInvoice(`91${phoneRaw}`, { orderNo: finalOrderNo, text: fullMsg, logoUrl, items: orderItems, subtotal, taxRate: gstRate, taxAmount: gstAmount, total: grandTotal, store: { name: "Venky's Cheat Mealz", address: store.shopAddress||'', phone: store.shopPhone||'', chef: store.chefName||'' } }) } catch {}
+          // SMS fallback (short) - call backend directly to avoid import issues
+          const smsText = `Venky's: Order ${finalOrderNo}: Total ₹${grandTotal}. Thank you!`
+          try {
+            const smsUrl = import.meta.env.VITE_SMS_FUNCTION_URL
+            if (smsUrl) {
+              await fetch(smsUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: `91${phoneRaw}`, text: smsText }) })
+            }
+          } catch {}
+        }
+      } catch {}
       // Close review modal after successful action (create or update)
       setReviewOpen(false)
       clearBill()
       setQ('')
       setSuccessPhone('')
+      setReviewPhone('')
+      setReviewPhoneError('')
     } catch (e) {
       pushToast(e.message || 'Failed to create bill', 'error')
     } finally {
@@ -591,12 +625,12 @@ export default function AdminBiller() {
                   <div>₹{success.subtotal ?? 0}</div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="opacity-80">GST (5%)</div>
-                  <div>₹{success.gstAmount ?? Math.round((success.subtotal ?? 0) * 0.05)}</div>
+                  <div className="opacity-80">GST ({Math.round(((success.gstRate ?? 0.05) * 100))}%)</div>
+                  <div>₹{success.gstAmount ?? Math.round((success.subtotal ?? 0) * (success.gstRate ?? 0.05))}</div>
                 </div>
                 <div className="flex items-center justify-between font-semibold">
                   <div>Total</div>
-                  <div>₹{success.total ?? ((success.subtotal ?? 0) + Math.round((success.subtotal ?? 0) * 0.05))}</div>
+                  <div>₹{success.total ?? ((success.subtotal ?? 0) + Math.round((success.subtotal ?? 0) * (success.gstRate ?? 0.05)))}</div>
                 </div>
                 <div className="form-control mt-4">
                   <label className="label py-1">
@@ -612,7 +646,8 @@ export default function AdminBiller() {
                     try {
                       const phone = successPhone.replace(/\D/g,'')
                       if (phone && phone.length >= 10) {
-                        const payload = { orderNo: success.orderNo, items: success.items, subtotal: success.subtotal, taxRate: 0.05, taxAmount: (success.gstAmount ?? Math.round((success.subtotal ?? 0) * 0.05)), total: (success.total ?? ((success.subtotal ?? 0) + Math.round((success.subtotal ?? 0) * 0.05))) }
+                        const rate = success.gstRate ?? 0.05
+                        const payload = { orderNo: success.orderNo, items: success.items, subtotal: success.subtotal, taxRate: rate, taxAmount: (success.gstAmount ?? Math.round((success.subtotal ?? 0) * rate)), total: (success.total ?? ((success.subtotal ?? 0) + Math.round((success.subtotal ?? 0) * rate))) }
                         await sendWhatsAppInvoice(`91${phone}`, payload)
                         pushToast('Invoice sent via WhatsApp', 'success')
                       }
@@ -667,6 +702,23 @@ export default function AdminBiller() {
               <div className="flex items-center justify-between font-semibold">
                 <div>Total</div>
                 <div>₹{grandTotal}</div>
+              </div>
+              {/* Customer phone for e-bill */}
+              <div className="form-control mt-3">
+                <label className="label py-1"><span className="label-text">Customer mobile (+91, 10 digits)</span></label>
+                <div className="flex items-center gap-2">
+                  <span className="opacity-70 text-sm">+91</span>
+                  <input
+                    className={`input input-bordered input-sm flex-1 ${reviewPhoneError ? 'input-error' : ''}`}
+                    placeholder="XXXXXXXXXX"
+                    value={reviewPhone}
+                    onChange={(e)=>{ setReviewPhone(e.target.value.replace(/\D/g,'')); setReviewPhoneError('') }}
+                    maxLength={10}
+                    inputMode="numeric"
+                    pattern="\\d{10}"
+                  />
+                </div>
+                {reviewPhoneError && <span className="text-xs text-error mt-1">{reviewPhoneError}</span>}
               </div>
               <div className="mt-4 flex items-center justify-end gap-2">
                 <button className="btn btn-ghost" onClick={()=>setReviewOpen(false)}>Back</button>

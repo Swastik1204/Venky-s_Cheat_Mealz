@@ -8,6 +8,10 @@ const CartContext = createContext(null)
 
 function cartReducer(state, action) {
   switch (action.type) {
+    case 'HYDRATE': {
+      const items = action.items && typeof action.items === 'object' ? action.items : {}
+      return { items }
+    }
     case 'ADD': {
       const { item } = action
       const existing = state.items[item.id]
@@ -53,6 +57,7 @@ export function CartProvider({ children }) {
   const saveTimer = useRef(null)
   const lastSerialized = useRef('')
   const saveDeniedRef = useRef(false)
+  const loadedOnceRef = useRef(false)
 
   // Load cart when user logs in
   useEffect(() => {
@@ -65,30 +70,20 @@ export function CartProvider({ children }) {
       if (!mounted) return
       if (items && items.__error === 'permission-denied') {
         pushToast('Cart access denied. Please re-login or check permissions.', 'error', 6000)
+        loadedOnceRef.current = true
         return
       }
       if (items && typeof items === 'object') {
         dispatch({ type: 'HYDRATE', items: items.__error ? {} : items })
       }
+      loadedOnceRef.current = true
     })
     return () => { mounted = false }
   }, [user])
 
-  // Extend reducer to handle HYDRATE
-  if (!cartReducer._extended) {
-    const base = cartReducer
-    cartReducer = function(state, action) { // eslint-disable-line no-func-assign
-      if (action.type === 'HYDRATE') {
-        return { items: action.items || {} }
-      }
-      return base(state, action)
-    }
-    cartReducer._extended = true
-  }
-
   // Persist (debounced) when items change and user logged in
   useEffect(() => {
-    if (!user) return
+    if (!user || !loadedOnceRef.current) return
     const serialized = JSON.stringify(state.items)
     if (serialized === lastSerialized.current) return
     lastSerialized.current = serialized

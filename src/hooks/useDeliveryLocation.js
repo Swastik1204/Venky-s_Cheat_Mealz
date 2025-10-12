@@ -4,7 +4,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { geolocate, reverseGeocode, getSavedDeliveryAddress, saveDeliveryAddress } from '../services/location'
 
-export function useDeliveryLocation(defaultLabel = 'Durgapur') {
+function useDeliveryLocation(defaultLabel = 'Durgapur') {
   const saved = typeof window !== 'undefined' ? getSavedDeliveryAddress() : null
   const [label, setLabel] = useState(saved?.label || defaultLabel)
   const [loading, setLoading] = useState(false)

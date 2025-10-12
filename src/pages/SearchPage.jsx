@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
-import { useLocation, Link } from 'react-router-dom'
-import { fetchMenuCategories } from '../lib/data'
+import { useLocation } from 'react-router-dom'
+import { fetchMenuCategories, fetchImagesByIds, fetchStoreStatus } from '../lib/data'
 import { useEffect, useState } from 'react'
+import MenuItemCard from '../components/MenuItemCard'
 
 function useQuery() {
   const { search } = useLocation()
@@ -11,7 +12,9 @@ function useQuery() {
 export default function SearchPage() {
   const q = useQuery().get('q') || ''
   const [loading, setLoading] = useState(true)
-  const [results, setResults] = useState([])
+  const [results, setResults] = useState([]) // flattened items with cat id
+  const [imageMap, setImageMap] = useState({}) // { imageId: { data, mime } }
+  const [storeOpen, setStoreOpen] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -22,12 +25,34 @@ export default function SearchPage() {
         const all = []
         cats.forEach(cat => {
           if (Array.isArray(cat.items)) {
-            cat.items.forEach(it => all.push({ ...it, cat: cat.id }))
+            cat.items.forEach((it, idx) => all.push({
+              id: `${cat.id}-${idx}-${(it.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+              name: it.name,
+              price: it.price,
+              veg: it.veg === false ? false : true,
+              active: it.active === false ? false : true,
+              categoryId: cat.id,
+              cat: cat.id,
+              imageId: it.imageId || null,
+              components: Array.isArray(it.components) ? it.components : [],
+              isCustom: !!it.isCustom,
+              desc: it.desc || '',
+            }))
           }
         })
         const lower = q.trim().toLowerCase()
-        const filtered = lower ? all.filter(it => it.name.toLowerCase().includes(lower)) : []
+        const filtered = lower ? all.filter(it => (it.name || '').toLowerCase().includes(lower)) : []
         if (!cancelled) setResults(filtered)
+        // Resolve store open flag
+        fetchStoreStatus().then(s => { if (!cancelled) setStoreOpen(s.open !== false) })
+        // Resolve images for filtered results only
+        const imageIds = Array.from(new Set(filtered.map(i => i.imageId).filter(Boolean)))
+        if (imageIds.length) {
+          const map = await fetchImagesByIds(imageIds)
+          if (!cancelled) setImageMap(map)
+        } else {
+          if (!cancelled) setImageMap({})
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -44,21 +69,13 @@ export default function SearchPage() {
         <div className="opacity-60">No matching items.</div>
       )}
       <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {results.map(r => (
-          <div key={r.cat + ':' + r.name} className="border border-base-300/60 rounded-xl p-4 bg-base-100/70 backdrop-blur flex flex-col gap-2">
-            <div className="flex items-center justify-between text-sm font-medium">
-              <span className="truncate" title={r.name}>{r.name}</span>
-              {r.veg !== false ? (
-                <span className="w-4 h-4 rounded-sm border-2 border-green-600 relative" title="Veg" aria-label="Veg"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-green-600" style={{top:0,bottom:0,left:0,right:0}} /></span>
-              ) : (
-                <span className="w-4 h-4 rounded-sm border-2 border-rose-600 relative" title="Non-Veg" aria-label="Non-Veg"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-rose-600" style={{top:0,bottom:0,left:0,right:0}} /></span>
-              )}
-            </div>
-            <div className="text-xs opacity-60">{r.cat}</div>
-            {r.price !== undefined && r.price !== '' && <div className="font-semibold">₹{r.price}</div>}
-            <Link to={`/#${r.cat}`} className="btn btn-xs btn-primary mt-auto">Go to category</Link>
-          </div>
-        ))}
+        {results.map(item => {
+          const imgObj = item.imageId && imageMap[item.imageId]
+          const imageUrl = imgObj ? `data:${imgObj.mime || 'image/png'};base64,${imgObj.data}` : undefined
+          return (
+            <MenuItemCard key={item.id} item={{ ...item, imageUrl, storeClosed: !storeOpen }} />
+          )
+        })}
       </div>
     </div>
   )

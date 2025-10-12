@@ -39,6 +39,8 @@ export default function MenuItemCard({ item }) {
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03] sm:object-cover object-contain"
             onError={() => setImgError(true)}
             loading="lazy"
+            decoding="async"
+            fetchpriority="low"
           />
         ) : (
           <div className="w-full h-full grid place-items-center text-base-content/40">

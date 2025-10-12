@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, fetchAllOrders, updateOrder, nextOrderStatus, migrateRemoveCategoryNameFields, removeMenuItem, appendMenuItems as lowAppend, fetchStoreStatus, setStoreOpen, fetchAppearanceSettings, saveCategoriesOrder, fetchImagesByIds, fetchAppSettings, saveAppSettings } from '../lib/data'
+import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, fetchAllOrders, updateOrder, nextOrderStatus, migrateRemoveCategoryNameFields, removeMenuItem, appendMenuItems as lowAppend, fetchStoreStatus, setStoreOpen, fetchAppearanceSettings, saveCategoriesOrder, fetchImagesByIds, fetchAppSettings, saveAppSettings, sendWhatsAppInvoice, sendSMSInvoice } from '../lib/data'
 import { Link } from 'react-router-dom'
 import { MdDelete, MdAdd, MdKeyboardArrowDown } from 'react-icons/md'
 import { useUI } from '../context/UIContext'
@@ -31,6 +31,7 @@ export default function Admin({ section = 'inventory' }) {
   const [pendingRestore, setPendingRestore] = useState(null) // {categoryId,item,timeoutId,toastId}
   const [openCats, setOpenCats] = useState(() => new Set()) // which category accordions are open
   const [imageModal, setImageModal] = useState({ open: false, categoryId: null, itemIndex: null, itemName: '', preview: null, file: null, uploading: false, progress: 0, error: '', mode: 'item' }) // mode: 'item' | 'category'
+  const [compositionModal, setCompositionModal] = useState({ open: false, categoryId: null, itemIndex: null, itemName: '', rows: [{ qty: '', unit: '', text: '' }], isCustom: false, saving: false, error: '', dragIndex: null })
   const [catImages, setCatImages] = useState({}) // { imageId: dataUrl }
   // Appearance (category order)
   const [appearanceOrder, setAppearanceOrder] = useState([]) // array of category ids
@@ -42,9 +43,19 @@ export default function Admin({ section = 'inventory' }) {
   // Appearance collapsible panels open state
   const [appearancePanels, setAppearancePanels] = useState(() => ({ order: true, visibility: true }))
   // Settings
-  const [appSettings, setAppSettings] = useState({ gstRate: 0.05, adminMobile: '' })
+  const [appSettings, setAppSettings] = useState({ gstRate: 0.05, adminMobile: '', shopAddress: '', shopPhone: '', chefName: '' })
   const [appSettingsLoading, setAppSettingsLoading] = useState(false)
   const [appSettingsSaving, setAppSettingsSaving] = useState(false)
+  // Messaging test state (WhatsApp/SMS)
+  const [testPhone, setTestPhone] = useState('')
+  const [testMsg, setTestMsg] = useState("Hello from Venky's Cheat Mealz 👋")
+  const [testSending, setTestSending] = useState({ wa: false, sms: false })
+  // Template mode (business-initiated outside 24h)
+  const [useTemplate, setUseTemplate] = useState(false)
+  const [tplName, setTplName] = useState('hello_world')
+  const [tplLang, setTplLang] = useState('en_US')
+  const [tplBodyText, setTplBodyText] = useState('')
+  const [waDebug, setWaDebug] = useState(null) // stores last WA response/error for debugging
 
   // Load appearance settings when switching to appearance section
   useEffect(() => {
@@ -718,7 +729,21 @@ export default function Admin({ section = 'inventory' }) {
                                     value={editing.name}
                                     onChange={(e) => setEditing(s => ({ ...s, name: e.target.value }))}
                                   />
-                                ) : <span className="truncate" title={it.name}>{it.name}</span>}
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="truncate text-left text-yellow-600 underline hover:text-yellow-700"
+                                      title="Edit composition"
+                                      onClick={() => {
+                                        const baseRows = Array.isArray(it.components) && it.components.length ? it.components : [{ qty: '', unit: '', text: '' }]
+                                        setCompositionModal({ open: true, categoryId: c.id, itemIndex: idx, itemName: it.name, rows: baseRows.map(r => ({ qty: String(r.qty||''), unit: String(r.unit||''), text: String(r.text||'') })), isCustom: !!it.isCustom, saving: false, error: '', dragIndex: null })
+                                      }}
+                                    >{it.name}</button>
+                                    {/* Std/Custom badge */}
+                                    <span className={`badge badge-ghost badge-xs ml-1 ${it.isCustom ? 'text-warning' : 'text-success'}`}>{it.isCustom ? 'Custom' : 'Std'}</span>
+                                  </>
+                                )}
                                 </div>
                               </td>
                               <td className="text-right">
@@ -1242,32 +1267,63 @@ export default function Admin({ section = 'inventory' }) {
 
       {/* Settings Section */}
       {section === 'settings' && (
-        <div className="mt-4 max-w-xl">
+        <div className="mt-4 max-w-3xl">
           <h2 className="text-2xl font-bold tracking-tight mb-4">Settings</h2>
-          <div className="rounded-xl border border-base-300/60 bg-base-100/70 p-4 space-y-3">
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text">GST Rate (%)</span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                className="input input-bordered"
-                value={Math.round((appSettings.gstRate || 0) * 10000)/100}
-                onChange={(e)=> setAppSettings(s => ({ ...s, gstRate: (Number(e.target.value)||0)/100 }))}
-              />
-              <span className="text-xs opacity-60 mt-1">Default used in POS; can be overridden later.</span>
+          <div className="rounded-2xl border border-base-300/60 bg-base-100/80 backdrop-blur p-5 shadow-sm">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* GST */}
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text">GST Rate (%)</span>
+                </label>
+                <div className="join">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="input input-bordered join-item w-full"
+                    value={Math.round((appSettings.gstRate || 0) * 10000)/100}
+                    onChange={(e)=> setAppSettings(s => ({ ...s, gstRate: (Number(e.target.value)||0)/100 }))}
+                  />
+                  <span className="btn btn-ghost join-item">%</span>
+                </div>
+                <span className="text-xs opacity-60 mt-1">Default used in POS; can be overridden later.</span>
+              </div>
+
+              {/* Shop phone */}
+              <div className="form-control">
+                <label className="label"><span className="label-text">Shop phone</span></label>
+                <div className="join">
+                  <span className="btn btn-ghost join-item opacity-70">☎</span>
+                  <input className="input input-bordered join-item w-full" value={appSettings.shopPhone} onChange={(e)=> setAppSettings(s => ({ ...s, shopPhone: e.target.value }))} placeholder="+91XXXXXXXXXX or landline" />
+                </div>
+                <span className="text-xs opacity-60 mt-1">Shown on WhatsApp/SMS e-bill.</span>
+              </div>
+
+              {/* Shop address - full width */}
+              <div className="form-control md:col-span-2">
+                <label className="label"><span className="label-text">Shop address</span></label>
+                <textarea className="textarea textarea-bordered min-h-24" value={appSettings.shopAddress} onChange={(e)=> setAppSettings(s => ({ ...s, shopAddress: e.target.value }))} placeholder="Street, Area, City - PIN"></textarea>
+              </div>
+
+              {/* Chef name */}
+              <div className="form-control md:col-span-2">
+                <label className="label"><span className="label-text">Chef name</span></label>
+                <input className="input input-bordered" value={appSettings.chefName} onChange={(e)=> setAppSettings(s => ({ ...s, chefName: e.target.value }))} placeholder="Chef name shown on bills" />
+              </div>
             </div>
-            <div className="form-control">
-              <label className="label"><span className="label-text">Admin mobile (WhatsApp)</span></label>
-              <input className="input input-bordered" value={appSettings.adminMobile} onChange={(e)=> setAppSettings(s => ({ ...s, adminMobile: e.target.value }))} placeholder="91XXXXXXXXXX" />
-            </div>
-            <div className="flex items-center gap-2">
-              <button className="btn" disabled={appSettingsSaving} onClick={async ()=>{
+
+            <div className="mt-5 flex items-center gap-2">
+              <button className="btn btn-primary" disabled={appSettingsSaving} onClick={async ()=>{
                 setAppSettingsSaving(true)
                 try {
-                  await saveAppSettings(appSettings)
+                  // Persist only the intended fields (omit adminMobile)
+                  await saveAppSettings({
+                    gstRate: appSettings.gstRate,
+                    shopAddress: appSettings.shopAddress,
+                    shopPhone: appSettings.shopPhone,
+                    chefName: appSettings.chefName,
+                  })
                   setInfo('Settings saved')
                 } catch (e) {
                   setError(e.message || 'Failed to save settings')
@@ -1277,6 +1333,131 @@ export default function Admin({ section = 'inventory' }) {
                 setAppSettingsLoading(true)
                 try { setAppSettings(await fetchAppSettings()) } catch {} finally { setAppSettingsLoading(false) }
               }}>{appSettingsLoading ? 'Loading…' : 'Reload'}</button>
+            </div>
+            {/* Messaging test panel */}
+            <div className="mt-8 rounded-xl border border-dashed border-base-300/60 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">Messaging test</h3>
+                <div className="text-[10px] opacity-70">
+                  <span className={`mr-2 ${import.meta.env.VITE_WHATSAPP_FUNCTION_URL ? 'text-success' : 'text-error'}`}>WA {import.meta.env.VITE_WHATSAPP_FUNCTION_URL ? 'configured' : 'not set'}</span>
+                  <span className={`${import.meta.env.VITE_SMS_FUNCTION_URL ? 'text-success' : 'text-error'}`}>SMS {import.meta.env.VITE_SMS_FUNCTION_URL ? 'configured' : 'not set'}</span>
+                </div>
+              </div>
+              <p className="text-xs opacity-70 mb-3">Send a one-off test message to verify your backend endpoints. Uses your configured URLs and does not expose any tokens in the browser.</p>
+              <div className="grid gap-3">
+                <div className="form-control">
+                  <label className="label py-1"><span className="label-text">Recipient mobile (+91)</span></label>
+                  <div className="join">
+                    <span className="btn btn-ghost join-item">+91</span>
+                    <input
+                      className="input input-bordered join-item w-full"
+                      placeholder="10-digit number"
+                      value={testPhone}
+                      onChange={(e)=>setTestPhone(e.target.value.replace(/\D/g,''))}
+                      maxLength={10}
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
+                {/* Template toggle */}
+                <div className="form-control">
+                  <label className="cursor-pointer label py-1">
+                    <span className="label-text">Use template (for business-initiated messages outside 24h)</span>
+                    <input type="checkbox" className="toggle toggle-sm" checked={useTemplate} onChange={(e)=>setUseTemplate(e.target.checked)} />
+                  </label>
+                </div>
+                {!useTemplate && (
+                  <div className="form-control">
+                    <label className="label py-1"><span className="label-text">Message text</span></label>
+                    <textarea className="textarea textarea-bordered min-h-20" value={testMsg} onChange={(e)=>setTestMsg(e.target.value)} />
+                  </div>
+                )}
+                {useTemplate && (
+                  <div className="grid md:grid-cols-3 gap-3">
+                    <div className="form-control">
+                      <label className="label py-1"><span className="label-text">Template name</span></label>
+                      <input className="input input-bordered" value={tplName} onChange={(e)=>setTplName(e.target.value)} placeholder="hello_world or your template" />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-1"><span className="label-text">Language</span></label>
+                      <input className="input input-bordered" value={tplLang} onChange={(e)=>setTplLang(e.target.value)} placeholder="en_US" />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-1"><span className="label-text">Body text param</span></label>
+                      <input className="input input-bordered" value={tplBodyText} onChange={(e)=>setTplBodyText(e.target.value)} placeholder="Optional (depends on template)" />
+                    </div>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={testSending.wa}
+                    onClick={async ()=>{
+                      const phone = (testPhone||'').trim()
+                      if (!/^\d{10}$/.test(phone)) { setError('Enter a valid 10-digit Indian mobile'); return }
+                      setTestSending(s => ({ ...s, wa: true }))
+                      try {
+                        let payload
+                        if (useTemplate) {
+                          const components = (tplBodyText || '').trim() ? [ { type: 'body', parameters: [ { type: 'text', text: tplBodyText.trim() } ] } ] : []
+                          payload = {
+                            templateName: (tplName || 'hello_world').trim(),
+                            templateLanguage: (tplLang || 'en_US').trim(),
+                            ...(components.length ? { components } : {})
+                          }
+                        } else {
+                          payload = { text: testMsg, from: 'admin-settings-test', store: { name: "Venky's Cheat Mealz" } }
+                        }
+                        const res = await sendWhatsAppInvoice(`91${phone}`, payload)
+                        if (res && res.__error) {
+                          const detail = res.data?.error?.message || res.message || ''
+                          setWaDebug(res)
+                          throw new Error(`WhatsApp error (${res.__error}${res.status? ':'+res.status:''}) ${detail ? '- '+detail : ''}`)
+                        }
+                        if (res && res.__skipped) pushToast('WA test skipped (endpoint not configured)', 'warning')
+                        else {
+                          const id = res?.data?.messages?.[0]?.id || res?.messages?.[0]?.id
+                          pushToast(id ? `WhatsApp accepted (wamid: ${id})` : 'WhatsApp test sent', 'success')
+                          setWaDebug(res)
+                        }
+                      } catch (e) {
+                        pushToast(e.message || 'WhatsApp test failed', 'error')
+                        if (!waDebug) setWaDebug({ error: String(e && e.message || e) })
+                      } finally { setTestSending(s => ({ ...s, wa: false })) }
+                    }}
+                  >{testSending.wa ? 'Sending…' : 'Send WhatsApp test'}</button>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    disabled={testSending.sms}
+                    onClick={async ()=>{
+                      const phone = (testPhone||'').trim()
+                      if (!/^\d{10}$/.test(phone)) { setError('Enter a valid 10-digit Indian mobile'); return }
+                      setTestSending(s => ({ ...s, sms: true }))
+                      try {
+                        const text = testMsg || 'Hello from Venky\'s Cheat Mealz'
+                        const res = await sendSMSInvoice(`91${phone}`, text)
+                        if (res && res.__error) throw new Error(`SMS error (${res.__error}${res.status? ':'+res.status:''})`)
+                        if (res && res.__skipped) pushToast('SMS test skipped (endpoint not configured)', 'warning')
+                        else pushToast('SMS test sent', 'success')
+                      } catch (e) {
+                        pushToast(e.message || 'SMS test failed', 'error')
+                      } finally { setTestSending(s => ({ ...s, sms: false })) }
+                    }}
+                  >{testSending.sms ? 'Sending…' : 'Send SMS test'}</button>
+                </div>
+                {waDebug && (
+                  <div className="mt-3">
+                    <details className="rounded border border-base-300/60 bg-base-100/70 p-3">
+                      <summary className="cursor-pointer text-xs opacity-70">Debug: last WhatsApp response</summary>
+                      <pre className="mt-2 text-xs overflow-x-auto">
+                        {(() => {
+                          try { return JSON.stringify(waDebug, null, 2) } catch { return String(waDebug) }
+                        })()}
+                      </pre>
+                    </details>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1481,6 +1662,109 @@ export default function Admin({ section = 'inventory' }) {
             </div>
           </div>
           <form method="dialog" className="modal-backdrop" onClick={() => !imageModal.uploading && setImageModal({ open: false, categoryId: null, itemIndex: null, itemName: '', preview: null, file: null, uploading: false, progress: 0, error: '' })}>
+            <button>close</button>
+          </form>
+        </dialog>
+      )}
+
+      {compositionModal.open && (
+        <dialog open className="modal modal-open">
+          <div className="modal-box max-w-lg">
+            <h3 className="font-semibold text-lg mb-3">{compositionModal.itemName}: composition</h3>
+            <div className="space-y-3">
+              <label className="label cursor-pointer w-fit gap-2">
+                <span className="label-text">Mode:</span>
+                <div className="join">
+                  <button type="button" className={`btn btn-xs join-item ${!compositionModal.isCustom ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCompositionModal(m => ({ ...m, isCustom: false }))}>Std</button>
+                  <button type="button" className={`btn btn-xs join-item ${compositionModal.isCustom ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCompositionModal(m => ({ ...m, isCustom: true }))}>Custom</button>
+                </div>
+              </label>
+              {compositionModal.isCustom ? (
+                <div className="space-y-2">
+                  {compositionModal.rows.map((r, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-center gap-2 ${compositionModal.dragIndex === i ? 'ring-1 ring-primary rounded-md' : ''}`}
+                      draggable
+                      onDragStart={() => setCompositionModal(m => ({ ...m, dragIndex: i }))}
+                      onDragOver={(e) => { e.preventDefault() }}
+                      onDrop={() => setCompositionModal(m => {
+                        const from = m.dragIndex
+                        const to = i
+                        if (from === null || from === undefined || from === to) return { ...m, dragIndex: null }
+                        const rows = [...m.rows]
+                        const [moved] = rows.splice(from, 1)
+                        rows.splice(to, 0, moved)
+                        return { ...m, rows, dragIndex: null }
+                      })}
+                    >
+                      <span className="cursor-move select-none text-base-content/50 px-1">≡</span>
+                      <input className="input input-bordered input-xs w-16" placeholder="Qty" value={r.qty} onChange={(e)=>{
+                        const v = e.target.value
+                        setCompositionModal(m => { const rows = [...m.rows]; rows[i] = { ...rows[i], qty: v }; return { ...m, rows } })
+                      }} />
+                      <select
+                        className="select select-bordered select-xs w-24"
+                        value={r.unit || ''}
+                        onChange={(e)=> setCompositionModal(m => { const rows = [...m.rows]; rows[i] = { ...rows[i], unit: e.target.value }; return { ...m, rows } })}
+                      >
+                        <option value="">unit</option>
+                        <option value="pc">pc</option>
+                        <option value="pcs">pcs</option>
+                        <option value="g">g</option>
+                        <option value="kg">kg</option>
+                        <option value="ml">ml</option>
+                        <option value="L">L</option>
+                        <option value="slice">slice</option>
+                        <option value="bowl">bowl</option>
+                        <option value="plate">plate</option>
+                      </select>
+                      <input className="input input-bordered input-xs flex-1" placeholder="Ingredient / component" value={r.text} onChange={(e)=>{
+                        const v = e.target.value
+                        setCompositionModal(m => { const rows = [...m.rows]; rows[i] = { ...rows[i], text: v }; return { ...m, rows } })
+                      }} />
+                      {compositionModal.rows.length > 1 && (
+                        <button className="btn btn-ghost btn-xs" onClick={()=> setCompositionModal(m => ({ ...m, rows: m.rows.filter((_,j)=>j!==i) }))}>✕</button>
+                      )}
+                      {i === compositionModal.rows.length - 1 && (
+                        <button className="btn btn-ghost btn-xs" title="Add row" onClick={()=> setCompositionModal(m => ({ ...m, rows: [...m.rows, { qty: '', unit: '', text: '' }] }))}>＋</button>
+                      )}
+                    </div>
+                  ))}
+                  <p className="text-[11px] opacity-60">Add components of the meal (e.g., 2 pcs Wings; 150 g Rice). Drag to reorder.</p>
+                </div>
+              ) : (
+                <p className="text-xs opacity-70">Std mode: no custom composition rows. Toggle to Custom to add components.</p>
+              )}
+              {compositionModal.error && <div className="alert alert-error py-1 text-xs">{compositionModal.error}</div>}
+            </div>
+            <div className="modal-action">
+              <button className="btn btn-ghost btn-sm" onClick={()=> setCompositionModal({ open: false, categoryId: null, itemIndex: null, itemName: '', rows: [{ qty: '', unit: '', text: '' }], isCustom: false, saving: false, error: '', dragIndex: null })}>Cancel</button>
+              <button className="btn btn-primary btn-sm" disabled={compositionModal.saving} onClick={async ()=>{
+                try {
+                  setCompositionModal(m => ({ ...m, saving: true, error: '' }))
+                  // Persist to Firestore via setMenuItems
+                  const target = categories.find(cat => cat.id === compositionModal.categoryId)
+                  if (!target) throw new Error('Category not found')
+                  const items = (target.items || []).map((it, i) => {
+                    if (i !== compositionModal.itemIndex) return it
+                    const cleaned = compositionModal.rows
+                      .map(r => ({ qty: String(r.qty||'').trim(), unit: String(r.unit||'').trim(), text: String(r.text||'').trim() }))
+                      .filter(r => r.qty || r.unit || r.text)
+                    return { ...it, components: compositionModal.isCustom ? cleaned : [], isCustom: compositionModal.isCustom || undefined }
+                  })
+                  await setMenuItems(compositionModal.categoryId, items)
+                  // Update local state
+                  setCategories(prev => prev.map(cat => cat.id === compositionModal.categoryId ? { ...cat, items } : cat))
+                  setCompositionModal({ open: false, categoryId: null, itemIndex: null, itemName: '', rows: [{ qty: '', unit: '', text: '' }], isCustom: false, saving: false, error: '', dragIndex: null })
+                  setInfo('Composition saved.')
+                } catch (e) {
+                  setCompositionModal(m => ({ ...m, saving: false, error: e.message || 'Save failed' }))
+                }
+              }}>{compositionModal.saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+          <form method="dialog" className="modal-backdrop" onClick={()=> setCompositionModal({ open: false, categoryId: null, itemIndex: null, itemName: '', rows: [{ qty: '', unit: '', text: '' }], isCustom: false, saving: false, error: '', dragIndex: null })}>
             <button>close</button>
           </form>
         </dialog>

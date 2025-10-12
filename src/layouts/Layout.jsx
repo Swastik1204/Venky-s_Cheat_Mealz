@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom'
+import { useEffect } from 'react'
 import NavBar from '../components/NavBar'
 import CartDrawer from '../components/CartDrawer'
 import ItemModal from '../components/ItemModal'
@@ -6,16 +7,29 @@ import Dock from '../components/QuickDock'
 import AuthModal from '../components/AuthModal'
 import InstallPWA from '../components/InstallPWA'
 import { useUI } from '../context/UIContext'
-import useAdaptiveScale from '../hooks/useAdaptiveScale'
+// Removed custom hook to avoid invalid hook call caused by duplicate React resolution in some setups.
 
 export default function Layout() {
   const { authMode, toasts, dismissToast, confirmState, resolveConfirm } = useUI()
-  useAdaptiveScale({
-    minWidth: 360,
-    maxWidth: 1800,
-    minRem: 14, // smaller base for narrow phones
-    maxRem: 19 // slightly larger for ultra-wide screens
-  })
+  // Inline adaptive scale effect
+  useEffect(() => {
+    const opts = { minWidth: 360, maxWidth: 1800, minRem: 14, maxRem: 19, varName: '--app-scale' }
+    function apply() {
+      const w = window.innerWidth
+      const clamped = Math.min(Math.max(w, opts.minWidth), opts.maxWidth)
+      const t = (clamped - opts.minWidth) / (opts.maxWidth - opts.minWidth)
+      const size = (opts.minRem + (opts.maxRem - opts.minRem) * t)
+      document.documentElement.style.fontSize = size + 'px'
+      document.documentElement.style.setProperty(opts.varName, (size / 16).toFixed(4))
+    }
+    apply()
+    window.addEventListener('resize', apply)
+    window.addEventListener('orientationchange', apply)
+    return () => {
+      window.removeEventListener('resize', apply)
+      window.removeEventListener('orientationchange', apply)
+    }
+  }, [])
 
   return (
     <CartDrawer>

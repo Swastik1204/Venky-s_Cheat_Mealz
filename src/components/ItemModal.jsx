@@ -8,6 +8,7 @@ export default function ItemModal() {
   const open = Boolean(selectedItem)
   const displayImage = selectedItem && (selectedItem.imageUrl || selectedItem.image || selectedItem.img)
   const description = selectedItem && (selectedItem.desc || selectedItem.description)
+  const components = selectedItem && Array.isArray(selectedItem.components) ? selectedItem.components : []
   const onAdd = () => {
     if (!selectedItem) return
     // Add the full item object so the cart has all fields
@@ -41,6 +42,20 @@ export default function ItemModal() {
               <div className="flex-1">
                 <h3 className="font-bold text-lg">{selectedItem.name}</h3>
                 <p className="opacity-70 text-sm mt-1">{description || 'Delicious and freshly prepared.'}</p>
+                {components.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs font-semibold mb-1">Includes</div>
+                    <ul className="text-xs space-y-1">
+                      {components.map((r, i) => (
+                        <li key={i} className="flex items-start gap-2 opacity-80">
+                          <span className="min-w-[2.5rem] text-right tabular-nums">{(r.qty||'').toString()}</span>
+                          <span className="min-w-[2.5rem] text-left opacity-70">{(r.unit||'').toString()}</span>
+                          <span className="flex-1">{(r.text||'').toString()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <div className="mt-2 font-semibold">₹{selectedItem.price}</div>
                 {selectedItem.veg !== undefined && (
                   <div className={`badge mt-2 ${selectedItem.veg ? 'badge-success' : 'badge-error'}`}>

@@ -145,7 +145,7 @@ export default function CategoriesBar({ items = [] }) {
             <div className="avatar">
               <div className="w-20 sm:w-24 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2 overflow-hidden bg-base-200 flex items-center justify-center transition hover:scale-[1.03]">
                 {it.image ? (
-                  <img src={it.image} alt={it.label} />
+                  <img src={it.image} alt={it.label} loading="eager" decoding="sync" fetchpriority="high" />
                 ) : (
                   <span className="text-xl sm:text-2xl font-bold text-primary">
                     {(it.label || '?').charAt(0).toUpperCase()}

@@ -107,8 +107,10 @@ export async function sendWhatsAppInvoice(phone, payload) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, payload })
     })
-    if (!res.ok) return { __error: 'http_error', status: res.status }
-    return await res.json().catch(() => ({}))
+    let body = null
+    try { body = await res.json() } catch {}
+    if (!res.ok) return { __error: 'http_error', status: res.status, ...(body || {}) }
+    return body || {}
   } catch (e) {
     return { __error: 'network', message: String(e) }
   }
@@ -209,6 +211,25 @@ export async function getUser(uid) {
 export async function updateUser(uid, data) {
   const ref = doc(db, 'users', uid)
   await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true })
+}
+
+// --- User preferences (theme) --- //
+export async function getUserTheme(uid) {
+  if (!uid) return null
+  try {
+    const snap = await getDoc(doc(db, 'users', uid))
+    if (!snap.exists()) return null
+    const t = snap.data().theme
+    return t === 'venkys_dark' || t === 'venkys_light' ? t : null
+  } catch {
+    return null
+  }
+}
+
+export async function setUserTheme(uid, theme) {
+  if (!uid) return
+  const normalized = theme === 'venkys_dark' ? 'venkys_dark' : 'venkys_light'
+  await setDoc(doc(db, 'users', uid), { theme: normalized, updatedAt: serverTimestamp() }, { merge: true })
 }
 
 // Items catalog API
@@ -346,13 +367,16 @@ export async function setStoreOpen(open) {
 export async function fetchAppSettings() {
   try {
     const snap = await getDoc(doc(db, 'miscellaneous', 'settings'))
-    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '' }
+    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', shopAddress: '', shopPhone: '', chefName: '' }
     const d = snap.data()
     const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
     const adminMobile = d.adminMobile || ''
-    return { gstRate, adminMobile }
+    const shopAddress = d.shopAddress || ''
+    const shopPhone = d.shopPhone || ''
+    const chefName = d.chefName || ''
+    return { gstRate, adminMobile, shopAddress, shopPhone, chefName }
   } catch (e) {
-    return { gstRate: 0.05, adminMobile: '', __error: true }
+    return { gstRate: 0.05, adminMobile: '', shopAddress: '', shopPhone: '', chefName: '', __error: true }
   }
 }
 
@@ -360,8 +384,28 @@ export async function saveAppSettings(partial) {
   const payload = {}
   if (partial.gstRate !== undefined) payload.gstRate = Number(partial.gstRate) || 0
   if (partial.adminMobile !== undefined) payload.adminMobile = String(partial.adminMobile || '')
+  if (partial.shopAddress !== undefined) payload.shopAddress = String(partial.shopAddress || '')
+  if (partial.shopPhone !== undefined) payload.shopPhone = String(partial.shopPhone || '')
+  if (partial.chefName !== undefined) payload.chefName = String(partial.chefName || '')
   await setDoc(doc(db, 'miscellaneous', 'settings'), { ...payload, updatedAt: serverTimestamp() }, { merge: true })
   return true
+}
+
+// Lightweight SMS sender (backend endpoint required)
+export async function sendSMSInvoice(phone, text) {
+  try {
+    const url = import.meta.env.VITE_SMS_FUNCTION_URL
+    if (!url) return { __skipped: 'no_sms_endpoint_configured' }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, text })
+    })
+    if (!res.ok) return { __error: 'http_error', status: res.status }
+    return await res.json().catch(() => ({}))
+  } catch (e) {
+    return { __error: 'network', message: String(e) }
+  }
 }
 
 export async function upsertMenuCategory(name) {
@@ -426,6 +470,15 @@ export async function setMenuItems(categoryName, items) {
         veg: it.veg === false ? false : true,
         ...(it.active === false ? { active: false } : {}),
         ...(it.imageId ? { imageId: it.imageId } : {}),
+        // Optional: custom composition rows
+        ...(Array.isArray(it.components) && it.components.length
+          ? {
+              components: it.components
+                .filter((r) => r && (String(r.text || '').trim() || String(r.qty || '').trim() || String(r.unit || '').trim()))
+                .map((r) => ({ qty: String(r.qty || '').trim(), unit: String(r.unit || '').trim(), text: String(r.text || '').trim() })),
+            }
+          : {}),
+        ...(it.isCustom ? { isCustom: true } : {}),
       })),
     },
     { merge: true },
@@ -524,9 +577,24 @@ export async function loadCart(uid) {
   try {
     const ref = doc(db, 'users', uid, 'meta', 'cart')
     const snap = await getDoc(ref)
-    if (!snap.exists()) return {}
-    const data = snap.data()
-    return data.items || {}
+    if (snap.exists()) {
+      const data = snap.data()
+      return data.items || {}
+    }
+    // Fallback: try compact snapshot on users/{uid}
+    const userSnap = await getDoc(doc(db, 'users', uid))
+    if (userSnap.exists()) {
+      const live = userSnap.data().cartLive
+      if (live && live.items && typeof live.items === 'object') {
+        // Rehydrate into expected shape { [id]: { item, qty } }
+        const restored = {}
+        Object.entries(live.items).forEach(([id, v]) => {
+          restored[id] = { item: { id, name: v.name, price: Number(v.price)||0 }, qty: Number(v.qty)||0 }
+        })
+        return restored
+      }
+    }
+    return {}
   } catch (e) {
     if (isPermissionDenied(e)) {
       return { __error: 'permission-denied' }
@@ -542,6 +610,13 @@ export async function saveCart(uid, cartItems) {
     const ref = doc(db, 'users', uid, 'meta', 'cart')
     // cartItems shape: { [id]: { item, qty } }
     await setDoc(ref, { items: cartItems, updatedAt: serverTimestamp() }, { merge: true })
+    // Also store a small snapshot on the user doc for quick reads (counts only)
+    const entries = Object.entries(cartItems || {})
+    const totalQty = entries.reduce((s, [,v]) => s + (v?.qty || 0), 0)
+    const subtotal = entries.reduce((s, [,v]) => s + ((v?.item?.price || 0) * (v?.qty || 0)), 0)
+    const compact = {}
+    entries.forEach(([id, v]) => { compact[id] = { qty: v.qty || 0, name: v.item?.name || '', price: Number(v.item?.price)||0 } })
+    await setDoc(doc(db, 'users', uid), { cartLive: { totalQty, subtotal, items: compact }, updatedAt: serverTimestamp() }, { merge: true })
   } catch (e) {
     if (isPermissionDenied(e)) {
       return { __error: 'permission-denied' }
