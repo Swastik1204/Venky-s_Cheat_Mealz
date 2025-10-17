@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchMenuCategories, createOrder, fetchImagesByIds, fetchRecentOrders, generateDailyOrderNo, fetchAllOrders, updateOrder, sendWhatsAppInvoice, fetchAppSettings } from '../lib/data'
+import { fetchMenuCategories, createOrder, fetchImagesByIds, fetchRecentOrders, generateDailyOrderNo, fetchAllOrders, updateOrder, sendWhatsAppInvoice, fetchAppSettings, BRAND_LONG, BRAND_SHORT } from '../lib/data'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 
@@ -30,6 +30,7 @@ export default function AdminBiller() {
   const [reviewOpen, setReviewOpen] = useState(false)
   const [reviewPhone, setReviewPhone] = useState('')
   const [reviewPhoneError, setReviewPhoneError] = useState('')
+  const [reviewMode, setReviewMode] = useState('save') // 'save' | 'share'
   // Calculator & tendering
   const [showCalc, setShowCalc] = useState(false)
   const [calcExpr, setCalcExpr] = useState('')
@@ -179,10 +180,15 @@ export default function AdminBiller() {
 
   async function submitBill() {
     if (!lines.length) { pushToast('Add items to bill', 'error'); return }
-    // Validate phone number if provided: must be Indian 10-digit (strict)
-    if (reviewPhone && !/^\d{10}$/.test(reviewPhone.replace(/\D/g,''))) {
-      setReviewPhoneError('Enter 10-digit Indian mobile number')
-      return
+    // Validate phone only in share mode (required 10-digit)
+    if (reviewMode === 'share') {
+      const only = (reviewPhone || '').replace(/\D/g,'')
+      if (!/^\d{10}$/.test(only)) {
+        setReviewPhoneError('Enter 10-digit Indian mobile number')
+        return
+      }
+    } else {
+      setReviewPhoneError('')
     }
     try {
       setSubmitting(true)
@@ -206,12 +212,12 @@ export default function AdminBiller() {
         pushToast(`Bill created #${createdOrderNo}`, 'success')
         await refreshRecent()
       }
-      // Build and send customer messages (WhatsApp full, SMS short) if phone provided
+      // Build and send customer messages (WhatsApp full, SMS short) only when sharing
       try {
         const phoneRaw = (reviewPhone || '').replace(/\D/g,'')
-        if (phoneRaw && phoneRaw.length === 10) {
+        if (reviewMode === 'share' && phoneRaw && phoneRaw.length === 10) {
           const store = appSettings || {}
-          const header = `*${"Venky's Cheat Mealz"}*\n${store.shopAddress ? store.shopAddress + "\n" : ''}${store.shopPhone ? '📞 ' + store.shopPhone + "\n" : ''}${store.chefName ? '👨‍🍳 ' + store.chefName + "\n" : ''}`
+          const header = `*${BRAND_LONG}*\n${store.shopAddress ? store.shopAddress + "\n" : ''}${store.shopPhone ? '📞 ' + store.shopPhone + "\n" : ''}${store.chefName ? '👨‍🍳 ' + store.chefName + "\n" : ''}`
           const linesText = orderItems.map(it => `• ${it.name} × ${it.qty} — ₹${(it.price||0)* (it.qty||0)}`).join('\n')
           const totals = `Subtotal: ₹${subtotal}\nGST (${Math.round(gstRate*100)}%): ₹${gstAmount}\n*Total: ₹${grandTotal}*`
           const thank = '\n\nThank you for dining with us!'
@@ -219,9 +225,9 @@ export default function AdminBiller() {
           const fullMsg = `${header}\nOrder #${finalOrderNo}\n\n${linesText}\n\n${totals}${thank}`
           const logoUrl = `${location.origin}/icons/logo.png`
           // WhatsApp (rich content through your backend template); we pass payload as before
-          try { await sendWhatsAppInvoice(`91${phoneRaw}`, { orderNo: finalOrderNo, text: fullMsg, logoUrl, items: orderItems, subtotal, taxRate: gstRate, taxAmount: gstAmount, total: grandTotal, store: { name: "Venky's Cheat Mealz", address: store.shopAddress||'', phone: store.shopPhone||'', chef: store.chefName||'' } }) } catch {}
+          try { await sendWhatsAppInvoice(`91${phoneRaw}`, { orderNo: finalOrderNo, text: fullMsg, logoUrl, items: orderItems, subtotal, taxRate: gstRate, taxAmount: gstAmount, total: grandTotal, store: { name: BRAND_LONG, address: store.shopAddress||'', phone: store.shopPhone||'', chef: store.chefName||'' } }) } catch {}
           // SMS fallback (short) - call backend directly to avoid import issues
-          const smsText = `Venky's: Order ${finalOrderNo}: Total ₹${grandTotal}. Thank you!`
+          const smsText = `${BRAND_SHORT}: Order ${finalOrderNo}: Total ₹${grandTotal}. Thank you!`
           try {
             const smsUrl = import.meta.env.VITE_SMS_FUNCTION_URL
             if (smsUrl) {
@@ -236,6 +242,7 @@ export default function AdminBiller() {
       setQ('')
       setSuccessPhone('')
       setReviewPhone('')
+      setReviewMode('save')
       setReviewPhoneError('')
     } catch (e) {
       pushToast(e.message || 'Failed to create bill', 'error')
@@ -598,7 +605,7 @@ export default function AdminBiller() {
               <div className="p-4">
                 {/* Receipt-style layout */}
                 <div className="text-center mb-3">
-                  <div className="text-lg font-bold">Venky's Cheat Mealz</div>
+                  <div className="text-lg font-bold">{BRAND_LONG}</div>
                   <div className="text-xs opacity-70">Dine-in | POS</div>
                 </div>
                 <div className="flex items-center justify-between text-sm mb-2">
@@ -703,26 +710,39 @@ export default function AdminBiller() {
                 <div>Total</div>
                 <div>₹{grandTotal}</div>
               </div>
-              {/* Customer phone for e-bill */}
-              <div className="form-control mt-3">
-                <label className="label py-1"><span className="label-text">Customer mobile (+91, 10 digits)</span></label>
-                <div className="flex items-center gap-2">
-                  <span className="opacity-70 text-sm">+91</span>
-                  <input
-                    className={`input input-bordered input-sm flex-1 ${reviewPhoneError ? 'input-error' : ''}`}
-                    placeholder="XXXXXXXXXX"
-                    value={reviewPhone}
-                    onChange={(e)=>{ setReviewPhone(e.target.value.replace(/\D/g,'')); setReviewPhoneError('') }}
-                    maxLength={10}
-                    inputMode="numeric"
-                    pattern="\\d{10}"
-                  />
+              {/* Mode toggle and optional phone (Share mode) */}
+              <div className="mt-3 flex items-center justify-between">
+                <div className="text-sm opacity-70">Mode</div>
+                <div className="join rounded-lg overflow-hidden border border-base-300">
+                  <button type="button" className={`btn btn-xs join-item ${reviewMode==='save' ? 'btn-primary' : 'btn-ghost'}`} onClick={()=>setReviewMode('save')}>Save</button>
+                  <button type="button" className={`btn btn-xs join-item ${reviewMode==='share' ? 'btn-primary' : 'btn-ghost'}`} onClick={()=>setReviewMode('share')}>Share</button>
                 </div>
-                {reviewPhoneError && <span className="text-xs text-error mt-1">{reviewPhoneError}</span>}
               </div>
+              {reviewMode === 'share' && (
+                <div className="form-control mt-3">
+                  <label className="label py-1"><span className="label-text">Customer mobile (+91, 10 digits)</span></label>
+                  <div className="flex items-center gap-2">
+                    <span className="opacity-70 text-sm">+91</span>
+                    <input
+                      className={`input input-bordered input-sm flex-1 ${reviewPhoneError ? 'input-error' : ''}`}
+                      placeholder="XXXXXXXXXX"
+                      value={reviewPhone}
+                      onChange={(e)=>{ setReviewPhone(e.target.value.replace(/\D/g,'')); setReviewPhoneError('') }}
+                      maxLength={10}
+                      inputMode="numeric"
+                      pattern="\\d{10}"
+                    />
+                  </div>
+                  {reviewPhoneError && <span className="text-xs text-error mt-1">{reviewPhoneError}</span>}
+                </div>
+              )}
               <div className="mt-4 flex items-center justify-end gap-2">
                 <button className="btn btn-ghost" onClick={()=>setReviewOpen(false)}>Back</button>
-                <button className="btn btn-primary" onClick={submitBill} disabled={!lines.length || submitting}>{editOrder ? (submitting ? 'Saving…' : 'Save changes') : (submitting ? 'Checking out…' : 'Checkout')}</button>
+                <button className="btn btn-primary" onClick={submitBill} disabled={!lines.length || submitting}>
+                  {editOrder
+                    ? (submitting ? 'Saving…' : (reviewMode === 'share' ? 'Share & Save' : 'Save changes'))
+                    : (submitting ? (reviewMode === 'share' ? 'Sharing…' : 'Saving…') : (reviewMode === 'share' ? 'Share & Save' : 'Save'))}
+                </button>
               </div>
             </div>
           </div>

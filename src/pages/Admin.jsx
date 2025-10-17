@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
-import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, fetchAllOrders, updateOrder, nextOrderStatus, migrateRemoveCategoryNameFields, removeMenuItem, appendMenuItems as lowAppend, fetchStoreStatus, setStoreOpen, fetchAppearanceSettings, saveCategoriesOrder, fetchImagesByIds, fetchAppSettings, saveAppSettings, sendWhatsAppInvoice, sendSMSInvoice } from '../lib/data'
+import { useEffect, useRef, useState } from 'react'
+import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, fetchAllOrders, updateOrder, nextOrderStatus, migrateRemoveCategoryNameFields, removeMenuItem, appendMenuItems as lowAppend, fetchStoreStatus, setStoreOpen, fetchAppearanceSettings, saveCategoriesOrder, fetchImagesByIds, fetchAppSettings, saveAppSettings, fetchDeliverySettings, saveDeliverySettings, sendWhatsAppInvoice, sendSMSInvoice, BRAND_LONG } from '../lib/data'
 import { Link } from 'react-router-dom'
-import { MdDelete, MdAdd, MdKeyboardArrowDown } from 'react-icons/md'
+import { MdDelete, MdAdd, MdKeyboardArrowDown, MdWarningAmber } from 'react-icons/md'
 import { useUI } from '../context/UIContext'
 import { db } from '../lib/firebase'
 import { doc, setDoc, deleteDoc, onSnapshot, query, collection, orderBy } from 'firebase/firestore'
+import AnalyticsPanel from './analytics/AnalyticsPanel'
 
 export default function Admin({ section = 'inventory' }) {
   const [loading, setLoading] = useState(false)
@@ -27,12 +28,17 @@ export default function Admin({ section = 'inventory' }) {
     fetchStoreStatus().then(s => setLiveEnabled(s.open !== false)).catch(()=>{})
   }, [])
   const [statusFilter, setStatusFilter] = useState('all')
+  const [orderSearch, setOrderSearch] = useState('')
   const { confirm, pushToast } = useUI()
   const [pendingRestore, setPendingRestore] = useState(null) // {categoryId,item,timeoutId,toastId}
   const [openCats, setOpenCats] = useState(() => new Set()) // which category accordions are open
   const [imageModal, setImageModal] = useState({ open: false, categoryId: null, itemIndex: null, itemName: '', preview: null, file: null, uploading: false, progress: 0, error: '', mode: 'item' }) // mode: 'item' | 'category'
   const [compositionModal, setCompositionModal] = useState({ open: false, categoryId: null, itemIndex: null, itemName: '', rows: [{ qty: '', unit: '', text: '' }], isCustom: false, saving: false, error: '', dragIndex: null })
   const [catImages, setCatImages] = useState({}) // { imageId: dataUrl }
+  // Accordion header refs for scroll stabilization
+  const headerRefs = useRef({}) // key -> element
+  const historyHeaderRefs = useRef({}) // dateKey -> element
+  const [openHistoryKey, setOpenHistoryKey] = useState(null)
   // Appearance (category order)
   const [appearanceOrder, setAppearanceOrder] = useState([]) // array of category ids
   const [appearanceLoading, setAppearanceLoading] = useState(false)
@@ -44,11 +50,12 @@ export default function Admin({ section = 'inventory' }) {
   const [appearancePanels, setAppearancePanels] = useState(() => ({ order: true, visibility: true }))
   // Settings
   const [appSettings, setAppSettings] = useState({ gstRate: 0.05, adminMobile: '', shopAddress: '', shopPhone: '', chefName: '' })
+  const [deliverySettings, setDeliverySettings] = useState({ centerLat: '', centerLng: '', radiusKm: 8 })
   const [appSettingsLoading, setAppSettingsLoading] = useState(false)
   const [appSettingsSaving, setAppSettingsSaving] = useState(false)
   // Messaging test state (WhatsApp/SMS)
   const [testPhone, setTestPhone] = useState('')
-  const [testMsg, setTestMsg] = useState("Hello from Venky's Cheat Mealz 👋")
+  const [testMsg, setTestMsg] = useState(`Hello from ${BRAND_LONG}👋`)
   const [testSending, setTestSending] = useState({ wa: false, sms: false })
   // Template mode (business-initiated outside 24h)
   const [useTemplate, setUseTemplate] = useState(false)
@@ -86,12 +93,28 @@ export default function Admin({ section = 'inventory' }) {
     return () => { active = false }
   }, [section, categories])
 
-  // Load app settings on Settings section
+  // Load app + delivery settings on Settings section
   useEffect(() => {
     if (section !== 'settings') return
     let active = true
     setAppSettingsLoading(true)
-    fetchAppSettings().then(s => { if (active) setAppSettings(s) }).finally(()=> active && setAppSettingsLoading(false))
+    Promise.allSettled([
+      fetchAppSettings(),
+      fetchDeliverySettings(),
+    ]).then((results)=>{
+      const [a,b] = results
+      if (!active) return
+      if (a.status === 'fulfilled' && a.value) setAppSettings(a.value)
+      if (b.status === 'fulfilled' && b.value) {
+        const d = b.value
+        setDeliverySettings({
+          centerLat: typeof d.centerLat === 'number' ? d.centerLat : '',
+          centerLng: typeof d.centerLng === 'number' ? d.centerLng : '',
+          radiusKm: typeof d.radiusKm === 'number' ? d.radiusKm : 8,
+          minLat: d.minLat, maxLat: d.maxLat, minLng: d.minLng, maxLng: d.maxLng,
+        })
+      }
+    }).finally(()=> active && setAppSettingsLoading(false))
     return () => { active = false }
   }, [section])
 
@@ -168,14 +191,54 @@ export default function Admin({ section = 'inventory' }) {
     return ((idx + 1) / statusFlow.length) * 100
   }
 
-  const filteredOrders = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter)
+  // Search + status filter
+  function orderSearchText(o) {
+    const parts = [
+      o.id,
+      o.name,
+      o.customer?.name,
+      o.address?.name,
+      o.phone,
+      o.customer?.phone,
+      o.address?.phone,
+      o.contact?.phone,
+    ].filter(Boolean)
+    return parts.join(' ').toLowerCase()
+  }
+  const baseFiltered = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter)
+  const q = (orderSearch || '').trim().toLowerCase()
+  const filteredOrders = q ? baseFiltered.filter(o => orderSearchText(o).includes(q) || (o.id || '').toLowerCase().includes(q)) : baseFiltered
   const metrics = statusFlow.reduce((acc, s) => { acc[s] = orders.filter(o => o.status === s).length; return acc }, { all: orders.length, rejected: orders.filter(o => o.status === 'rejected').length })
 
-  function toggleCat(id) {
+  function toggleCat(id, el) {
+    // Stabilize scroll so the toggled header stays in place
+    const headerEl = el || headerRefs.current[id]
+    const beforeTop = headerEl?.getBoundingClientRect?.().top
+    const isVis = id.startsWith('vis-')
     setOpenCats(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
+      const others = Array.from(prev).filter(k => (isVis ? !k.startsWith('vis-') : k.startsWith('vis-')))
+      const res = new Set(others)
+      if (!prev.has(id)) res.add(id)
+      return res
+    })
+    // After DOM paints, adjust scroll by delta
+    requestAnimationFrame(() => {
+      const afterTop = headerEl?.getBoundingClientRect?.().top
+      if (typeof beforeTop === 'number' && typeof afterTop === 'number') {
+        window.scrollBy({ top: afterTop - beforeTop, left: 0, behavior: 'auto' })
+      }
+    })
+  }
+
+  function toggleHistory(key, el) {
+    const headerEl = el || historyHeaderRefs.current[key]
+    const beforeTop = headerEl?.getBoundingClientRect?.().top
+    setOpenHistoryKey(prev => (prev === key ? null : key))
+    requestAnimationFrame(() => {
+      const afterTop = headerEl?.getBoundingClientRect?.().top
+      if (typeof beforeTop === 'number' && typeof afterTop === 'number') {
+        window.scrollBy({ top: afterTop - beforeTop, left: 0, behavior: 'auto' })
+      }
     })
   }
 
@@ -550,28 +613,6 @@ export default function Admin({ section = 'inventory' }) {
       <div className="mt-10 space-y-3">
         <div className="flex items-center justify-between mb-2 gap-4 flex-wrap">
           <h2 className="text-xl font-semibold">Current menu</h2>
-          <div className="flex items-center gap-2">
-            {categories.length > 0 && (
-              (() => {
-                const allOpen = categories.every(c => openCats.has(c.id))
-                const label = allOpen ? 'Collapse all' : 'Expand all'
-                return (
-                  <button
-                    type="button"
-                    className="btn btn-xs btn-outline"
-                    onClick={() => {
-                      if (allOpen) {
-                        setOpenCats(new Set())
-                      } else {
-                        setOpenCats(new Set(categories.map(c => c.id)))
-                      }
-                    }}
-                    title={label}
-                  >{label}</button>
-                )
-              })()
-            )}
-          </div>
         </div>
         {categories.length === 0 && (
           <div className="opacity-60 text-sm">No categories yet.</div>
@@ -581,25 +622,26 @@ export default function Admin({ section = 'inventory' }) {
           const catIsEditing = editingCat.id === c.id
           const open = openCats.has(c.id)
           return (
-            <div
+              <div
               key={c.id}
               className={`collapse bg-base-100/70 backdrop-blur-sm border border-base-300/60 rounded-xl transition-all duration-300 group relative overflow-hidden ${open ? 'ring-1 ring-primary/30 shadow-sm' : 'hover:border-base-300 hover:bg-base-100/50'}`}
             >
               {/* Keep the control non-focusable and not aria-hidden to avoid focus on hidden ancestors. We toggle via header click/keyboard. */}
-              <input type="checkbox" className="sr-only" checked={open} onChange={() => toggleCat(c.id)} />
+              <input type="checkbox" className="sr-only" checked={open} onChange={(e) => toggleCat(c.id, headerRefs.current[c.id])} />
               {/* Decorative left accent when open */}
               {open && <span className="pointer-events-none absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-primary/70 via-primary/30 to-secondary/60" />}
               <div
                 className="collapse-title py-3 pr-4 pl-5 flex items-center justify-between gap-4 cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-xl"
                 role="button"
                 tabIndex={0}
-                onClick={() => toggleCat(c.id)}
+                ref={(el) => { if (el) headerRefs.current[c.id] = el }}
+                onClick={() => toggleCat(c.id, headerRefs.current[c.id])}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     // Only toggle if header itself has focus (not a child control)
                     if (e.currentTarget === e.target) {
                       e.preventDefault()
-                      toggleCat(c.id)
+                      toggleCat(c.id, headerRefs.current[c.id])
                     }
                   }
                 }}
@@ -673,7 +715,7 @@ export default function Admin({ section = 'inventory' }) {
                               type="button"
                               className="btn btn-xs btn-outline"
                               onClick={() => setImageModal({ open: true, categoryId: c.id, itemIndex: null, itemName: c.id, preview: null, file: null, uploading: false, progress: 0, error: '', mode: 'category' })}
-                            >{c.imageId ? 'Change image' : '(+ cat image)'}</button>
+                            >{c.imageId ? 'Update image' : '(add image)'}</button>
                             {c.imageId && (
                               <button
                                 type="button"
@@ -793,9 +835,9 @@ export default function Admin({ section = 'inventory' }) {
                                   <button
                                     type="button"
                                     className="btn btn-xs btn-outline"
-                                    title={it.imageId ? 'Change image' : 'Add image'}
+                                    title={it.imageId ? 'Update image' : 'Add image'}
                                     onClick={() => setImageModal({ open: true, categoryId: c.id, itemIndex: idx, itemName: it.name, preview: null, file: null, uploading: false, progress: 0, error: '', mode: 'item' })}
-                                  >{it.imageId ? 'Change image' : '(+ image)'}</button>
+                                  >{it.imageId ? 'Update image' : '(+ image)'}</button>
                                   {it.imageId && (
                                     <button
                                       type="button"
@@ -938,7 +980,18 @@ export default function Admin({ section = 'inventory' }) {
                 {liveEnabled && <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Live</span>}
               </span>
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <div className="join w-full md:w-80">
+                <input
+                  className="input input-bordered join-item input-sm w-full"
+                  placeholder="Search id, name or phone"
+                  value={orderSearch}
+                  onChange={(e)=> setOrderSearch(e.target.value)}
+                />
+                {orderSearch && (
+                  <button className="btn btn-sm join-item" onClick={()=> setOrderSearch('')}>Clear</button>
+                )}
+              </div>
               <button className="btn btn-sm btn-outline" onClick={() => setLiveEnabled(v => !v)}>{liveEnabled ? 'Pause live' : 'Resume live'}</button>
               <button className="btn btn-sm btn-outline" onClick={loadOrders} disabled={loadingOrders || liveEnabled} title={liveEnabled ? 'Pause live to use manual refresh' : 'Manual refresh'}>
                 {loadingOrders ? 'Loading…' : 'Refresh'}
@@ -981,104 +1034,207 @@ export default function Admin({ section = 'inventory' }) {
             <div className="opacity-60 text-sm italic">No orders yet.</div>
           )}
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {filteredOrders.map(o => {
+          {/* Derived groups: Today and History */}
+          {(() => {
+            const today = new Date()
+            function addDays(d, delta) { const x = new Date(d); x.setDate(x.getDate()+delta); return x }
+            function dateKey(d) {
+              const dt = d instanceof Date ? d : (d?.seconds ? new Date(d.seconds * 1000) : null)
+              if (!dt) return 'unknown'
+              // Normalize to local date string yyyy-mm-dd
+              const y = dt.getFullYear()
+              const m = String(dt.getMonth()+1).padStart(2,'0')
+              const da = String(dt.getDate()).padStart(2,'0')
+              return `${y}-${m}-${da}`
+            }
+            const todayKey = dateKey(today)
+            const yesterdayKey = dateKey(addDays(today, -1))
+            const groups = new Map()
+            filteredOrders.forEach(o => {
+              const key = dateKey(o.createdAt)
+              const arr = groups.get(key) || []
+              arr.push(o)
+              groups.set(key, arr)
+            })
+            const orderedKeys = Array.from(groups.keys()).sort((a,b)=> a<b ? 1 : a>b ? -1 : 0)
+            const renderCard = (o, frozen = false) => {
               const next = nextOrderStatus(o.status)
               const advanceDisabled = next === o.status
               const createdAt = o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000) : null
-              const ageMins = createdAt ? Math.max(0, Math.round((Date.now() - createdAt.getTime()) / 60000)) : null
+              const time24 = createdAt ? createdAt.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' }) : null
+              const isPos = (o.source || '').toLowerCase() === 'pos'
               const pct = progressPercent(o.status)
+              const isDelivered = o.status === 'delivered'
+              const isRejected = o.status === 'rejected'
               return (
-                <div key={o.id} className="card bg-base-100/70 backdrop-blur-sm border border-base-300/60 shadow-sm hover:shadow-md transition overflow-hidden">
+                <div
+                  key={o.id}
+                  className={`card group cursor-pointer ${isRejected ? 'opacity-70' : ''} ${isDelivered ? 'border-success/40 bg-success/5' : 'bg-base-100/70'} ${frozen ? 'opacity-80' : ''} backdrop-blur-sm border border-base-300/60 shadow-sm hover:shadow-md transition overflow-hidden`}
+                  onClick={() => { setSelectedOrder(o); setOrderModalOpen(true) }}
+                >
                   <div className="card-body p-4 gap-3">
-                  <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition bg-gradient-to-br from-primary/5 via-transparent to-secondary/10"></div>
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex flex-col">
-                      <div className="font-semibold tracking-wide">#{o.id.slice(-6)}</div>
-                      <div className="text-[11px] opacity-60 flex gap-2">
-                        {ageMins !== null && <span>{ageMins}m ago</span>}
-                        <span>{o.items?.length || 0} items</span>
-                        <span>₹{o.subtotal}</span>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <span className={`badge badge-sm ${statusColor(o.status)} capitalize`}>{o.status}</span>
-                      {o.status === 'placed' && (
-                        <div className="flex gap-1">
-                          <button className="btn btn-xs btn-success" onClick={() => acceptOrder(o)}>Accept</button>
-                          <button className="btn btn-xs btn-error" onClick={() => rejectOrder(o)}>Reject</button>
+                    <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition bg-gradient-to-br from-primary/5 via-transparent to-secondary/10" />
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2">
+                          <div className="font-semibold tracking-wide">#{o.id.slice(-6)}</div>
+                          <span className={`badge badge-ghost badge-xs ${isPos ? 'text-purple-700' : 'text-sky-700'}`} title={isPos ? 'Placed from Admin Biller (POS)' : 'Placed from Consumer App'}>{isPos ? 'Biller' : 'App'}</span>
                         </div>
-                      )}
-                      {o.status !== 'placed' && o.status !== 'rejected' && (
-                        <button
-                          className="btn btn-xs btn-primary"
-                          onClick={() => advanceOrder(o)}
-                          disabled={advanceDisabled}
-                          title={advanceDisabled ? 'Final state reached' : `Advance to ${next}`}
-                        >{advanceDisabled ? 'Complete' : `Mark ${next}`}</button>
-                      )}
-                    </div>
-                  </div>
-                  {/* Progress bar */}
-                  {o.status !== 'rejected' && (
-                    <div className="mb-3">
-                      <div className="h-1.5 w-full rounded bg-base-300/50 overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-primary to-secondary transition-all" style={{ width: pct + '%' }} />
+                        <div className="text-[11px] opacity-60 flex gap-2">
+                          {time24 && <span>{time24}</span>}
+                          <span>{o.items?.length || 0} items</span>
+                          <span>₹{o.subtotal}</span>
+                        </div>
                       </div>
-                      <div className="flex justify-between mt-1">
-                        {statusFlow.map(s => (
-                          <span key={s} className={`flex-1 text-center text-[9px] tracking-wide ${o.status === s ? 'text-primary font-semibold' : 'opacity-40'}`}>{s[0].toUpperCase()}</span>
-                        ))}
+                      <div className="flex flex-col items-end gap-2">
+                        <span className={`badge badge-sm ${statusColor(o.status)} capitalize`}>{o.status}</span>
+                        {o.status === 'placed' && (
+                          <div className="flex gap-1" onClick={(e)=> e.stopPropagation()}>
+                            <button className="btn btn-xs btn-success" onClick={() => acceptOrder(o)} disabled={frozen} title={frozen ? 'Actions disabled for past orders' : 'Accept'}>Accept</button>
+                            <button className="btn btn-xs btn-error" onClick={() => rejectOrder(o)} disabled={frozen} title={frozen ? 'Actions disabled for past orders' : 'Reject'}>Reject</button>
+                          </div>
+                        )}
+                        {o.status !== 'placed' && o.status !== 'rejected' && (
+                          <button
+                            className="btn btn-xs btn-primary"
+                            onClick={(e) => { e.stopPropagation(); if (!frozen) advanceOrder(o) }}
+                            disabled={advanceDisabled || frozen}
+                            title={frozen ? 'Actions disabled for past orders' : (advanceDisabled ? 'Final state reached' : `Advance to ${next}`)}
+                          >{advanceDisabled ? 'Complete' : `Mark ${next}`}</button>
+                        )}
                       </div>
                     </div>
-                  )}
-                  {/* Items preview */}
-                  <div className="text-[11px] flex flex-wrap gap-2">
-                    {o.items?.slice(0,5).map(it => (
-                      <span key={it.id} className="px-2 py-0.5 rounded-full bg-base-200/70 border border-base-300/60 group-hover:border-primary/50 transition">
-                        {it.name}×{it.qty}
-                      </span>
-                    ))}
-                    {o.items?.length > 5 && (
-                      <span className="opacity-60">+{o.items.length - 5} more</span>
+                    {o.status !== 'rejected' && (
+                      <div className="mb-3">
+                        <div className="h-1.5 w-full rounded bg-base-300/50 overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-primary to-secondary transition-all" style={{ width: pct + '%' }} />
+                        </div>
+                        <div className="flex justify-between mt-1">
+                          {statusFlow.map(s => (
+                            <span key={s} className={`flex-1 text-center text-[9px] tracking-wide ${o.status === s ? 'text-primary font-semibold' : 'opacity-40'}`}>{s[0].toUpperCase()}</span>
+                          ))}
+                        </div>
+                      </div>
                     )}
-                  </div>
-                  {o.payment?.method && (
-                    <div className="mt-2 text-[10px] uppercase tracking-wide opacity-60">{o.payment.method}</div>
-                  )}
-                  <div className="pt-1 flex justify-end">
-                    <button className="btn btn-ghost btn-xs" onClick={() => { setSelectedOrder(o); setOrderModalOpen(true) }}>View</button>
-                  </div>
+                    <div className="text-[11px] flex flex-wrap gap-2">
+                      {o.items?.slice(0,5).map(it => (
+                        <span key={it.id} className="px-2 py-0.5 rounded-full bg-base-200/70 border border-base-300/60 group-hover:border-primary/50 transition">
+                          {it.name}×{it.qty}
+                        </span>
+                      ))}
+                      {o.items?.length > 5 && (
+                        <span className="opacity-60">+{o.items.length - 5} more</span>
+                      )}
+                    </div>
+                    {o.payment?.method && (
+                      <div className="mt-2 text-[10px] uppercase tracking-wide opacity-60">{o.payment.method}</div>
+                    )}
+                    {/* Pending status hints */}
+                    {(() => {
+                      const idx = statusFlow.indexOf(o.status)
+                      const pending = statusFlow.slice(idx + 1)
+                      if (!pending.length) return null
+                      const nextMissing = pending[0]
+                      return (
+                        <div className="mt-2 text-[11px] text-warning flex items-center gap-1">
+                          <MdWarningAmber className="w-4 h-4" />
+                          <span>Not marked as {nextMissing} yet</span>
+                        </div>
+                      )
+                    })()}
+                    <div className="pt-1 flex justify-end">
+                      <button className="btn btn-ghost btn-xs" onClick={(e) => { e.stopPropagation(); setSelectedOrder(o); setOrderModalOpen(true) }}>View</button>
+                    </div>
                   </div>
                 </div>
               )
-            })}
-          </div>
+            }
+
+            // Render Today bucketed by status, then history by date (accordion)
+            const chunks = orderedKeys.reduce((acc, k) => {
+              const list = groups.get(k) || []
+              if (k === todayKey) {
+                // Bucket by status for today
+                const buckets = {
+                  placed: list.filter(o => o.status === 'placed'),
+                  preparing: list.filter(o => o.status === 'preparing'),
+                  ready: list.filter(o => o.status === 'ready'),
+                  delivered: list.filter(o => o.status === 'delivered'),
+                  rejected: list.filter(o => o.status === 'rejected'),
+                }
+                acc.today = buckets
+              } else {
+                acc.history.push({ key: k, list })
+              }
+              return acc
+            }, { today: null, history: [] })
+
+            return (
+              <div className="space-y-6">
+                {chunks.today && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-lg font-semibold">Today</h3>
+                      <div className="text-xs opacity-60">{Object.values(chunks.today).reduce((n, arr)=> n + arr.length, 0)} orders</div>
+                    </div>
+                    {(['placed','preparing','ready','delivered','rejected']).map(bucket => {
+                      const arr = chunks.today[bucket]
+                      if (!arr || arr.length === 0) return null
+                      return (
+                        <div key={bucket} className="mb-4">
+                          <div className="text-sm font-medium mb-2 capitalize flex items-center gap-2">
+                            <span className={`badge ${statusColor(bucket)} badge-sm`}></span>
+                            <span>{bucket}</span>
+                            <span className="opacity-60">({arr.length})</span>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            {arr.map(renderCard)}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-lg font-semibold">Order history</h3>
+                    <span className="text-xs opacity-60">{chunks.history.reduce((n, g)=> n + g.list.length, 0)} orders</span>
+                  </div>
+                  {chunks.history.length === 0 && <div className="opacity-60 text-sm">No previous days.</div>}
+                  <div className="space-y-3">
+                    {chunks.history.map(g => {
+                      const title = g.key === yesterdayKey ? 'Yesterday' : new Date(g.key + 'T00:00:00').toLocaleDateString()
+                      const open = openHistoryKey === g.key
+                      return (
+                        <div key={g.key} className={`collapse collapse-arrow border border-base-300/60 rounded-lg bg-base-100/60 ${open ? 'shadow-sm' : ''}`}>
+                          <input type="checkbox" checked={open} onChange={() => toggleHistory(g.key, historyHeaderRefs.current[g.key])} />
+                          <div className="collapse-title text-sm font-medium flex items-center justify-between" ref={(el)=>{ if (el) historyHeaderRefs.current[g.key] = el }}>
+                            <span>{title}</span>
+                            <span className="badge badge-ghost badge-sm">{g.list.length}</span>
+                          </div>
+                          <div className="collapse-content">
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                              {g.list.map(o => renderCard(o, true))}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+          
         </div>
       </div>
       )}
 
-      {/* Analytics Section (placeholder) */}
+      {/* Analytics Section */}
       {section === 'analytics' && (
-        <div className="mt-4 space-y-6">
-          <h2 className="text-2xl font-bold tracking-tight">Analytics (Coming Soon)</h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <div className="p-4 rounded-xl border border-base-300/60 bg-base-100/70">
-              <h3 className="font-semibold mb-1">Sales Overview</h3>
-              <p className="text-xs opacity-70">Daily / Weekly / Monthly aggregation placeholder.</p>
-            </div>
-            <div className="p-4 rounded-xl border border-base-300/60 bg-base-100/70">
-              <h3 className="font-semibold mb-1">Top Items</h3>
-              <p className="text-xs opacity-70">Rank best-selling menu items (to implement).</p>
-            </div>
-            <div className="p-4 rounded-xl border border-base-300/60 bg-base-100/70">
-              <h3 className="font-semibold mb-1">Category Performance</h3>
-              <p className="text-xs opacity-70">Compare categories by revenue / orders.</p>
-            </div>
-          </div>
-          <div className="rounded-xl border border-dashed border-base-300/60 p-6 text-sm opacity-70">
-            Future filters: date range picker, quick presets (Today / 7d / 30d), export CSV, gross vs net, average order value, repeat customers, time-of-day heatmap.
-          </div>
+        <div className="mt-4">
+          <AnalyticsPanel />
         </div>
       )}
 
@@ -1168,10 +1324,8 @@ export default function Admin({ section = 'inventory' }) {
                 const open = openCats.has('vis-'+cat.id)
                 return (
                   <div key={cat.id} className={`collapse collapse-arrow border border-base-300/60 rounded-lg bg-base-100/60 ${open ? 'shadow-sm' : ''}`}> 
-                    <input type="checkbox" checked={open} onChange={() => {
-                      setOpenCats(prev => { const next = new Set(prev); const key = 'vis-'+cat.id; next.has(key) ? next.delete(key) : next.add(key); return next })
-                    }} />
-                    <div className="collapse-title text-sm font-medium flex items-center gap-2">
+                    <input type="checkbox" checked={open} onChange={() => toggleCat('vis-'+cat.id, headerRefs.current['vis-'+cat.id])} />
+                    <div className="collapse-title text-sm font-medium flex items-center gap-2" ref={(el)=>{ if (el) headerRefs.current['vis-'+cat.id] = el }}>
                       <span className="truncate flex-1">{cat.id}</span>
                       <span className="badge badge-outline text-[10px]">{items.filter(i => i.active === false).length} hidden</span>
                     </div>
@@ -1268,11 +1422,19 @@ export default function Admin({ section = 'inventory' }) {
       {/* Settings Section */}
       {section === 'settings' && (
         <div className="mt-4 max-w-3xl">
-          <h2 className="text-2xl font-bold tracking-tight mb-4">Settings</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Settings</span>
+              <span className="text-xs opacity-60">Configure billing, shop details and messaging</span>
+            </h2>
+          </div>
           <div className="rounded-2xl border border-base-300/60 bg-base-100/80 backdrop-blur p-5 shadow-sm">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold tracking-tight">Store details</h3>
+            </div>
+            <div className="flex flex-col gap-4">
               {/* GST */}
-              <div className="form-control">
+              <div className="form-control w-full col-span-full">
                 <label className="label">
                   <span className="label-text">GST Rate (%)</span>
                 </label>
@@ -1291,25 +1453,73 @@ export default function Admin({ section = 'inventory' }) {
               </div>
 
               {/* Shop phone */}
-              <div className="form-control">
+              <div className="form-control w-full col-span-full">
                 <label className="label"><span className="label-text">Shop phone</span></label>
                 <div className="join">
                   <span className="btn btn-ghost join-item opacity-70">☎</span>
-                  <input className="input input-bordered join-item w-full" value={appSettings.shopPhone} onChange={(e)=> setAppSettings(s => ({ ...s, shopPhone: e.target.value }))} placeholder="+91XXXXXXXXXX or landline" />
+                  <input className="input input-bordered join-item w-full" value={appSettings.shopPhone} onChange={(e)=> setAppSettings(s => ({ ...s, shopPhone: e.target.value }))} placeholder="+91XXXXXXXXXX" />
                 </div>
                 <span className="text-xs opacity-60 mt-1">Shown on WhatsApp/SMS e-bill.</span>
               </div>
 
               {/* Shop address - full width */}
-              <div className="form-control md:col-span-2">
+              <div className="form-control w-full col-span-full">
                 <label className="label"><span className="label-text">Shop address</span></label>
                 <textarea className="textarea textarea-bordered min-h-24" value={appSettings.shopAddress} onChange={(e)=> setAppSettings(s => ({ ...s, shopAddress: e.target.value }))} placeholder="Street, Area, City - PIN"></textarea>
               </div>
 
               {/* Chef name */}
-              <div className="form-control md:col-span-2">
+              <div className="form-control w-full col-span-full">
                 <label className="label"><span className="label-text">Chef name</span></label>
                 <input className="input input-bordered" value={appSettings.chefName} onChange={(e)=> setAppSettings(s => ({ ...s, chefName: e.target.value }))} placeholder="Chef name shown on bills" />
+              </div>
+              {/* Store location (optional) */}
+              <div className="form-control w-full col-span-full">
+                <label className="label"><span className="label-text">Store location (Latitude)</span></label>
+                <input
+                  className="input input-bordered"
+                  inputMode="decimal"
+                  placeholder="e.g., 23.538417"
+                  value={deliverySettings.centerLat}
+                  onChange={(e)=> setDeliverySettings(s => ({ ...s, centerLat: e.target.value }))}
+                />
+              </div>
+              <div className="form-control w-full col-span-full">
+                <label className="label"><span className="label-text">Store location (Longitude)</span></label>
+                <input
+                  className="input input-bordered"
+                  inputMode="decimal"
+                  placeholder="e.g., 87.307833"
+                  value={deliverySettings.centerLng}
+                  onChange={(e)=> setDeliverySettings(s => ({ ...s, centerLng: e.target.value }))}
+                />
+              </div>
+              {/* Use current location button */}
+              <div className="w-full col-span-full">
+                <button type="button" className="btn btn-sm" title="Use current browser location" onClick={()=>{
+                  if (!('geolocation' in navigator)) { setError('Geolocation not supported in this browser'); return }
+                  navigator.geolocation.getCurrentPosition(pos => {
+                    setDeliverySettings(s => ({ ...s, centerLat: Math.round(pos.coords.latitude*1e6)/1e6, centerLng: Math.round(pos.coords.longitude*1e6)/1e6 }))
+                  }, err => setError(err.message || 'Failed to get location'))
+                }}>Use current location</button>
+              </div>
+              {/* Delivery radius */}
+              <div className="form-control w-full col-span-full">
+                <label className="label"><span className="label-text">Delivery radius (km)</span></label>
+                <div className="join">
+                  <input
+                    className="input input-bordered input-sm join-item w-24"
+                    inputMode="decimal"
+                    placeholder="8"
+                    value={deliverySettings.radiusKm}
+                    onChange={(e)=> setDeliverySettings(s => ({ ...s, radiusKm: e.target.value }))}
+                  />
+                  <span className="btn btn-ghost btn-sm join-item">km</span>
+                </div>
+                {/* Validation hint if lat/lng missing */}
+                {(!deliverySettings.centerLat || !deliverySettings.centerLng) && (
+                  <span className="text-xs text-warning mt-1">Enter latitude and longitude to apply delivery radius.</span>
+                )}
               </div>
             </div>
 
@@ -1324,18 +1534,25 @@ export default function Admin({ section = 'inventory' }) {
                     shopPhone: appSettings.shopPhone,
                     chefName: appSettings.chefName,
                   })
+                  // Persist delivery settings (center + radius -> bounding box)
+                  const lat = Number(deliverySettings.centerLat)
+                  const lng = Number(deliverySettings.centerLng)
+                  const rad = Number(deliverySettings.radiusKm)
+                  if (!Number.isNaN(lat) && !Number.isNaN(lng) && !Number.isNaN(rad)) {
+                    await saveDeliverySettings({ centerLat: lat, centerLng: lng, radiusKm: rad })
+                  }
                   setInfo('Settings saved')
                 } catch (e) {
                   setError(e.message || 'Failed to save settings')
                 } finally { setAppSettingsSaving(false) }
-              }}>{appSettingsSaving ? 'Saving…' : 'Save'}</button>
+              }}>{appSettingsSaving ? 'Saving…' : 'Save changes'}</button>
               <button className="btn btn-ghost" disabled={appSettingsLoading} onClick={async ()=>{
                 setAppSettingsLoading(true)
                 try { setAppSettings(await fetchAppSettings()) } catch {} finally { setAppSettingsLoading(false) }
               }}>{appSettingsLoading ? 'Loading…' : 'Reload'}</button>
             </div>
             {/* Messaging test panel */}
-            <div className="mt-8 rounded-xl border border-dashed border-base-300/60 p-4">
+            <div className="mt-8 rounded-xl border border-base-300/60 bg-base-100/70 p-4">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold">Messaging test</h3>
                 <div className="text-[10px] opacity-70">
@@ -1406,7 +1623,7 @@ export default function Admin({ section = 'inventory' }) {
                             ...(components.length ? { components } : {})
                           }
                         } else {
-                          payload = { text: testMsg, from: 'admin-settings-test', store: { name: "Venky's Cheat Mealz" } }
+                          payload = { text: testMsg, from: 'admin-settings-test', store: { name: BRAND_LONG } }
                         }
                         const res = await sendWhatsAppInvoice(`91${phone}`, payload)
                         if (res && res.__error) {
@@ -1434,7 +1651,7 @@ export default function Admin({ section = 'inventory' }) {
                       if (!/^\d{10}$/.test(phone)) { setError('Enter a valid 10-digit Indian mobile'); return }
                       setTestSending(s => ({ ...s, sms: true }))
                       try {
-                        const text = testMsg || 'Hello from Venky\'s Cheat Mealz'
+                        const text = testMsg || `Hello from ${BRAND_LONG}`
                         const res = await sendSMSInvoice(`91${phone}`, text)
                         if (res && res.__error) throw new Error(`SMS error (${res.__error}${res.status? ':'+res.status:''})`)
                         if (res && res.__skipped) pushToast('SMS test skipped (endpoint not configured)', 'warning')
@@ -1485,6 +1702,21 @@ export default function Admin({ section = 'inventory' }) {
                   </div>
                 </div>
               </div>
+              {/* Pending status hint */}
+              {(() => {
+                const idx = statusFlow.indexOf(selectedOrder.status)
+                const pending = statusFlow.slice(idx + 1)
+                if (!pending.length) return null
+                const nextMissing = pending[0]
+                return (
+                  <div className="alert alert-warning py-2 min-h-0">
+                    <div className="flex items-center gap-2">
+                      <MdWarningAmber className="w-5 h-5" />
+                      <span className="text-sm">Not marked as {nextMissing} yet</span>
+                    </div>
+                  </div>
+                )
+              })()}
               <div>
                 <div className="font-medium mb-1">Items</div>
                 <div className="overflow-x-auto rounded border border-base-300/60">

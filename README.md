@@ -1,12 +1,45 @@
-# Venky's — Single-Restaurant Food Ordering Web App
+# Venky’s — Single-Restaurant Food Ordering Web App
 
-A lightweight Swiggy/Zomato-style ordering experience for a single local restaurant, built with React + Vite, Tailwind CSS v4, and DaisyUI.
+Fast, modern ordering for a single local restaurant. Built with React + Vite, Tailwind CSS v4, and DaisyUI. Includes PWA, Firebase Auth/Firestore, a POS-style admin, and serverless payment hooks.
 
-## Tech
-- React (JS only)
-- Vite
-- Tailwind CSS v4 + DaisyUI (two custom themes: `venkys_light`, `venkys_dark`)
-- React Router
+Updated: 2025-10-17
+
+## Highlights / Features
+
+- Customer app
+	- Category-first menu with image thumbnails and smooth scrolling to sections
+	- Categories strip auto-centers the active category when navigating or selecting
+	- Smart search with typo tolerance (fuzzy matching) for both categories and items
+	- Live filters and sorting:
+		- Veg / Non-Veg / All (active states: Veg = green, Non-Veg = red)
+		- Sort by Price (Low→High, High→Low) and Name (A→Z, Z→A)
+		- Compact Sort dropdown (closes on selection, outside click, or Escape)
+	- Cart management with quantities and removal
+	- Checkout with address details, optional Google geolocation reverse-fill, and delivery geofence validation
+	- Address book with “Set as default”
+	- PWA-ready (installable, offline app shell, asset caching)
+
+- Admin / Operations
+	- Unified admin at `/admin` with sections for Inventory, Orders, Analytics, Appearance, Settings, and a Biller POS
+	- Appearance: custom category ordering and images
+	- Store toggle (open/closed)
+	- Delivery settings (center + radius) read in checkout validation
+	- Messaging testers (WhatsApp/SMS) with a configurable endpoint
+
+- Data & Architecture
+	- Firestore-backed data with helpers in `src/lib/data.js` (categories, menu items, orders, user profiles, addresses, settings)
+	- Branding constants centralized in the data layer
+	- Image fetching optimized and staggered by category to reduce jank
+	- Manual chunk splitting for React, Firebase, and vendor libs
+	- PWA service worker (injectManifest) with navigation fallback and asset caching
+
+## Current Status
+
+- Production build: OK (Vite 7). You may see a “large chunk” warning for Firebase (~500KB). Manual chunks are configured.
+- Filters/sorting: Live, local state. Resets to defaults on page change. “Home” in the bottom dock fully resets the Home page (clears search, filters, and scrolls to top).
+- Categories bar: Centers the selected/active category; Home sections align below the sticky header for a dedicated look.
+- Search: Fuzzy search (for small typos). Selecting a category result takes you directly to that section on Home.
+- Messaging: If WhatsApp/SMS endpoints aren’t configured, send actions are skipped with a visible note.
 
 ## Quick Start
 
@@ -23,81 +56,106 @@ npm run build
 
 # Preview production build
 npm run preview
+
+# (Optional) Deploy to Firebase Hosting
+npm run deploy
 ```
 
-## App Structure
-- `src/context/CartContext.jsx` — Cart state (add/remove/update/clear, totals)
-- `src/context/UIContext.jsx` — UI state for item detail modal
-- `src/lib/firebase.js` / `src/lib/data.js` — Firebase init + Firestore helpers
-- `src/components/NavBar.jsx` — Top bar + search + cart trigger
-- `src/components/CartDrawer.jsx` — DaisyUI drawer for cart contents
-- `src/components/ItemModal.jsx` — DaisyUI modal for dish details
-- `src/components/MenuItemCard.jsx` — Menu card with View/Add actions
-- `src/pages/Home.jsx` — Menu listing by category
-- `src/pages/Checkout.jsx` — Cart management + order summary
-- `src/index.css` — Tailwind layers + small custom component layer (DaisyUI plugin declared only in config)
-- `tailwind.config.js` — DaisyUI plugin + dual custom themes (yellow = primary, red = secondary)
-- `postcss.config.js` — Tailwind v4 PostCSS plugin config
+## Configuration (.env)
 
-## Notes
-- Tailwind v4 uses the `@tailwindcss/postcss` plugin. The config is already set.
-- DaisyUI is included via the Tailwind config `plugins: [daisyui]` (no `@plugin` directive needed in `index.css`). Do not remove the plugin configuration.
-- If your editor flags `@tailwind` / `@plugin` as unknown at-rules, they are handled at build time (safe to ignore).
+Copy `.env.example` to `.env` and fill in values. Common keys:
 
-## Next Ideas
-- Capture delivery / address details and store with orders
-- Persist cart to localStorage (rehydrate on load)
-- Add filters (veg-only, price range) + sorting
-- Ratings & reviews per item
-- Basic auth (Firebase Auth) and show past orders
-- Payment integration & order status tracking
+- Firebase (client SDK)
+	- `VITE_FIREBASE_API_KEY`
+	- `VITE_FIREBASE_AUTH_DOMAIN`
+	- `VITE_FIREBASE_PROJECT_ID`
+	- `VITE_FIREBASE_STORAGE_BUCKET`
+	- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+	- `VITE_FIREBASE_APP_ID`
+
+- Delivery defaults (optional fallback if Firestore delivery settings are missing)
+	- `VITE_DELIVERY_CENTER_LAT`
+	- `VITE_DELIVERY_CENTER_LNG`
+	- `VITE_DELIVERY_RADIUS_KM`
+
+- Integrations (optional)
+	- `VITE_WHATSAPP_FUNCTION_URL` — a server endpoint that sends WhatsApp messages for invoices/notifications
+
+## App Structure (selected)
+
+- Components / UX
+	- `src/components/NavBar.jsx` — search with fuzzy matching, theme, account, and location pick
+	- `src/components/CategoriesBar.jsx` — horizontally scrollable categories; centers active on navigation
+	- `src/components/FilterBar.jsx` — Veg/Non-Veg/All + Sort dropdown
+	- `src/components/CartDrawer.jsx`, `src/components/ItemModal.jsx`, `src/components/MenuItemCard.jsx`
+
+- Pages
+	- `src/pages/Home.jsx` — menu by category with smooth anchors and live filters/sorts
+	- `src/pages/Checkout.jsx` — delivery details, geolocation reverse-fill, geofence validation
+	- `src/pages/Admin*.jsx` — inventory, orders, analytics, appearance, settings, and biller
+
+- Data & State
+	- `src/lib/firebase.js` — Firebase app/Auth/Firestore init
+	- `src/lib/data.js` — Firestore helpers (categories/menu/orders/users/settings, image loading)
+	- `src/context/AuthContext.jsx`, `src/context/CartContext.jsx`, `src/context/UIContext.jsx`
+
+- PWA
+	- `vite.config.js` (+ `vite-plugin-pwa`) — injectManifest mode
+	- `src/sw.js` — custom service worker
+
+## Usage Tips
+
+- Filtering & Sorting
+	- Use Veg/Non-Veg/All to narrow results. Active Veg shows green; active Non-Veg shows red.
+	- Open the Sort dropdown to choose Price or Name sort; the dropdown closes on selection/outside/Escape.
+
+- Categories
+	- Click a category chip (or choose a category from search) to jump to that section on Home. The chip auto-centers in the strip and the section aligns below the sticky header.
+
+- Dock
+	- Tap “Home” to fully reset Home (clears search, resets filters/sort, and scrolls to top).
+	- Tap “Menu” to scroll to the menu section.
 
 ## Vercel Serverless Payment API (Razorpay)
 
-This project now includes Vercel serverless functions in the `api/` folder:
+Serverless functions live under `api/`:
 
 Endpoints:
-- `POST /api/create-order` – creates a Razorpay order. Body: `{ amount: number, cartChecksum?: string }`.
-- `POST /api/verify-payment` – verifies the Razorpay signature and (optionally) updates Firestore. Body: `{ orderId, paymentId, signature, localOrderId }`.
+- `POST /api/create-order` — creates a Razorpay order. Body: `{ amount: number, cartChecksum?: string }`.
+- `POST /api/verify-payment` — verifies the Razorpay signature and can update Firestore. Body: `{ orderId, paymentId, signature, localOrderId }`.
 
-### Required Environment Variables (Vercel Project Settings)
-Set these in Vercel (Project > Settings > Environment Variables). Do NOT commit secrets.
+Required (Vercel > Project Settings > Environment Variables):
+- Razorpay: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`
+- Firebase: same values as above
 
-Razorpay:
-- `RAZORPAY_KEY_ID` (public key – also expose to client as needed)
-- `RAZORPAY_KEY_SECRET` (secret key)
+Local testing (optional):
+1. `npm i razorpay`
+2. `npm i -g vercel` then `vercel dev` (or set a Vite proxy)
 
-Firebase (matching your existing web config):
-- `FIREBASE_API_KEY`
-- `FIREBASE_AUTH_DOMAIN`
-- `FIREBASE_PROJECT_ID`
-- `FIREBASE_STORAGE_BUCKET`
-- `FIREBASE_MESSAGING_SENDER_ID`
-- `FIREBASE_APP_ID`
+Security notes:
+- Compute `amount` on the server from the authoritative cart (TODO in `create-order`).
+- Consider adding Razorpay webhook (`/api/webhook-razorpay`) for redundancy.
+- For privileged Firestore writes, prefer Admin SDK on the server (service account via env vars) rather than the client SDK.
 
-### Local Testing (Optional)
-You can run these API routes locally using Vite dev proxy or `vercel dev`.
-1. Install Razorpay dependency if not already: `npm i razorpay`.
-2. (Optional) Install Vercel CLI: `npm i -g vercel` then run `vercel dev`.
+## Theming & Styling
 
-### Frontend Usage Example
-```ts
-// Create order
-const res = await fetch('/api/create-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: cartTotal }) })
-const data = await res.json()
-// data.orderId -> pass to Razorpay Checkout options
-```
-After successful payment (in Razorpay handler):
-```ts
-await fetch('/api/verify-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: response.razorpay_order_id, paymentId: response.razorpay_payment_id, signature: response.razorpay_signature, localOrderId }) })
-```
+- Tailwind CSS v4 via `@tailwindcss/postcss` (already configured)
+- DaisyUI themes: `venkys_light` (default) and `venkys_dark`
+- If your editor flags `@tailwind`/`@plugin` at-rules, they are build-time handled
 
-### Security Notes
-- Always recompute `amount` server-side from the authoritative cart (TODO in `create-order`).
-- Consider adding a webhook endpoint later for redundancy: `/api/webhook-razorpay`.
-- If you need unrestricted Firestore admin writes, switch to Firebase Admin SDK using a service account (store credentials in Vercel encrypted env vars) instead of the client SDK.
+## Known Notes / Limitations
 
-### Next Steps
-- Add webhook function for `payment.captured`.
-- Add server-side cart validation & pricing rules.
-- Persist `receipt` mapping to local order doc for reconciliation.
+- Firebase bundle shows a large-chunk warning (~500 KB) — expected with the client SDK; manual chunks are configured.
+- WhatsApp/SMS sending requires configuring `VITE_WHATSAPP_FUNCTION_URL`; otherwise, actions are skipped.
+- Some admin operations assume Firestore rules or admin privileges; adjust security rules accordingly.
+
+## Roadmap
+
+- Price range filter (slider) next to Sort
+- Code-split admin pages via React.lazy for faster first load
+- Emulator-based tests for Firestore rules (orders, cart, addresses)
+- Optional webhook for Razorpay `payment.captured`
+
+---
+
+If you hit issues or need a new environment setup, start with `.env.example`, check Firebase rules/indexes, and run `npm run dev` on http://localhost:5173.

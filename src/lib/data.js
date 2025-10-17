@@ -1,5 +1,8 @@
 // Data layer for Firestore
 import { collection, doc, getDocs, getDoc, query, where, addDoc, setDoc, serverTimestamp, orderBy, deleteDoc, arrayUnion, writeBatch, runTransaction, limit as fsLimit } from 'firebase/firestore'
+// Centralized branding constants (moved from separate file)
+export const BRAND_LONG = "Venky's Chicken Xperience Durgapur"
+export const BRAND_SHORT = "Venky's"
 import { db } from './firebase'
 
 function isPermissionDenied(err) {
@@ -391,6 +394,51 @@ export async function saveAppSettings(partial) {
   return true
 }
 
+// --- Delivery Settings (Store location + radius + computed bounding box) --- //
+export async function fetchDeliverySettings() {
+  try {
+    const ref = doc(db, 'miscellaneous', 'delivery')
+    const snap = await getDoc(ref)
+    if (!snap.exists()) return { centerLat: null, centerLng: null, radiusKm: null, __exists: false }
+    const d = snap.data()
+    return {
+      centerLat: typeof d.centerLat === 'number' ? d.centerLat : null,
+      centerLng: typeof d.centerLng === 'number' ? d.centerLng : null,
+      radiusKm: typeof d.radiusKm === 'number' ? d.radiusKm : null,
+      minLat: typeof d.minLat === 'number' ? d.minLat : null,
+      maxLat: typeof d.maxLat === 'number' ? d.maxLat : null,
+      minLng: typeof d.minLng === 'number' ? d.minLng : null,
+      maxLng: typeof d.maxLng === 'number' ? d.maxLng : null,
+      __exists: true,
+    }
+  } catch (e) {
+    return { centerLat: null, centerLng: null, radiusKm: null, __error: true }
+  }
+}
+
+export async function saveDeliverySettings({ centerLat, centerLng, radiusKm }) {
+  const lat = Number(centerLat)
+  const lng = Number(centerLng)
+  const r = Math.max(0, Number(radiusKm) || 0)
+  const toRad = (x) => (x * Math.PI) / 180
+  const degLatPerKm = 1 / 110.574 // approx
+  const degLngPerKm = 1 / (111.320 * Math.cos(toRad(lat || 0)) || 1)
+  const dLat = r * degLatPerKm
+  const dLng = r * degLngPerKm
+  const payload = {
+    centerLat: lat,
+    centerLng: lng,
+    radiusKm: r,
+    minLat: lat - dLat,
+    maxLat: lat + dLat,
+    minLng: lng - dLng,
+    maxLng: lng + dLng,
+    updatedAt: serverTimestamp(),
+  }
+  await setDoc(doc(db, 'miscellaneous', 'delivery'), payload, { merge: true })
+  return true
+}
+
 // Lightweight SMS sender (backend endpoint required)
 export async function sendSMSInvoice(phone, text) {
   try {
@@ -641,7 +689,24 @@ export async function fetchUserProfile(uid) {
 
 export async function updateUserProfile(uid, data) {
   if (!uid) return
-  await setDoc(doc(db, 'users', uid), { ...data, updatedAt: serverTimestamp() }, { merge: true })
+  // Whitelist and normalize only supported profile fields
+  const allowed = ['displayName', 'phone', 'defaultPayment', 'upiId', 'cardHolder', 'cardLast4']
+  const out = {}
+  for (const k of allowed) {
+    if (data[k] === undefined) continue
+    let v = data[k]
+    if (typeof v === 'string') v = v.trim()
+    out[k] = v
+  }
+  // Normalize defaultPayment to cod|upi|card
+  if (out.defaultPayment && !['cod','upi','card'].includes(String(out.defaultPayment))) {
+    out.defaultPayment = 'cod'
+  }
+  // Keep last4 numeric only
+  if (typeof out.cardLast4 === 'string') {
+    out.cardLast4 = out.cardLast4.replace(/[^0-9]/g, '').slice(0, 4)
+  }
+  await setDoc(doc(db, 'users', uid), { ...out, updatedAt: serverTimestamp() }, { merge: true })
 }
 
 export async function addAddress(uid, address) {
@@ -650,7 +715,25 @@ export async function addAddress(uid, address) {
   const snap = await getDoc(ref)
   const list = snap.exists() && Array.isArray(snap.data().list) ? snap.data().list : []
   const id = address.id || crypto.randomUUID()
-  const normalized = { id, name: address.name || '', line1: address.line1 || '', line2: address.line2 || '', city: address.city || '', state: address.state || '', zip: address.zip || '', landmark: address.landmark || '', phone: address.phone || '', tag: address.tag || 'Other' }
+  // Build compact, final schema for address storage
+  const normalized = (() => {
+    const nm = (v) => (typeof v === 'string' ? v.trim() : v)
+    const obj = {
+      id,
+      name: nm(address.name) || nm(address.tag) || 'Address',
+      tag: nm(address.tag) || 'Other',
+      line1: nm(address.line1) || '',
+      ...(nm(address.line2) ? { line2: nm(address.line2) } : {}),
+      city: nm(address.city) || '',
+      zip: nm(address.zip) || '',
+      ...(nm(address.phone) ? { phone: nm(address.phone) } : {}),
+      ...(typeof address.lat === 'number' ? { lat: address.lat } : {}),
+      ...(typeof address.lng === 'number' ? { lng: address.lng } : {}),
+      ...(nm(address.placeId) ? { placeId: nm(address.placeId) } : {}),
+      ...(nm(address.mapUrl) ? { mapUrl: nm(address.mapUrl) } : {}),
+    }
+    return obj
+  })()
   const next = [...list, normalized]
   // If first address, also set defaultId
   const payload = { list: next, updatedAt: serverTimestamp() }
@@ -666,7 +749,38 @@ export async function updateAddress(uid, id, patch) {
   if (!snap.exists()) return
   const data = snap.data()
   const list = Array.isArray(data.list) ? data.list : []
-  const next = list.map(a => a.id === id ? { ...a, ...patch } : a)
+  // Sanitize incoming patch against final schema and drop deprecated fields
+  const nm = (v) => (typeof v === 'string' ? v.trim() : v)
+  const allowedKeys = new Set(['name','tag','line1','line2','city','zip','phone','lat','lng','placeId','mapUrl'])
+  const cleaned = {}
+  Object.entries(patch || {}).forEach(([k,v]) => {
+    if (!allowedKeys.has(k)) return
+    const val = nm(v)
+    if (val === '' || val === undefined) {
+      // allow clearing by setting empty string; we'll omit it when rebuilding the object
+      cleaned[k] = ''
+    } else {
+      cleaned[k] = val
+    }
+  })
+  const next = list.map(a => {
+    if (a.id !== id) return a
+    const base = {
+      id: a.id,
+      name: nm(cleaned.name ?? a.name) || nm(cleaned.tag ?? a.tag) || 'Address',
+      tag: nm(cleaned.tag ?? a.tag) || 'Other',
+      line1: nm(cleaned.line1 ?? a.line1) || '',
+      ...(nm(cleaned.line2 ?? a.line2) ? { line2: nm(cleaned.line2 ?? a.line2) } : {}),
+      city: nm(cleaned.city ?? a.city) || '',
+      zip: nm(cleaned.zip ?? a.zip) || '',
+      ...(nm(cleaned.phone ?? a.phone) ? { phone: nm(cleaned.phone ?? a.phone) } : {}),
+      ...(typeof (cleaned.lat ?? a.lat) === 'number' ? { lat: Number(cleaned.lat ?? a.lat) } : {}),
+      ...(typeof (cleaned.lng ?? a.lng) === 'number' ? { lng: Number(cleaned.lng ?? a.lng) } : {}),
+      ...(nm(cleaned.placeId ?? a.placeId) ? { placeId: nm(cleaned.placeId ?? a.placeId) } : {}),
+      ...(nm(cleaned.mapUrl ?? a.mapUrl) ? { mapUrl: nm(cleaned.mapUrl ?? a.mapUrl) } : {}),
+    }
+    return base
+  })
   await setDoc(ref, { list: next, updatedAt: serverTimestamp() }, { merge: true })
 }
 
@@ -734,4 +848,60 @@ export async function fetchImagesByIds(ids) {
     }
   }))
   return out
+}
+
+// Session-scoped image cache. Persists for the lifetime of the tab, cleared on full close.
+function getSessionImage(id) {
+  try {
+    const raw = sessionStorage.getItem(`img:${id}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && parsed.data) return parsed
+  } catch {}
+  return null
+}
+
+function setSessionImage(id, obj) {
+  try {
+    const payload = { data: obj.data, mime: obj.mime || null }
+    sessionStorage.setItem(`img:${id}`, JSON.stringify(payload))
+  } catch {
+    // Ignore quota errors; cache is best-effort
+  }
+}
+
+// Cached variant: reads images from sessionStorage when available, otherwise fetches
+// from Firestore and stores in sessionStorage. Same return shape as fetchImagesByIds.
+export async function fetchImagesByIdsCached(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return {}
+  const unique = Array.from(new Set(ids.filter(Boolean)))
+  const cachedOut = {}
+  const toFetch = []
+  for (const id of unique) {
+    const hit = getSessionImage(id)
+    if (hit) {
+      cachedOut[id] = hit
+    } else {
+      toFetch.push(id)
+    }
+  }
+  if (toFetch.length) {
+    const fetched = await fetchImagesByIds(toFetch)
+    Object.entries(fetched).forEach(([id, obj]) => {
+      setSessionImage(id, obj)
+    })
+    return { ...fetched, ...cachedOut }
+  }
+  return cachedOut
+}
+
+// Optional tiny in-memory cache for image data URLs for this module instance
+const memoryImageCache = new Map()
+export function getImageDataUrl(obj) {
+  // obj shape: { data, mime }
+  const key = `${obj.mime || 'image/*'}:${obj.data?.slice?.(0, 24) || ''}:${obj.data?.length || 0}`
+  if (memoryImageCache.has(key)) return memoryImageCache.get(key)
+  const url = `data:${obj.mime || 'image/*'};base64,${obj.data}`
+  memoryImageCache.set(key, url)
+  return url
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchMenuCategories, fetchLatestUserOrder, fetchImagesByIds, fetchStoreStatus } from '../lib/data'
+import { fetchMenuCategories, fetchLatestUserOrder, fetchImagesByIdsCached, fetchStoreStatus, getImageDataUrl } from '../lib/data'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import MenuItemCard from '../components/MenuItemCard'
@@ -16,6 +16,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [vegFilter, setVegFilter] = useState('all') // all | veg | nonveg
+  const [sortBy, setSortBy] = useState('default') // default | price-asc | price-desc | name-asc | name-desc
+  const [searchVisibleCount, setSearchVisibleCount] = useState(24)
   const [activeOrder, setActiveOrder] = useState(null)
   const [storeOpen, setStoreOpen] = useState(true)
   const { user } = useAuth()
@@ -77,7 +79,16 @@ export default function Home() {
 
   // Respond to navigation state for scrolling (Home / Menu shortcuts)
   useEffect(() => {
-    if (location.state?.scrollToTop) {
+    if (location.state?.reset) {
+      // Reset live state to defaults
+      setQ('')
+      setVegFilter('all')
+      setSortBy('default')
+      setSearchVisibleCount(24)
+      // remove the state so back/forward doesn't re-trigger
+      navigate(location.pathname, { replace: true })
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } else if (location.state?.scrollToTop) {
       window.scrollTo({ top: 0, behavior: 'smooth' })
       // clean state
       navigate(location.pathname, { replace: true })
@@ -88,6 +99,15 @@ export default function Home() {
     } else if (location.hash === '#menu') {
       const el = document.getElementById('menu')
       if (el) el.scrollIntoView({ behavior: 'smooth' })
+    } else if (location.hash) {
+      // Smooth scroll to category with a slight offset for sticky header
+      const id = location.hash.slice(1)
+      const el = document.getElementById(id)
+      if (el) {
+        // ensure the section has scroll-margin to account for any sticky header
+        el.style.scrollMarginTop = '84px'
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
     }
   }, [location, navigate])
 
@@ -98,11 +118,11 @@ export default function Home() {
     const ids = categories.map(c => c.imageId).filter(Boolean)
     if (!ids.length) { setCategoryImageMap({}); return }
     let active = true
-    fetchImagesByIds(ids).then(map => {
+    fetchImagesByIdsCached(ids).then(map => {
       if (!active) return
       const out = {}
       Object.entries(map).forEach(([id, d]) => {
-        out[id] = `data:${d.mime || 'image/*'};base64,${d.data}`
+        out[id] = getImageDataUrl(d)
       })
       setCategoryImageMap(out)
     }).catch(()=>{})
@@ -116,14 +136,21 @@ export default function Home() {
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase()
-    return menu.filter((m) => {
+    const base = menu.filter((m) => {
       if (term && !(m.name || '').toLowerCase().includes(term)) return false
       if (vegFilter === 'veg') return m.veg !== false // treat undefined as veg
       if (vegFilter === 'nonveg') return m.veg === false
       if (m.active === false) return false
       return true
     })
-  }, [menu, q, vegFilter])
+    // Sorting
+    const sorted = [...base]
+    if (sortBy === 'price-asc') sorted.sort((a,b) => (a.price||0) - (b.price||0))
+    else if (sortBy === 'price-desc') sorted.sort((a,b) => (b.price||0) - (a.price||0))
+    else if (sortBy === 'name-asc') sorted.sort((a,b) => (a.name||'').localeCompare(b.name||''))
+    else if (sortBy === 'name-desc') sorted.sort((a,b) => (b.name||'').localeCompare(a.name||''))
+    return sorted
+  }, [menu, q, vegFilter, sortBy])
 
   // Strict image loading chronology:
   // 1) Categories bar images (handled above)
@@ -149,7 +176,7 @@ export default function Home() {
         while (ids.length && !cancelled) {
           const slice = ids.splice(0, CHUNK)
           try {
-            const res = await fetchImagesByIds(slice)
+            const res = await fetchImagesByIdsCached(slice)
             if (cancelled) return
             setImageMap(prev => ({ ...prev, ...res }))
           } catch { /* ignore network hiccups for individual slices */ }
@@ -163,6 +190,47 @@ export default function Home() {
     run()
     return () => { cancelled = true }
   }, [categories])
+
+  // Wire Home to URL query for integrated search only (filters remain live/local)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const term = params.get('q') || ''
+    setQ(term)
+    setSearchVisibleCount(24)
+  }, [location.search])
+
+  // Reset filters on page change (route) – defaults every time
+  useEffect(() => {
+    setVegFilter('all')
+    setSortBy('default')
+  }, [location.pathname])
+
+  // If searching, prefetch only the images needed for currently filtered items, in chunks.
+  useEffect(() => {
+    const term = q.trim().toLowerCase()
+    if (!term) return
+    const ids = Array.from(new Set(menu
+      .filter(m => (m.name || '').toLowerCase().includes(term))
+      .map(m => m.imageId)
+      .filter(Boolean)))
+    if (!ids.length) return
+    let cancelled = false
+    async function run() {
+      const queue = [...ids]
+      const CHUNK = 16
+      while (queue.length && !cancelled) {
+        const slice = queue.splice(0, CHUNK)
+        try {
+          const res = await fetchImagesByIdsCached(slice)
+          if (cancelled) return
+          setImageMap(prev => ({ ...prev, ...res }))
+        } catch {}
+        await new Promise(r => setTimeout(r, 0))
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [q, menu])
 
   if (loading) {
     return (
@@ -199,36 +267,76 @@ export default function Home() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-8 mb-3" id="menu">
         <h2 className="section-title">Menu</h2>
       </div>
-  <FilterBar vegFilter={vegFilter} onVegChange={setVegFilter} />
+      <FilterBar
+        vegFilter={vegFilter}
+        sortBy={sortBy}
+        onVegChange={(v) => setVegFilter(v)}
+        onSortChange={(s) => setSortBy(s)}
+      />
 
-      {categories.length > 0 ? (
-        categories.map((cat) => {
-          const catItems = filtered.filter((m) => m.categoryId === cat.id)
-          if (catItems.length === 0) return null
-          return (
-            <section key={cat.id} className="mb-10" id={cat.id}>
-              <h3 className="text-2xl font-bold mb-4">{cat.name}</h3>
-              <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                {catItems.map((item) => {
-                  const imgObj = item.imageId && imageMap[item.imageId]
-                  const imageUrl = imgObj ? `data:${imgObj.mime || 'image/png'};base64,${imgObj.data}` : undefined
-                  return <MenuItemCard key={item.id} item={{ ...item, imageUrl, storeClosed: !storeOpen }} />
-                })}
-              </div>
-            </section>
-          )
-        })
-      ) : (
-        <section className="mb-10" id="all-items">
-          <h3 className="text-2xl font-bold mb-4">All items</h3>
+      {/* If a search term exists, show a single unified "Search results" section and hide other items */}
+      {q.trim() ? (
+        <section className="mb-10" id="search-results">
+          <h3 className="text-2xl font-bold mb-4">Search results for "{q.trim()}"</h3>
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-            {filtered.map((item) => {
+            {filtered.slice(0, searchVisibleCount).map((item) => {
               const imgObj = item.imageId && imageMap[item.imageId]
-              const imageUrl = imgObj ? `data:${imgObj.mime || 'image/png'};base64,${imgObj.data}` : undefined
-              return <MenuItemCard key={item.id} item={{ ...item, imageUrl }} />
+              const imageUrl = imgObj ? getImageDataUrl(imgObj) : undefined
+              return <MenuItemCard key={item.id} item={{ ...item, imageUrl, storeClosed: !storeOpen }} />
             })}
           </div>
+          {filtered.length > searchVisibleCount && (
+            <div className="flex justify-center mt-6">
+              <button className="btn btn-outline" onClick={() => setSearchVisibleCount(c => c + 24)}>Load more</button>
+            </div>
+          )}
+          <div className="mt-4">
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                setQ('')
+                setSearchVisibleCount(24)
+                const params = new URLSearchParams(location.search)
+                params.delete('q')
+                navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
+              }}
+            >Clear search</button>
+          </div>
+          {filtered.length === 0 && (
+            <div className="opacity-60">No matching items.</div>
+          )}
         </section>
+      ) : (
+        // Default: show categories with their items as before
+        (categories.length > 0 ? (
+          categories.map((cat) => {
+            const catItems = filtered.filter((m) => m.categoryId === cat.id)
+            if (catItems.length === 0) return null
+            return (
+              <section key={cat.id} className="mb-10 scroll-mt-24" id={cat.id}>
+                <h3 className="text-2xl font-bold mb-4">{cat.name}</h3>
+                <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                  {catItems.map((item) => {
+                    const imgObj = item.imageId && imageMap[item.imageId]
+                    const imageUrl = imgObj ? getImageDataUrl(imgObj) : undefined
+                    return <MenuItemCard key={item.id} item={{ ...item, imageUrl, storeClosed: !storeOpen }} />
+                  })}
+                </div>
+              </section>
+            )
+          })
+        ) : (
+          <section className="mb-10" id="all-items">
+            <h3 className="text-2xl font-bold mb-4">All items</h3>
+            <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              {filtered.map((item) => {
+                const imgObj = item.imageId && imageMap[item.imageId]
+                const imageUrl = imgObj ? getImageDataUrl(imgObj) : undefined
+                return <MenuItemCard key={item.id} item={{ ...item, imageUrl, storeClosed: !storeOpen }} />
+              })}
+            </div>
+          </section>
+        ))
       )}
     </div>
   )

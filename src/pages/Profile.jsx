@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { MdPlace, MdApartment, MdLocationCity, MdMap, MdPinDrop, MdLocalPhone, MdGpsFixed } from 'react-icons/md'
 import { useAuth } from '../context/AuthContext'
 import { fetchUserOrders, fetchUserProfile, updateUserProfile, fetchAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress } from '../lib/data'
+import { initAutocomplete, reverseGeocode } from '../lib/google'
 import { useUI } from '../context/UIContext'
 
 export default function Profile() {
@@ -9,13 +11,17 @@ export default function Profile() {
   const [orders, setOrders] = useState([])
   const [loadingOrders, setLoadingOrders] = useState(false)
   const [profile, setProfile] = useState(null)
-  const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', bio: '', defaultPayment: 'cod', upiId: '', cardHolder: '', cardLast4: '' })
+  const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', defaultPayment: 'cod', upiId: '', cardHolder: '', cardLast4: '' })
   const [profileSaving, setProfileSaving] = useState(false)
   const [addrState, setAddrState] = useState({ list: [], defaultId: null })
   const [addrModalOpen, setAddrModalOpen] = useState(false)
   const [addrEditing, setAddrEditing] = useState(null) // existing address object or null
   const [addrForm, setAddrForm] = useState({ name: '', line1: '', line2: '', city: '', state: '', zip: '', landmark: '', phone: '', tag: 'Home', lat: null, lng: null, placeId: '', mapUrl: '' })
   const [addrSaving, setAddrSaving] = useState(false)
+  const addrLine1Ref = useRef(null)
+  const acRef = useRef(null)
+  const [setAsDefault, setSetAsDefault] = useState(false)
+  // tag dropdown removed; we now use inline radio buttons
 
   // Load orders
   useEffect(() => {
@@ -37,7 +43,6 @@ export default function Profile() {
         setProfileForm({
           displayName: p.displayName || '',
           phone: p.phone || '',
-          bio: p.bio || '',
           defaultPayment: p.defaultPayment || 'cod',
           upiId: p.upiId || '',
           cardHolder: p.cardHolder || '',
@@ -50,12 +55,40 @@ export default function Profile() {
     return () => { mounted = false }
   }, [user])
 
+  // Initialize Google Places Autocomplete for Address Line 1 when modal is open
+  useEffect(() => {
+    if (!addrModalOpen) {
+      // cleanup existing autocomplete instance
+      acRef.current = null
+      return
+    }
+    let cancelled = false
+    const el = addrLine1Ref.current
+    if (!el) return
+    initAutocomplete(el, (parts) => {
+      if (cancelled) return
+      setAddrForm((f) => ({
+        ...f,
+        line1: parts.line1 || f.line1,
+        city: parts.city || f.city,
+        state: parts.state || f.state,
+        zip: parts.zip || f.zip,
+        lat: parts.lat ?? f.lat,
+        lng: parts.lng ?? f.lng,
+        placeId: parts.placeId || f.placeId,
+        mapUrl: parts.mapUrl || f.mapUrl,
+      }))
+    }).then((ac) => { acRef.current = ac }).catch(()=>{})
+    return () => { cancelled = true }
+  }, [addrModalOpen])
+
+  // no-op effect removed (dropdown removed)
+
   function resetProfileForm() {
     if (!profile) return
     setProfileForm({
       displayName: profile.displayName || '',
       phone: profile.phone || '',
-      bio: profile.bio || '',
       defaultPayment: profile.defaultPayment || 'cod',
       upiId: profile.upiId || '',
       cardHolder: profile.cardHolder || '',
@@ -79,23 +112,33 @@ export default function Profile() {
 
   function openAddAddress() {
     setAddrEditing(null)
-  setAddrForm({ name: '', line1: '', line2: '', city: '', state: '', zip: '', landmark: '', phone: '', tag: 'Home', lat: null, lng: null, placeId: '', mapUrl: '' })
+  setAddrForm({ name: '', line1: '', line2: '', city: '', state: '', zip: '', landmark: '', phone: user?.phoneNumber || profile?.phone || '', tag: 'Home', lat: null, lng: null, placeId: '', mapUrl: '' })
+    setSetAsDefault(addrState.list.length === 0)
     setAddrModalOpen(true)
   }
   function openEditAddress(a) {
     setAddrEditing(a)
   setAddrForm({ name: a.name||'', line1: a.line1||'', line2: a.line2||'', city: a.city||'', state: a.state||'', zip: a.zip||'', landmark: a.landmark||'', phone: a.phone||'', tag: a.tag||'Other', lat: a.lat ?? null, lng: a.lng ?? null, placeId: a.placeId || '', mapUrl: a.mapUrl || '' })
+    setSetAsDefault(addrState.defaultId === a.id)
     setAddrModalOpen(true)
   }
   async function saveAddress() {
     if (!user) return
     setAddrSaving(true)
     try {
+      // Default name to tag if empty (since Save As field is removed)
+      const payload = { ...addrForm, name: (addrForm.name || '').trim() || addrForm.tag }
       if (addrEditing) {
-        await updateAddress(user.uid, addrEditing.id, addrForm)
+        await updateAddress(user.uid, addrEditing.id, payload)
+        if (setAsDefault) {
+          try { await setDefaultAddress(user.uid, addrEditing.id) } catch {}
+        }
         pushToast('Address updated', 'success')
       } else {
-        await addAddress(user.uid, addrForm)
+        const newId = await addAddress(user.uid, payload)
+        if (setAsDefault && newId) {
+          try { await setDefaultAddress(user.uid, newId) } catch {}
+        }
         pushToast('Address added', 'success')
       }
       const a = await fetchAddresses(user.uid)
@@ -147,7 +190,6 @@ export default function Profile() {
     <div className="page-wrap py-6 space-y-10">
       <div className="flex flex-col gap-1">
         <h1 className="text-3xl font-bold">Profile</h1>
-        <p className="text-sm opacity-70">Signed in as {user.email}</p>
       </div>
 
       {/* Profile details */}
@@ -159,23 +201,20 @@ export default function Profile() {
             <button className="btn btn-sm btn-ghost" onClick={resetProfileForm} disabled={profileSaving}>Reset</button>
           </div>
         </div>
-  <div className="grid md:grid-cols-4 gap-4">
+  <div className="grid md:grid-cols-3 gap-4">
           <label className="form-control w-full">
-            <div className="label"><span className="label-text text-xs">Display name</span></div>
-            <input className="input input-bordered input-sm" value={profileForm.displayName} onChange={e=>setProfileForm(f=>({...f,displayName:e.target.value}))} placeholder="Your name" />
-          </label>
-          <label className="form-control w-full">
-            <div className="label"><span className="label-text text-xs">Phone</span></div>
-            <input className="input input-bordered input-sm" value={profileForm.phone} onChange={e=>setProfileForm(f=>({...f,phone:e.target.value}))} placeholder="Phone number" />
+            <div className="label"><span className="label-text">Display name</span></div>
+            <input className="input input-bordered" value={profileForm.displayName} onChange={e=>setProfileForm(f=>({...f,displayName:e.target.value}))} placeholder="Your name" />
           </label>
           <label className="form-control w-full">
-            <div className="label"><span className="label-text text-xs">Email</span></div>
-            <input className="input input-bordered input-sm" value={user.email} disabled />
+            <div className="label"><span className="label-text">Phone</span></div>
+            <input className="input input-bordered" value={profileForm.phone} onChange={e=>setProfileForm(f=>({...f,phone:e.target.value}))} placeholder="Phone number" />
           </label>
-          <label className="form-control md:col-span-4">
-            <div className="label"><span className="label-text text-xs">Bio</span></div>
-            <textarea className="textarea textarea-bordered textarea-sm" rows={3} value={profileForm.bio} onChange={e=>setProfileForm(f=>({...f,bio:e.target.value}))} placeholder="Short bio (optional)" />
+          <label className="form-control w-full">
+            <div className="label"><span className="label-text">Email</span></div>
+            <input className="input input-bordered" value={user.email} disabled />
           </label>
+          {/* Bio removed as requested */}
         </div>
         <div className="rounded-xl border border-base-300/60 bg-base-100/70 backdrop-blur-sm p-4 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -214,7 +253,7 @@ export default function Profile() {
               </div>
             )}
           </div>
-          <div className="text-[11px] opacity-60">COD = pay at delivery, UPI = quick collect, Card = label only.</div>
+          {/* Helper line removed as requested */}
         </div>
       </section>
 
@@ -296,45 +335,152 @@ export default function Profile() {
       {addrModalOpen && (
         <dialog open className="modal modal-open">
           <div className="modal-box max-w-lg">
-            <h3 className="font-semibold mb-2">{addrEditing?'Edit address':'Add address'}</h3>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <input className="input input-bordered input-sm col-span-2" placeholder="Label / Name (e.g. Home)" value={addrForm.name} onChange={e=>setAddrForm(f=>({...f,name:e.target.value}))} />
-              <input className="input input-bordered input-sm col-span-2" placeholder="Address line 1" value={addrForm.line1} onChange={e=>setAddrForm(f=>({...f,line1:e.target.value}))} />
-              <input className="input input-bordered input-sm col-span-2" placeholder="Address line 2" value={addrForm.line2} onChange={e=>setAddrForm(f=>({...f,line2:e.target.value}))} />
-              <input className="input input-bordered input-sm" placeholder="City" value={addrForm.city} onChange={e=>setAddrForm(f=>({...f,city:e.target.value}))} />
-              <input className="input input-bordered input-sm" placeholder="State" value={addrForm.state} onChange={e=>setAddrForm(f=>({...f,state:e.target.value}))} />
-              <input className="input input-bordered input-sm" placeholder="ZIP" value={addrForm.zip} onChange={e=>setAddrForm(f=>({...f,zip:e.target.value}))} />
-              <input className="input input-bordered input-sm" placeholder="Phone" value={addrForm.phone} onChange={e=>setAddrForm(f=>({...f,phone:e.target.value}))} />
-              <input className="input input-bordered input-sm col-span-2" placeholder="Landmark (optional)" value={addrForm.landmark} onChange={e=>setAddrForm(f=>({...f,landmark:e.target.value}))} />
-              <select className="select select-bordered select-sm col-span-2" value={addrForm.tag} onChange={e=>setAddrForm(f=>({...f,tag:e.target.value}))}>
-                {['Home','Work','Other'].map(t=> <option key={t} value={t}>{t}</option>)}
-              </select>
-              <div className="col-span-2 grid grid-cols-2 gap-3">
-                <div className="col-span-2 flex items-center justify-between">
-                  <span className="text-[11px] opacity-70">Google location (optional)</span>
-                  <div className="flex gap-2">
-                    <button type="button" className="btn btn-xs btn-outline" onClick={()=>{
-                      if (!('geolocation' in navigator)) { pushToast('Geolocation not supported','error'); return }
-                      navigator.geolocation.getCurrentPosition(pos=>{
-                        setAddrForm(f=>({...f,lat:pos.coords.latitude,lng:pos.coords.longitude}))
-                        pushToast('Location captured','success')
-                      },()=>pushToast('Location failed','error'))
-                    }}>Use current</button>
-                    <button type="button" className="btn btn-xs" onClick={()=>{
-                      if (!addrForm.mapUrl) { pushToast('Paste a Google Maps URL first','info'); return }
-                      const r=/@(-?\d+\.\d+),(-?\d+\.\d+)/.exec(addrForm.mapUrl)
-                      if(r){ setAddrForm(f=>({...f,lat:parseFloat(r[1]),lng:parseFloat(r[2])})); pushToast('Parsed coordinates','success') } else { pushToast('Could not parse URL','error') }
-                    }}>Parse link</button>
+            <h3 className="font-semibold mb-3">{addrEditing?'Edit address':'Add address'}</h3>
+            {/* Underline input with icon component */}
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              {/* Address type radios (Home, Work, Other -> custom) */}
+              <div className="col-span-2">
+                <div className="flex items-center px-2 border-b border-base-300 py-2 gap-3">
+                  <span className="text-sm opacity-70 whitespace-nowrap">Address type</span>
+                  <div className="flex items-center gap-3 flex-1">
+                    <label className="inline-flex items-center gap-2 cursor-pointer">
+                      <input type="radio" className="radio" name="addrTag" checked={addrForm.tag==='Home'} onChange={()=> setAddrForm(f=>({...f, tag: 'Home'}))} />
+                      <span className="text-sm">Home</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2 cursor-pointer">
+                      <input type="radio" className="radio" name="addrTag" checked={addrForm.tag==='Work'} onChange={()=> setAddrForm(f=>({...f, tag: 'Work'}))} />
+                      <span className="text-sm">Work</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2 cursor-pointer">
+                      <input type="radio" className="radio" name="addrTag" checked={addrForm.tag!=='Home' && addrForm.tag!=='Work'} onChange={()=> setAddrForm(f=>({...f, tag: ''}))} />
+                      <span className="text-sm">Other</span>
+                    </label>
                   </div>
+                  {(addrForm.tag!=='Home' && addrForm.tag!=='Work') && (
+                    <div className="flex items-center gap-2">
+                      <input className="w-36 bg-transparent outline-none py-1.5" value={addrForm.tag} onChange={(e)=> setAddrForm(f=>({...f, tag: e.target.value}))} />
+                    </div>
+                  )}
                 </div>
-                <input className="input input-bordered input-sm col-span-2" placeholder="Google Maps URL" value={addrForm.mapUrl} onChange={e=>setAddrForm(f=>({...f,mapUrl:e.target.value}))} />
-                <input className="input input-bordered input-sm" placeholder="Latitude" value={addrForm.lat ?? ''} onChange={e=>setAddrForm(f=>({...f,lat:e.target.value?Number(e.target.value):null}))} />
-                <input className="input input-bordered input-sm" placeholder="Longitude" value={addrForm.lng ?? ''} onChange={e=>setAddrForm(f=>({...f,lng:e.target.value?Number(e.target.value):null}))} />
-                {(addrForm.lat!==null && addrForm.lng!==null) && <div className="col-span-2 text-[11px] opacity-70">Preview: <a className="link" href={`https://www.google.com/maps?q=${addrForm.lat},${addrForm.lng}`} target="_blank" rel="noopener noreferrer">Open in Maps</a></div>}
               </div>
+              {/* Address line 1 (Autocomplete) */}
+              <div className="col-span-2">
+                <div className="flex items-center gap-2 px-2 border-b border-base-300 focus-within:border-primary/60 transition">
+                  <MdPlace className="w-4 h-4 opacity-70" />
+                  <input
+                    ref={addrLine1Ref}
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    placeholder="Flat No. / House No., Street"
+                    value={addrForm.line1}
+                    onChange={(e)=>setAddrForm(f=>({...f,line1:e.target.value}))}
+                  />
+                </div>
+              </div>
+              {/* Address line 2 */}
+              <div className="col-span-2">
+                <div className="flex items-center gap-2 px-2 border-b border-base-300 focus-within:border-primary/60 transition">
+                  <MdApartment className="w-4 h-4 opacity-70" />
+                  <input
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    placeholder="Area / Locality"
+                    value={addrForm.line2}
+                    onChange={(e)=>setAddrForm(f=>({...f,line2:e.target.value}))}
+                  />
+                </div>
+              </div>
+              {/* City (disabled) */}
+              <div>
+                <div className="flex items-center gap-2 px-2 border-b border-base-300">
+                  <MdLocationCity className="w-4 h-4 opacity-70" />
+                  <input
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70 text-base-content/70"
+                    placeholder="City"
+                    value={addrForm.city}
+                    disabled
+                    readOnly
+                  />
+                </div>
+              </div>
+              {/* State (disabled) */}
+              <div>
+                <div className="flex items-center gap-2 px-2 border-b border-base-300">
+                  <MdMap className="w-4 h-4 opacity-70" />
+                  <input
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70 text-base-content/70"
+                    placeholder="State"
+                    value={addrForm.state}
+                    disabled
+                    readOnly
+                  />
+                </div>
+              </div>
+              {/* PIN / ZIP */}
+              <div>
+                <div className="flex items-center gap-2 px-2 border-b border-base-300 focus-within:border-primary/60 transition">
+                  <MdPinDrop className="w-4 h-4 opacity-70" />
+                  <input
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    placeholder="PIN / ZIP"
+                    value={addrForm.zip}
+                    onChange={(e)=>setAddrForm(f=>({...f,zip:e.target.value}))}
+                  />
+                </div>
+              </div>
+              {/* Phone */}
+              <div>
+                <div className="flex items-center gap-2 px-2 border-b border-base-300 focus-within:border-primary/60 transition">
+                  <MdLocalPhone className="w-4 h-4 opacity-70" />
+                  <input
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    placeholder="Phone"
+                    value={addrForm.phone}
+                    onChange={(e)=>setAddrForm(f=>({...f,phone:e.target.value}))}
+                  />
+                </div>
+              </div>
+              {/* divider before location */}
+              <div className="col-span-2 border-t my-2"></div>
+              <div className="col-span-2 grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <button type="button" className="btn btn-sm btn-primary" onClick={()=>{
+                      if (!('geolocation' in navigator)) { pushToast('Geolocation not supported','error'); return }
+                      navigator.geolocation.getCurrentPosition(async pos=>{
+                        const lat = pos.coords.latitude; const lng = pos.coords.longitude
+                        setAddrForm(f=>({...f,lat,lng}))
+                        // Try reverse geocoding to auto-fill address fields
+                        const parts = await reverseGeocode(lat, lng)
+                        if (parts) {
+                          setAddrForm(f=>({
+                            ...f,
+                            line1: parts.line1 || f.line1,
+                            line2: f.line2,
+                            city: parts.city || f.city,
+                            state: parts.state || f.state,
+                            zip: parts.zip || f.zip,
+                            placeId: parts.placeId || f.placeId,
+                            mapUrl: parts.mapUrl || f.mapUrl,
+                          }))
+                          pushToast('Address filled from location','success')
+                        } else {
+                          pushToast('Location captured','success')
+                        }
+                      },()=>pushToast('Location failed','error'))
+                    }}>
+                      <span className="inline-flex items-center gap-1"><MdGpsFixed className="w-3.5 h-3.5"/> Share Google Location</span>
+                  </button>
+                </div>
+                {/* Keep lat/lng stored, but hide the inputs from UI */}
+                <input type="hidden" value={addrForm.lat ?? ''} readOnly />
+                <input type="hidden" value={addrForm.lng ?? ''} readOnly />
+                {/* Preview removed as requested */}
+              </div>
+              <label className="label cursor-pointer col-span-2 justify-start gap-2 mt-1">
+                <input type="checkbox" className="checkbox checkbox-sm" checked={setAsDefault} onChange={(e)=> setSetAsDefault(e.target.checked)} />
+                <span className="label-text text-sm">Set as default</span>
+              </label>
             </div>
             <div className="modal-action">
-              <button className="btn btn-sm" onClick={saveAddress} disabled={addrSaving}>{addrSaving?'Saving...':'Save'}</button>
+              <button className="btn btn-sm btn-warning" onClick={saveAddress} disabled={addrSaving}>{addrSaving?'Saving...':'Save'}</button>
               <button className="btn btn-sm btn-ghost" onClick={()=>setAddrModalOpen(false)} disabled={addrSaving}>Cancel</button>
             </div>
           </div>

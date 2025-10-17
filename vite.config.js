@@ -5,6 +5,17 @@ import path from 'node:path'
 
 // https://vite.dev/config/
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react','react-dom'],
+          firebase: ['firebase/app','firebase/auth','firebase/firestore'],
+          vendor: ['react-router-dom','react-icons']
+        }
+      }
+    }
+  },
   resolve: {
     // Ensure a single React instance across the app to avoid "Invalid hook call"
     alias: {
@@ -20,7 +31,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
   includeAssets: ['icons/logo.png', 'favicon.ico'],
       manifest: {
-        name: 'Venky’s Cheat Mealz',
+        name: 'Venky’s Chicken Xperience Durgapur',
         short_name: 'Venky’s',
         description: 'Local food ordering with a fast POS for billers.',
         start_url: '/',

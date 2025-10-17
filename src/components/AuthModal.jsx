@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { auth } from '../lib/firebase'
 import { sendPasswordResetEmail } from 'firebase/auth'
 import { FcGoogle } from 'react-icons/fc'
+import { MdAlternateEmail, MdLock, MdPerson } from 'react-icons/md'
 
 export default function AuthModal() {
   const { authMode, closeAuth, openAuth } = useUI()
@@ -57,79 +58,90 @@ export default function AuthModal() {
           {error && <div className="alert alert-error text-sm">{error}</div>}
           {info && <div className="alert alert-success text-sm">{info}</div>}
 
-          {authMode !== 'login' && (
-            <form onSubmit={onSubmit} className="space-y-5 text-left">
-              {/* compute validity in render */}
-              {(() => {
-                return null
-              })()}
-              <label className="form-control">
-                <input
-                  type="text"
-                  placeholder="Full Name"
-                  className="input input-bordered input-lg rounded-xl w-full"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </label>
-              <label className="form-control">
-                <input
-                  type="email"
-                  placeholder="Email"
-                  className={`input input-bordered input-lg rounded-xl w-full ${email && !/^\S+@\S+\.\S+$/.test(email.trim()) ? 'input-error' : ''}`}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-                {email && !/^\S+@\S+\.\S+$/.test(email.trim()) && (
+          {authMode !== 'login' && (() => {
+            const emailInvalid = email && !/^\S+@\S+\.\S+$/.test(email.trim())
+            return (
+              <form onSubmit={onSubmit} className="space-y-5 text-left">
+                {/* Full name */}
+                <div className="flex items-center gap-2 px-2 border-b border-base-300 focus-within:border-primary/60 transition">
+                  <MdPerson className="w-4 h-4 opacity-70" />
+                  <input
+                    type="text"
+                    placeholder="Full Name"
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+                {/* Email */}
+                <div className={`flex items-center gap-2 px-2 border-b transition ${emailInvalid ? 'border-error' : 'border-base-300 focus-within:border-primary/60'}`}>
+                  <MdAlternateEmail className="w-4 h-4 opacity-70" />
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                {emailInvalid && (
                   <div className="text-error text-xs mt-1">Enter a valid email</div>
                 )}
-              </label>
-              <label className="form-control">
-                <input
-                  type="password"
-                  placeholder="Password"
-                  className="input input-bordered input-lg rounded-xl w-full"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </label>
-              <button
-                className="btn btn-primary btn-lg w-full"
-                disabled={
-                  loading ||
-                  !(name.trim() && email.trim() && password.trim() && /^\S+@\S+\.\S+$/.test(email.trim()))
-                }
-              >
-                {loading ? 'Please wait…' : 'Create account'}
-              </button>
-            </form>
-          )}
+                {/* Password */}
+                <div className="flex items-center gap-2 px-2 border-b border-base-300 focus-within:border-primary/60 transition">
+                  <MdLock className="w-4 h-4 opacity-70" />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <button
+                  className="btn btn-primary btn-lg w-full"
+                  disabled={
+                    loading ||
+                    !(name.trim() && email.trim() && password.trim() && /^\S+@\S+\.\S+$/.test(email.trim()))
+                  }
+                >
+                  {loading ? 'Please wait…' : 'Create account'}
+                </button>
+              </form>
+            )
+          })()}
 
-          {authMode === 'login' && (
-            <form onSubmit={onSubmit} className="space-y-5 text-left">
-              <label className="form-control">
-                <input
-                  type="email"
-                  placeholder="Email"
-                  className="input input-bordered input-lg rounded-xl w-full"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </label>
-              <label className="form-control">
-                <input
-                  type="password"
-                  placeholder="Password"
-                  className="input input-bordered input-lg rounded-xl w-full"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </label>
+          {authMode === 'login' && (() => {
+            const emailInvalid = email && !/^\S+@\S+\.\S+$/.test(email.trim())
+            return (
+              <form onSubmit={onSubmit} className="space-y-5 text-left">
+                {/* Email */}
+                <div className={`flex items-center gap-2 px-2 border-b transition ${emailInvalid ? 'border-error' : 'border-base-300 focus-within:border-primary/60'}`}>
+                  <MdAlternateEmail className="w-4 h-4 opacity-70" />
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                {/* Password */}
+                <div className="flex items-center gap-2 px-2 border-b border-base-300 focus-within:border-primary/60 transition">
+                  <MdLock className="w-4 h-4 opacity-70" />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
               <div className="text-right -mt-2">
                 <button
                   type="button"
@@ -153,8 +165,9 @@ export default function AuthModal() {
               <button className="btn btn-primary btn-lg w-full" disabled={loading}>
                 {loading ? 'Please wait…' : 'Login'}
               </button>
-            </form>
-          )}
+              </form>
+            )
+          })()}
 
           <div className="divider my-2">or</div>
 

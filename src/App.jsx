@@ -11,7 +11,6 @@ import AdminOrders from './pages/AdminOrders'
 import AdminAnalytics from './pages/AdminAnalytics'
 import AdminAppearance from './pages/AdminAppearance'
 import Profile from './pages/Profile'
-import SearchPage from './pages/SearchPage'
 import AdminBiller from './pages/AdminBiller'
 
 function App() {
@@ -27,7 +26,7 @@ function App() {
   <Route path="/admin/appearance" element={<AdminAppearance />} />
   <Route path="/admin/settings" element={<Admin section="settings" />} />
         <Route path="/admin/biller" element={<AdminBiller />} />
-        <Route path="/search" element={<SearchPage />} />
+  {/* Search is handled inline on Home via ?q=... */}
         <Route path="/profile" element={<Profile />} />
         <Route path="/about" element={<About />} />
         <Route path="/contact" element={<Contact />} />

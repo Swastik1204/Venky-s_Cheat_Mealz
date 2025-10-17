@@ -13,10 +13,13 @@ export default function QuickDock() {
   const location = useLocation()
 
   function goHome() {
+    // Always navigate to root with no search/hash and a reset flag
+    const to = { pathname: '/', search: '', hash: '' }
     if (location.pathname === '/') {
+      navigate(to, { replace: true, state: { reset: true } })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
-      navigate('/', { state: { scrollToTop: true } })
+      navigate(to, { state: { reset: true } })
     }
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import logo from '../assets/logo.png'
@@ -83,13 +83,50 @@ export default function NavBar() {
     }).catch(()=>{})
   }, [])
 
-  const results = (() => {
-    if (!query.trim()) return []
-    const q = query.trim().toLowerCase()
-    return allSearchItems
-      .filter(x => x.label?.toLowerCase().includes(q))
-      .slice(0, 12)
-  })()
+  // Simple fuzzy scoring: case-insensitive includes boost + Levenshtein distance threshold
+  const levenshtein = useMemo(() => {
+    return (a, b) => {
+      a = (a||'').toLowerCase(); b = (b||'').toLowerCase()
+      const m = a.length, n = b.length
+      if (m === 0) return n
+      if (n === 0) return m
+      const dp = Array.from({length: m+1}, (_,i)=> Array(n+1).fill(0))
+      for (let i=0;i<=m;i++) dp[i][0] = i
+      for (let j=0;j<=n;j++) dp[0][j] = j
+      for (let i=1;i<=m;i++) {
+        for (let j=1;j<=n;j++) {
+          const cost = a[i-1] === b[j-1] ? 0 : 1
+          dp[i][j] = Math.min(
+            dp[i-1][j] + 1,
+            dp[i][j-1] + 1,
+            dp[i-1][j-1] + cost
+          )
+        }
+      }
+      return dp[m][n]
+    }
+  }, [])
+
+  const results = useMemo(() => {
+    const raw = query.trim()
+    if (!raw) return []
+    const q = raw.toLowerCase()
+    // Compute a simple score; lower distance is better. Direct includes gets strong boost.
+    const scored = allSearchItems.map(x => {
+      const label = x.label || ''
+      const l = label.toLowerCase()
+      const includes = l.includes(q)
+      const dist = levenshtein(q, l)
+      // Normalize with length to avoid favoring short strings unfairly
+      const norm = dist / Math.max(1, l.length)
+      let score = includes ? -1 : norm // lower is better; -1 beats any norm
+      return { x, score }
+    })
+    scored.sort((a,b) => a.score - b.score)
+    // Keep only reasonable matches: allow up to 0.5 normalized distance, or direct includes
+    const filtered = scored.filter(s => s.score <= 0.5 || s.score === -1).slice(0, 12)
+    return filtered.map(s => s.x)
+  }, [query, allSearchItems, levenshtein])
 
   // Close on outside click for search & location panel
   useEffect(() => {
@@ -109,8 +146,16 @@ export default function NavBar() {
     const v = (value ?? query).trim()
     if (!v) return
     setSearchOpen(false)
+    try { inputRef.current?.blur() } catch {}
     setActiveIndex(-1)
-    navigate(`/search?q=${encodeURIComponent(v)}`)
+    // If user selects a category suggestion, scroll to that category and clear query
+    const catMatch = allSearchItems.find(x => x.type === 'category' && x.label.toLowerCase() === v.toLowerCase())
+    if (catMatch) {
+      navigate({ pathname: '/', hash: `#${catMatch.cat}` }, { replace: false })
+      return
+    }
+    // Otherwise, update Home's URL query 'q' so Home shows search-mode results without page transition
+    navigate({ pathname: '/', search: `q=${encodeURIComponent(v)}` })
   }
 
   const onKeyDown = useCallback((e) => {
@@ -198,14 +243,7 @@ export default function NavBar() {
                 onFocus={() => setSearchOpen(true)}
                 className="flex-1 min-w-0 bg-transparent outline-none text-sm sm:text-base placeholder:text-base-content/50 placeholder:opacity-70 focus:placeholder:opacity-60"
               />
-              {query && (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  className="btn btn-ghost btn-xs"
-                  onClick={()=> { setQuery(''); setActiveIndex(-1); inputRef.current?.focus() }}
-                >✕</button>
-              )}
+              {/* Clear button removed as requested */}
               {/* Search icon now on right */}
               <button
                 type="button"

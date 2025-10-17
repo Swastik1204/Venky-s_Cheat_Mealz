@@ -1,7 +1,10 @@
 import { useRef, useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 export default function CategoriesBar({ items = [] }) {
   const scrollerRef = useRef(null)
+  const navigate = useNavigate()
+  const location = useLocation()
   const [showLeft, setShowLeft] = useState(false)
   const [showRight, setShowRight] = useState(false)
   const [pulse, setPulse] = useState(true)
@@ -48,6 +51,20 @@ export default function CategoriesBar({ items = [] }) {
     const t = setTimeout(() => setPulse(false), 2600)
     return () => { el.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); clearTimeout(t) }
   }, [])
+
+  // Center active category when the hash changes (from search or nav)
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    const hash = location.hash || ''
+    if (!hash.startsWith('#')) return
+    const id = hash.slice(1)
+    const btn = el.querySelector(`[data-cat-id="${CSS.escape(id)}"]`)
+    if (!btn) return
+    const target = btn.offsetLeft + (btn.offsetWidth / 2) - (el.clientWidth / 2)
+    const clamped = Math.max(0, Math.min(target, el.scrollWidth - el.clientWidth))
+    el.scrollTo({ left: clamped, behavior: 'smooth' })
+  }, [location.hash])
 
   // Wheel vertical -> horizontal mapping for easier navigation
   useEffect(() => {
@@ -137,9 +154,22 @@ export default function CategoriesBar({ items = [] }) {
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {items.map((it, i) => (
-          <a
+          <button
             key={it.id}
-            href={it.href || '#'}
+            type="button"
+            data-cat-id={it.id}
+            onClick={() => {
+              // Center this item in view immediately for snappy UX
+              const el = scrollerRef.current
+              const btn = el?.querySelector(`[data-cat-id="${CSS.escape(it.id)}"]`)
+              if (el && btn) {
+                const target = btn.offsetLeft + (btn.offsetWidth / 2) - (el.clientWidth / 2)
+                const clamped = Math.max(0, Math.min(target, el.scrollWidth - el.clientWidth))
+                el.scrollTo({ left: clamped, behavior: 'smooth' })
+              }
+              // Then navigate so Home updates hash and content focus
+              navigate({ pathname: '/', hash: `#${it.id}` })
+            }}
             className="flex flex-col items-center gap-2 min-w-24 sm:min-w-28 snap-start focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-xl"
           >
             <div className="avatar">
@@ -154,9 +184,25 @@ export default function CategoriesBar({ items = [] }) {
               </div>
             </div>
             <div className="text-xs sm:text-sm font-medium text-center truncate w-24 sm:w-28">{it.label}</div>
-          </a>
+          </button>
         ))}
       </div>
     </div>
   )
+}
+
+// Keep active category centered when hash changes externally (e.g., from search or back/forward)
+export function useCenterActiveCategory(scrollerRef, location) {
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    const hash = location.hash || ''
+    if (!hash.startsWith('#')) return
+    const id = hash.slice(1)
+    const btn = el.querySelector(`[data-cat-id="${CSS.escape(id)}"]`)
+    if (!btn) return
+    const target = btn.offsetLeft + (btn.offsetWidth / 2) - (el.clientWidth / 2)
+    const clamped = Math.max(0, Math.min(target, el.scrollWidth - el.clientWidth))
+    el.scrollTo({ left: clamped, behavior: 'smooth' })
+  }, [location.hash, scrollerRef])
 }
