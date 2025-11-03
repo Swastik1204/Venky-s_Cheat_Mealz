@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Minimal SMS forwarder (Twilio-compatible). For other providers, adapt the fetch.
 // POST body: { phone: "+9198xxxxxx", text: "message" }
 // Requires env: SMS_PROVIDER (twilio), TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM

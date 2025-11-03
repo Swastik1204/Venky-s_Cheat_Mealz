@@ -63,7 +63,7 @@ export default function FilterBar({ vegFilter = 'all', onVegChange, sortBy = 'de
               <button
                 className={`justify-between ${sortBy === opt.key ? 'active font-semibold' : ''}`}
                 onMouseDown={(e)=> e.preventDefault()}
-                onClick={() => { onSortChange && onSortChange(opt.key); setOpen(false); try { toggleRef.current?.blur() } catch {} }}
+                onClick={() => { onSortChange && onSortChange(opt.key); setOpen(false); try { toggleRef.current?.blur() } catch { /* noop */ } }}
               >
                 {opt.label}
                 {sortBy === opt.key && <span className="badge badge-primary badge-xs">Selected</span>}

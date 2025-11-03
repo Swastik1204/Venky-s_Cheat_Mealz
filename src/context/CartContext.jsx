@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react'
 import { useAuth } from './AuthContext'
 import { loadCart, saveCart } from '../lib/data'
@@ -79,7 +78,7 @@ export function CartProvider({ children }) {
       loadedOnceRef.current = true
     })
     return () => { mounted = false }
-  }, [user])
+  }, [user, pushToast])
 
   // Persist (debounced) when items change and user logged in
   useEffect(() => {
@@ -96,7 +95,7 @@ export function CartProvider({ children }) {
       }
     }, 600) // debounce 600ms
     return () => saveTimer.current && clearTimeout(saveTimer.current)
-  }, [state.items, user])
+  }, [state.items, user, pushToast])
 
   const value = useMemo(() => {
     const entries = Object.values(state.items)

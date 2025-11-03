@@ -45,7 +45,7 @@ export async function reverseGeocode(lat, lon) {
     const a = data.address || {}
     const city = a.city || a.town || a.village || a.suburb || a.county || a.state || 'Current location'
     return { label: city, full: data.display_name }
-  } catch (e) {
+  } catch {
     return { label: `${lat.toFixed(3)}, ${lon.toFixed(3)}` }
   }
 }

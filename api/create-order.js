@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Vercel Serverless Function: Create Razorpay Order
 // Endpoint: /api/create-order
 // Method: POST

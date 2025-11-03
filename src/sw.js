@@ -1,11 +1,9 @@
-/* eslint-disable no-restricted-globals */
 // Custom service worker used by vite-plugin-pwa (injectManifest strategy)
 // Caches app shell, precaches build assets via injected manifest, with navigation fallback.
 
 const CACHE = 'venkys-pwa-v1'
 const APP_SHELL = ['/', '/index.html']
 // This array is replaced at build time by vite-plugin-pwa (workbox-inject-manifest)
-// eslint-disable-next-line no-underscore-dangle
 const WB_MANIFEST = self.__WB_MANIFEST || []
 
 self.addEventListener('install', (event) => {
@@ -14,7 +12,7 @@ self.addEventListener('install', (event) => {
       const cache = await caches.open(CACHE)
       // Precache build assets from injected manifest
       const urls = WB_MANIFEST.map((e) => e.url)
-      try { await cache.addAll([...APP_SHELL, ...urls]) } catch {}
+  try { await cache.addAll([...APP_SHELL, ...urls]) } catch { /* noop */ }
     })()
   )
   self.skipWaiting()

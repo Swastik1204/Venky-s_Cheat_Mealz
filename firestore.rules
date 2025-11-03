@@ -5,7 +5,8 @@ service cloud.firestore {
     function adminEmails() {
       return [
         'swastiksaha1204@gmail.com',
-        'sarmistharoysaha@gmail.com'
+        'sarmistharoysaha@gmail.com',
+        'adwitiyasaha8@gmail.com'
       ];
     }
 
@@ -41,7 +42,8 @@ service cloud.firestore {
 
     // ===== Delivery geofence helpers (bounding box) =====
     function deliveryConfig() {
-      return get(/databases/$(database)/documents/miscellaneous/delivery).data;
+      // Delivery/geofence settings are stored in miscellaneous/settings
+      return get(/databases/$(database)/documents/miscellaneous/settings).data;
     }
     function hasGeo(addr) {
       return addr.lat is number && addr.lng is number;
@@ -145,11 +147,11 @@ service cloud.firestore {
       allow write: if isAdmin() || isBiller();
     }
 
-    // ===== Miscellaneous config (appearance, store status, settings, delivery) =====
+    // ===== Miscellaneous config (appearance, store status, settings) =====
     match /miscellaneous/{docId} {
       allow read: if true;
-      // Only admins can write specific config docs (include delivery settings)
-      allow write: if isAdmin() && docId in ['appearance', 'store', 'settings', 'delivery'];
+      // Only admins can write specific config docs (includes delivery/geofence settings inside 'settings')
+      allow write: if isAdmin() && docId in ['appearance', 'store', 'settings'];
     }
   }
 }

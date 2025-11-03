@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Lightweight health check for APIs.
 // GET /api/health
 // Returns basic configuration and environment info without exposing secrets.

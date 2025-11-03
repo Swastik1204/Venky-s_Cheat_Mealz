@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 import { auth } from '../lib/firebase'
 import {
   onAuthStateChanged,
@@ -39,7 +39,7 @@ export function AuthProvider({ children }) {
     return () => unsub()
   }, [])
 
-  async function signup(email, password, displayName) {
+  const signup = useCallback(async (email, password, displayName) => {
     setError(null)
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     if (displayName) {
@@ -47,28 +47,28 @@ export function AuthProvider({ children }) {
     }
     await ensureUserDocument(cred.user)
     return cred.user
-  }
+  }, [])
 
-  async function login(email, password) {
+  const login = useCallback(async (email, password) => {
     setError(null)
     const cred = await signInWithEmailAndPassword(auth, email, password)
     return cred.user
-  }
+  }, [])
 
-  async function logout() {
+  const logout = useCallback(async () => {
     await signOut(auth)
-  }
+  }, [])
 
   // Google sign-in
-  async function loginWithGoogle() {
+  const loginWithGoogle = useCallback(async () => {
     setError(null)
     const provider = new GoogleAuthProvider()
     const cred = await signInWithPopup(auth, provider)
     return cred.user
-  }
+  }, [])
 
   // Phone OTP helpers
-  function getRecaptchaVerifier(containerId = 'recaptcha-container') {
+  const getRecaptchaVerifier = useCallback((containerId = 'recaptcha-container') => {
     // Reuse if exists
     const anyWin = window
     if (anyWin.recaptchaVerifier) return anyWin.recaptchaVerifier
@@ -77,19 +77,19 @@ export function AuthProvider({ children }) {
     })
     anyWin.recaptchaVerifier = verifier
     return verifier
-  }
+  }, [])
 
-  async function sendOtp(e164Phone, containerId = 'recaptcha-container') {
+  const sendOtp = useCallback(async (e164Phone, containerId = 'recaptcha-container') => {
     setError(null)
     const verifier = getRecaptchaVerifier(containerId)
     return signInWithPhoneNumber(auth, e164Phone, verifier)
-  }
+  }, [getRecaptchaVerifier])
 
-  async function verifyOtp(confirmationResult, code) {
+  const verifyOtp = useCallback(async (confirmationResult, code) => {
     setError(null)
     const cred = await confirmationResult.confirm(code)
     return cred.user
-  }
+  }, [])
 
   const value = useMemo(() => ({
     user,
@@ -101,7 +101,7 @@ export function AuthProvider({ children }) {
     loginWithGoogle,
     sendOtp,
     verifyOtp,
-  }), [user, loading, error])
+  }), [user, loading, error, signup, login, logout, loginWithGoogle, sendOtp, verifyOtp])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

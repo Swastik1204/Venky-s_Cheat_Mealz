@@ -40,7 +40,7 @@ export default function MenuItemCard({ item }) {
             onError={() => setImgError(true)}
             loading="lazy"
             decoding="async"
-            fetchpriority="low"
+            fetchPriority="low"
           />
         ) : (
           <div className="w-full h-full grid place-items-center text-base-content/40">

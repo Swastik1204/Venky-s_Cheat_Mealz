@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { fetchUserProfile } from '../lib/data'
+// Inline profile completion alert (component removed)
+import { useEffect, useState } from 'react'
 import { fetchMenuCategories, fetchLatestUserOrder, fetchImagesByIdsCached, fetchStoreStatus, getImageDataUrl } from '../lib/data'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import MenuItemCard from '../components/MenuItemCard'
 import FilterBar from '../components/FilterBar'
 import CategoriesBar from '../components/CategoriesBar'
-
-
-// CategoriesBar will be populated dynamically from Firestore categories
+import ProfileCompletionAlert from '../components/ProfileCompletionAlert'
 
 export default function Home() {
   const [categories, setCategories] = useState([]) // docs from 'menu'
@@ -21,41 +22,59 @@ export default function Home() {
   const [activeOrder, setActiveOrder] = useState(null)
   const [storeOpen, setStoreOpen] = useState(true)
   const { user } = useAuth()
+  // Removed unused profile state
+  const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', gender: '', photoURL: '' })
+  const [addrState, setAddrState] = useState({ list: [], defaultId: null })
+  // Keep prompt flag without exposing unused setter
+  const [showProfilePrompt] = useState(true)
+  // Load profile and addresses for completion calculation
+  useEffect(() => {
+    if (!user) { setProfileForm({ displayName: '', phone: '', gender: '', photoURL: '' }); setAddrState({ list: [], defaultId: null }); return }
+    fetchUserProfile(user.uid).then(p => {
+      setProfileForm({
+        displayName: p?.displayName || '',
+        phone: p?.phone || '',
+        gender: p?.gender || '',
+        photoURL: p?.photoURL || ''
+      })
+    })
+    // Fetch addresses
+    import('../lib/data').then(({ fetchAddresses }) => {
+      fetchAddresses(user.uid).then(a => setAddrState(a)).catch(() => setAddrState({ list: [], defaultId: null }))
+    })
+  }, [user])
+
   const location = useLocation()
   const navigate = useNavigate()
+  // Completion UI handled by ProfileCompletionAlert component
 
   useEffect(() => {
     let mounted = true
     fetchMenuCategories()
       .then((docs) => {
         if (!mounted) return
-        // Normalize categories: id = doc id, name field optional
         const cats = docs.map((d) => ({
           id: d.id,
           name: d.name || d.id,
-            // Preserve category-level imageId so CategoriesBar can render thumbnails
           imageId: d.imageId || null,
           items: Array.isArray(d.items) ? d.items : []
         }))
-        // Flatten items and attach categoryId
         const flat = cats.flatMap((c) =>
           (c.items || []).map((it, idx) => ({
             id: `${c.id}-${idx}-${(it.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
             name: it.name,
             price: it.price,
-            veg: it.veg === false ? false : true, // missing -> veg
+            veg: it.veg === false ? false : true,
             active: it.active === false ? false : true,
             categoryId: c.id,
             category: c.id,
             imageId: it.imageId || null,
-            // pass-through for item modal details
             components: Array.isArray(it.components) ? it.components : [],
             isCustom: !!it.isCustom,
           }))
         )
         setCategories(cats)
         setMenu(flat)
-        // Item images are loaded later in a category-by-category sequence (see dedicated effect below)
       })
       .finally(() => mounted && setLoading(false))
     fetchStoreStatus().then(s => { if (mounted) setStoreOpen(s.open !== false) })
@@ -80,17 +99,14 @@ export default function Home() {
   // Respond to navigation state for scrolling (Home / Menu shortcuts)
   useEffect(() => {
     if (location.state?.reset) {
-      // Reset live state to defaults
       setQ('')
       setVegFilter('all')
       setSortBy('default')
       setSearchVisibleCount(24)
-      // remove the state so back/forward doesn't re-trigger
       navigate(location.pathname, { replace: true })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else if (location.state?.scrollToTop) {
       window.scrollTo({ top: 0, behavior: 'smooth' })
-      // clean state
       navigate(location.pathname, { replace: true })
     } else if (location.state?.scrollTo === 'menu') {
       const el = document.getElementById('menu')
@@ -100,11 +116,9 @@ export default function Home() {
       const el = document.getElementById('menu')
       if (el) el.scrollIntoView({ behavior: 'smooth' })
     } else if (location.hash) {
-      // Smooth scroll to category with a slight offset for sticky header
-      const id = location.hash.slice(1)
+      const id = decodeURIComponent(location.hash.slice(1))
       const el = document.getElementById(id)
       if (el) {
-        // ensure the section has scroll-margin to account for any sticky header
         el.style.scrollMarginTop = '84px'
         el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
@@ -129,8 +143,14 @@ export default function Home() {
     return () => { active = false }
   }, [categories])
 
+  // Clean resolver: just compute imageUrl, no debug logging
+  function resolveImageUrlFor(item) {
+    const imgObj = item.imageId && imageMap[item.imageId]
+    return imgObj ? getImageDataUrl(imgObj) : undefined
+  }
+
   const categoryBarItems = useMemo(() =>
-    categories.map((c) => ({ id: c.id, label: c.name, href: `#${c.id}`, image: c.imageId && categoryImageMap[c.imageId] })),
+    categories.map((c) => ({ id: c.id, label: c.name, href: `#${encodeURIComponent(c.id)}`, image: c.imageId && categoryImageMap[c.imageId] })),
     [categories, categoryImageMap]
   )
 
@@ -220,11 +240,11 @@ export default function Home() {
       const CHUNK = 16
       while (queue.length && !cancelled) {
         const slice = queue.splice(0, CHUNK)
-        try {
-          const res = await fetchImagesByIdsCached(slice)
-          if (cancelled) return
-          setImageMap(prev => ({ ...prev, ...res }))
-        } catch {}
+          try {
+            const res = await fetchImagesByIdsCached(slice)
+            if (cancelled) return
+            setImageMap(prev => ({ ...prev, ...res }))
+          } catch { /* noop */ }
         await new Promise(r => setTimeout(r, 0))
       }
     }
@@ -248,6 +268,15 @@ export default function Home() {
         <div className="alert alert-warning bg-warning/10 border border-warning/30 mb-6 text-sm">
           <span>The store is currently closed. Browsing only.</span>
         </div>
+      )}
+      {/* Complete your profile prompt (componentized) */}
+      {user && showProfilePrompt && (
+        <ProfileCompletionAlert
+          user={user}
+          profileForm={profileForm}
+          addrState={addrState}
+          onEdit={() => navigate('/profile', { state: { completeNow: true } })}
+        />
       )}
       {activeOrder && (
         <div className="alert bg-base-200/70 border border-base-300/60 mb-6 flex flex-col sm:flex-row sm:items-center gap-2">
@@ -280,8 +309,7 @@ export default function Home() {
           <h3 className="text-2xl font-bold mb-4">Search results for "{q.trim()}"</h3>
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {filtered.slice(0, searchVisibleCount).map((item) => {
-              const imgObj = item.imageId && imageMap[item.imageId]
-              const imageUrl = imgObj ? getImageDataUrl(imgObj) : undefined
+              const imageUrl = resolveImageUrlFor(item)
               return <MenuItemCard key={item.id} item={{ ...item, imageUrl, storeClosed: !storeOpen }} />
             })}
           </div>
@@ -317,8 +345,7 @@ export default function Home() {
                 <h3 className="text-2xl font-bold mb-4">{cat.name}</h3>
                 <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                   {catItems.map((item) => {
-                    const imgObj = item.imageId && imageMap[item.imageId]
-                    const imageUrl = imgObj ? getImageDataUrl(imgObj) : undefined
+                    const imageUrl = resolveImageUrlFor(item)
                     return <MenuItemCard key={item.id} item={{ ...item, imageUrl, storeClosed: !storeOpen }} />
                   })}
                 </div>
@@ -330,8 +357,7 @@ export default function Home() {
             <h3 className="text-2xl font-bold mb-4">All items</h3>
             <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
               {filtered.map((item) => {
-                const imgObj = item.imageId && imageMap[item.imageId]
-                const imageUrl = imgObj ? getImageDataUrl(imgObj) : undefined
+                const imageUrl = resolveImageUrlFor(item)
                 return <MenuItemCard key={item.id} item={{ ...item, imageUrl, storeClosed: !storeOpen }} />
               })}
             </div>

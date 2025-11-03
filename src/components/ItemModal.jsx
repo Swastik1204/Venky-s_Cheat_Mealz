@@ -24,7 +24,7 @@ export default function ItemModal() {
       } else {
         localStorage.setItem('itemInfoSeen', JSON.stringify([key]))
       }
-    } catch {}
+  } catch { /* noop */ }
     closeItem()
   }
 

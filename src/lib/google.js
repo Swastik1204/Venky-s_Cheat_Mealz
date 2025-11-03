@@ -61,17 +61,34 @@ export async function initAutocomplete(inputEl, onPlaceSelected) {
   if (!inputEl || !key) return null
   const g = await loadGoogleMaps(key).catch(() => null)
   if (!g || !g.maps?.places) return null
-  const ac = new g.maps.places.Autocomplete(inputEl, {
-    fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name'],
-    types: ['geocode'],
-    componentRestrictions: undefined,
-  })
-  ac.addListener('place_changed', () => {
-    const place = ac.getPlace()
-    const parts = extractAddressFromPlace(place)
-    try { onPlaceSelected && onPlaceSelected(parts, place) } catch {}
-  })
-  return ac
+  // Use PlaceAutocompleteElement if available (recommended)
+  if (g.maps.places.PlaceAutocompleteElement) {
+    const pae = new g.maps.places.PlaceAutocompleteElement({
+      inputElement: inputEl,
+      fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name'],
+      types: ['geocode'],
+      componentRestrictions: undefined,
+    })
+    pae.addListener('place_changed', () => {
+      const place = pae.getPlace()
+      const parts = extractAddressFromPlace(place)
+      try { onPlaceSelected && onPlaceSelected(parts, place) } catch {}
+    })
+    return pae
+  } else {
+    // Legacy fallback for existing users
+    const ac = new g.maps.places.Autocomplete(inputEl, {
+      fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name'],
+      types: ['geocode'],
+      componentRestrictions: undefined,
+    })
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace()
+      const parts = extractAddressFromPlace(place)
+      try { onPlaceSelected && onPlaceSelected(parts, place) } catch {}
+    })
+    return ac
+  }
 }
 
 export async function reverseGeocode(lat, lng) {
@@ -88,7 +105,27 @@ export async function reverseGeocode(lat, lng) {
     parts.formatted = place.formatted_address || parts.formatted
     parts.placeId = place.place_id || parts.placeId
     return parts
+  } catch {
+    return null
+  }
+}
+
+export async function geocodeAddress(address) {
+  const key = getGoogleApiKey()
+  const query = typeof address === 'string' ? address.trim() : ''
+  if (!key || !query) return null
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${key}`
+    const res = await fetch(url)
+    const data = await res.json()
+    if (data.status !== 'OK' || !data.results?.length) return null
+    const place = data.results[0]
+    const parts = extractAddressFromPlace(place)
+    parts.formatted = place.formatted_address || parts.formatted
+    parts.placeId = place.place_id || parts.placeId
+    return parts
   } catch (e) {
+    console.warn('geocodeAddress failed', e)
     return null
   }
 }

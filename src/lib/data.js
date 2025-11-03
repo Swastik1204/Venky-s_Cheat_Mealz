@@ -5,8 +5,23 @@ export const BRAND_LONG = "Venky's Chicken Xperience Durgapur"
 export const BRAND_SHORT = "Venky's"
 import { db } from './firebase'
 
+function apiUrl(path) {
+  const base = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || ''
+  if (!base) return path
+  const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${normalizedBase}${normalizedPath}`
+}
+
 function isPermissionDenied(err) {
   return err && (err.code === 'permission-denied' || /insufficient permissions/i.test(String(err.message || '')))
+}
+
+function safeRandomId(prefix = '') {
+  const core = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
+  return prefix ? `${prefix}-${core}` : core
 }
 
 export async function fetchCategories() {
@@ -97,6 +112,41 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
   }
   const docRef = await addDoc(collection(db, 'orders'), base)
   return docRef.id
+}
+
+// ---- Razorpay helpers ---- //
+export async function createRazorpayOrder(amount, cartChecksum = null) {
+  const value = Number(amount)
+  if (!value || value <= 0) {
+    throw new Error('Invalid amount for Razorpay order')
+  }
+  const res = await fetch(apiUrl('/api/create-order'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount: value, cartChecksum: cartChecksum || undefined })
+  })
+  let body = null
+  try { body = await res.json() } catch (_) {}
+  if (!res.ok) {
+    const message = body?.error || `Failed to create Razorpay order (${res.status})`
+    throw new Error(message)
+  }
+  return body
+}
+
+export async function verifyRazorpayPayment(payload) {
+  const res = await fetch(apiUrl('/api/verify-payment'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  let body = null
+  try { body = await res.json() } catch (_) {}
+  if (!res.ok) {
+    const message = body?.error || `Payment verification failed (${res.status})`
+    throw new Error(message)
+  }
+  return body
 }
 
 // Optional WhatsApp sender. Configure VITE_WHATSAPP_FUNCTION_URL to a server endpoint
@@ -314,7 +364,7 @@ export async function fetchMenuCategories() {
           })
         }
       }
-    } catch (e) {
+    } catch {
       // Non-fatal; ignore ordering if fetch failed
     }
     return cats
@@ -356,7 +406,7 @@ export async function fetchStoreStatus() {
     if (!snap.exists()) return { open: true }
     const data = snap.data()
     return { open: data.open !== false }
-  } catch (e) {
+  } catch {
     return { open: true, __error: true }
   }
 }
@@ -378,7 +428,7 @@ export async function fetchAppSettings() {
     const shopPhone = d.shopPhone || ''
     const chefName = d.chefName || ''
     return { gstRate, adminMobile, shopAddress, shopPhone, chefName }
-  } catch (e) {
+  } catch {
     return { gstRate: 0.05, adminMobile: '', shopAddress: '', shopPhone: '', chefName: '', __error: true }
   }
 }
@@ -397,13 +447,20 @@ export async function saveAppSettings(partial) {
 // --- Delivery Settings (Store location + radius + computed bounding box) --- //
 export async function fetchDeliverySettings() {
   try {
-    const ref = doc(db, 'miscellaneous', 'delivery')
+    // Use consolidated settings doc under miscellaneous/settings
+    const ref = doc(db, 'miscellaneous', 'settings')
     const snap = await getDoc(ref)
     if (!snap.exists()) return { centerLat: null, centerLng: null, radiusKm: null, __exists: false }
     const d = snap.data()
+    const centerLat = typeof d.centerLat === 'number' ? d.centerLat : (
+      (typeof d.minLat === 'number' && typeof d.maxLat === 'number') ? ((d.minLat + d.maxLat) / 2) : null
+    )
+    const centerLng = typeof d.centerLng === 'number' ? d.centerLng : (
+      (typeof d.minLng === 'number' && typeof d.maxLng === 'number') ? ((d.minLng + d.maxLng) / 2) : null
+    )
     return {
-      centerLat: typeof d.centerLat === 'number' ? d.centerLat : null,
-      centerLng: typeof d.centerLng === 'number' ? d.centerLng : null,
+      centerLat,
+      centerLng,
       radiusKm: typeof d.radiusKm === 'number' ? d.radiusKm : null,
       minLat: typeof d.minLat === 'number' ? d.minLat : null,
       maxLat: typeof d.maxLat === 'number' ? d.maxLat : null,
@@ -411,7 +468,7 @@ export async function fetchDeliverySettings() {
       maxLng: typeof d.maxLng === 'number' ? d.maxLng : null,
       __exists: true,
     }
-  } catch (e) {
+  } catch {
     return { centerLat: null, centerLng: null, radiusKm: null, __error: true }
   }
 }
@@ -435,7 +492,8 @@ export async function saveDeliverySettings({ centerLat, centerLng, radiusKm }) {
     maxLng: lng + dLng,
     updatedAt: serverTimestamp(),
   }
-  await setDoc(doc(db, 'miscellaneous', 'delivery'), payload, { merge: true })
+  // Persist into consolidated settings doc under miscellaneous/settings
+  await setDoc(doc(db, 'miscellaneous', 'settings'), payload, { merge: true })
   return true
 }
 
@@ -612,13 +670,6 @@ export function parseItemsCsv(csvText) {
   })
 }
 
-export async function bulkImportItemsFromCsv(csvText) {
-  const items = parseItemsCsv(csvText)
-  const promises = items.map((it) => addItem(it))
-  await Promise.all(promises)
-  return items.length
-}
-
 // --- Cart Persistence --- //
 export async function loadCart(uid) {
   if (!uid) return {}
@@ -689,22 +740,11 @@ export async function fetchUserProfile(uid) {
 
 export async function updateUserProfile(uid, data) {
   if (!uid) return
-  // Whitelist and normalize only supported profile fields
-  const allowed = ['displayName', 'phone', 'defaultPayment', 'upiId', 'cardHolder', 'cardLast4']
+  // Only store supported profile fields
+  const allowed = ['displayName', 'phone', 'whatsapp', 'gender', 'photoURL', 'email']
   const out = {}
   for (const k of allowed) {
-    if (data[k] === undefined) continue
-    let v = data[k]
-    if (typeof v === 'string') v = v.trim()
-    out[k] = v
-  }
-  // Normalize defaultPayment to cod|upi|card
-  if (out.defaultPayment && !['cod','upi','card'].includes(String(out.defaultPayment))) {
-    out.defaultPayment = 'cod'
-  }
-  // Keep last4 numeric only
-  if (typeof out.cardLast4 === 'string') {
-    out.cardLast4 = out.cardLast4.replace(/[^0-9]/g, '').slice(0, 4)
+    if (data[k] !== undefined) out[k] = data[k]
   }
   await setDoc(doc(db, 'users', uid), { ...out, updatedAt: serverTimestamp() }, { merge: true })
 }
@@ -714,7 +754,7 @@ export async function addAddress(uid, address) {
   const ref = doc(db, 'users', uid, 'meta', 'addresses')
   const snap = await getDoc(ref)
   const list = snap.exists() && Array.isArray(snap.data().list) ? snap.data().list : []
-  const id = address.id || crypto.randomUUID()
+  const id = address.id || safeRandomId('addr')
   // Build compact, final schema for address storage
   const normalized = (() => {
     const nm = (v) => (typeof v === 'string' ? v.trim() : v)
@@ -861,13 +901,21 @@ function getSessionImage(id) {
   return null
 }
 
+// Store a minimal image object in sessionStorage to avoid refetching during the
+// lifetime of the tab. Keeps shape { data, mime } so callers using
+// `getImageDataUrl` can consume it directly.
 function setSessionImage(id, obj) {
   try {
-    const payload = { data: obj.data, mime: obj.mime || null }
-    sessionStorage.setItem(`img:${id}`, JSON.stringify(payload))
-  } catch {
-    // Ignore quota errors; cache is best-effort
-  }
+    if (!id || !obj) return
+    const toStore = { data: obj.data || null, mime: obj.mime || null }
+    // Only store if there is data
+    if (!toStore.data) return
+    try {
+      sessionStorage.setItem(`img:${id}`, JSON.stringify(toStore))
+    } catch {
+      // sessionStorage can throw on quota issues or in some privacy modes; ignore
+    }
+  } catch {}
 }
 
 // Cached variant: reads images from sessionStorage when available, otherwise fetches

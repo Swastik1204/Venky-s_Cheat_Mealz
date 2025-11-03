@@ -48,11 +48,11 @@ export default function InstallPWA() {
         className="btn btn-primary shadow-lg strobe"
         onClick={async () => {
           try {
-            const res = await promptEvent.prompt()
+            await promptEvent.prompt()
             await promptEvent.userChoice
             setCanInstall(false)
             setPromptEvent(null)
-          } catch {}
+          } catch { /* noop */ }
         }}
       >Install app</button>
     </div>

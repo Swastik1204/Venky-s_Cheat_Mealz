@@ -4,7 +4,7 @@ import { MdRemoveShoppingCart } from 'react-icons/md'
 import { Link } from 'react-router-dom'
 
 export default function CartDrawer({ children }) {
-  const { entries, subtotal, remove, setQty, clear } = useCart()
+  const { entries, subtotal, remove, setQty } = useCart()
 
   return (
     <div className="drawer drawer-end" id="cartDrawerRoot">

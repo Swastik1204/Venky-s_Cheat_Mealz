@@ -1,6 +1,10 @@
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useContext, useMemo, useState, useCallback } from 'react'
 
 const UIContext = createContext(null)
+
+const genId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+  ? crypto.randomUUID()
+  : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`)
 
 export function UIProvider({ children }) {
   const [selectedItem, setSelectedItem] = useState(null)
@@ -9,7 +13,7 @@ export function UIProvider({ children }) {
   const [confirmState, setConfirmState] = useState(null) // { message, onConfirm, onCancel }
 
   function pushToast(msg, type = 'info', ttl = 4000) {
-    const id = crypto.randomUUID()
+    const id = genId()
     setToasts(t => [...t, { id, msg, type }])
     if (ttl > 0) setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), ttl)
     return id
@@ -23,13 +27,13 @@ export function UIProvider({ children }) {
     setConfirmState({ ...options })
   }
 
-  function resolveConfirm(accepted) {
+  const resolveConfirm = useCallback((accepted) => {
     if (!confirmState) return
     const { onConfirm, onCancel } = confirmState
     setConfirmState(null)
     if (accepted) onConfirm && onConfirm()
     else onCancel && onCancel()
-  }
+  }, [confirmState])
 
   const value = useMemo(() => ({
     selectedItem,
@@ -46,7 +50,7 @@ export function UIProvider({ children }) {
     confirm,
     confirmState,
     resolveConfirm,
-  }), [selectedItem, authMode, toasts, confirmState])
+  }), [selectedItem, authMode, toasts, confirmState, resolveConfirm])
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>
 }
@@ -60,7 +64,6 @@ export function useUI() {
     console.warn('[UIContext] useUI called outside of provider – returning no-op fallback. Wrap app with <UIProvider/> to enable full functionality.')
     _uiWarned = true
   }
-  const genId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2))
   return {
     selectedItem: null,
     openItem: () => {},
@@ -69,7 +72,7 @@ export function useUI() {
     openAuth: () => {},
     closeAuth: () => {},
     toasts: [],
-    pushToast: () => genId(),
+  pushToast: () => genId(),
     dismissToast: () => {},
     confirm: () => {},
     confirmState: null,

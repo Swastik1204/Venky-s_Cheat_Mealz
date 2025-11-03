@@ -1,5 +1,9 @@
 {
+  "firestore": {
+    "rules": "firestore.rules"
+  },
   "hosting": {
+    "site": "venkys-durgapur",
     "public": "dist",
     "ignore": [
       "firebase.json",

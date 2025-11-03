@@ -8,7 +8,7 @@ export default function CategoriesBar({ items = [] }) {
   const [showLeft, setShowLeft] = useState(false)
   const [showRight, setShowRight] = useState(false)
   const [pulse, setPulse] = useState(true)
-  if (!items.length) return null
+  // Hooks must be called unconditionally; render check happens later
 
   function scrollBy(direction = 1) {
     const el = scrollerRef.current
@@ -115,6 +115,8 @@ export default function CategoriesBar({ items = [] }) {
     }
   }, [])
 
+  if (!items.length) return null
+
   return (
     <div className="strip strip-accent rounded-xl p-4 md:p-6 relative">
       <h2 className="section-title text-2xl font-bold leading-snug text-primary mb-4 select-none pl-1">What's on your mind?</h2>
@@ -153,7 +155,7 @@ export default function CategoriesBar({ items = [] }) {
         className="flex gap-4 sm:gap-6 overflow-x-auto pb-3 snap-x snap-mandatory -mx-2 px-2 [scrollbar-width:none] [-ms-overflow-style:none] no-scrollbar scroll-smooth"
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
-        {items.map((it, i) => (
+        {items.map((it) => (
           <button
             key={it.id}
             type="button"
@@ -175,7 +177,7 @@ export default function CategoriesBar({ items = [] }) {
             <div className="avatar">
               <div className="w-20 sm:w-24 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2 overflow-hidden bg-base-200 flex items-center justify-center transition hover:scale-[1.03]">
                 {it.image ? (
-                  <img src={it.image} alt={it.label} loading="eager" decoding="sync" fetchpriority="high" />
+                  <img src={it.image} alt={it.label} loading="eager" decoding="sync" fetchPriority="high" />
                 ) : (
                   <span className="text-xl sm:text-2xl font-bold text-primary">
                     {(it.label || '?').charAt(0).toUpperCase()}
@@ -192,17 +194,5 @@ export default function CategoriesBar({ items = [] }) {
 }
 
 // Keep active category centered when hash changes externally (e.g., from search or back/forward)
-export function useCenterActiveCategory(scrollerRef, location) {
-  useEffect(() => {
-    const el = scrollerRef.current
-    if (!el) return
-    const hash = location.hash || ''
-    if (!hash.startsWith('#')) return
-    const id = hash.slice(1)
-    const btn = el.querySelector(`[data-cat-id="${CSS.escape(id)}"]`)
-    if (!btn) return
-    const target = btn.offsetLeft + (btn.offsetWidth / 2) - (el.clientWidth / 2)
-    const clamped = Math.max(0, Math.min(target, el.scrollWidth - el.clientWidth))
-    el.scrollTo({ left: clamped, behavior: 'smooth' })
-  }, [location.hash, scrollerRef])
-}
+// Note: external hook removed to satisfy react-refresh/only-export-components rule,
+// and because it was unused across the codebase.

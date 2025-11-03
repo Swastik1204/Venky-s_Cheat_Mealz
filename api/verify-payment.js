@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Vercel Serverless Function: Verify Razorpay Payment Signature
 // Endpoint: /api/verify-payment
 // Method: POST

@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy": "npm run build && npx firebase deploy --only hosting"
+    "deploy": "npm run build && npx firebase deploy --only hosting:venkys-durgapur"
   },
   "dependencies": {
     "daisyui": "^5.1.24",

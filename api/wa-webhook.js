@@ -1,3 +1,4 @@
+/* eslint-env node */
 // WhatsApp Cloud API webhook receiver
 // - Verification: GET with hub.mode, hub.verify_token, hub.challenge
 // - Events: POST JSON with messages/statuses

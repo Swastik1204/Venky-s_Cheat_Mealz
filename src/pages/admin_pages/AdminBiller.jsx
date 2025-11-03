@@ -225,7 +225,7 @@ export default function AdminBiller() {
           const fullMsg = `${header}\nOrder #${finalOrderNo}\n\n${linesText}\n\n${totals}${thank}`
           const logoUrl = `${location.origin}/icons/logo.png`
           // WhatsApp (rich content through your backend template); we pass payload as before
-          try { await sendWhatsAppInvoice(`91${phoneRaw}`, { orderNo: finalOrderNo, text: fullMsg, logoUrl, items: orderItems, subtotal, taxRate: gstRate, taxAmount: gstAmount, total: grandTotal, store: { name: BRAND_LONG, address: store.shopAddress||'', phone: store.shopPhone||'', chef: store.chefName||'' } }) } catch {}
+          try { await sendWhatsAppInvoice(`91${phoneRaw}`, { orderNo: finalOrderNo, text: fullMsg, logoUrl, items: orderItems, subtotal, taxRate: gstRate, taxAmount: gstAmount, total: grandTotal, store: { name: BRAND_LONG, address: store.shopAddress||'', phone: store.shopPhone||'', chef: store.chefName||'' } }) } catch { /* noop */ }
           // SMS fallback (short) - call backend directly to avoid import issues
           const smsText = `${BRAND_SHORT}: Order ${finalOrderNo}: Total ₹${grandTotal}. Thank you!`
           try {
@@ -233,9 +233,9 @@ export default function AdminBiller() {
             if (smsUrl) {
               await fetch(smsUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: `91${phoneRaw}`, text: smsText }) })
             }
-          } catch {}
+          } catch { /* noop */ }
         }
-      } catch {}
+  } catch { /* noop */ }
       // Close review modal after successful action (create or update)
       setReviewOpen(false)
       clearBill()
@@ -267,7 +267,6 @@ export default function AdminBiller() {
   function calcEval() {
     try {
       const safe = calcExpr.replace(/[^0-9+\-*/().]/g, '')
-      // eslint-disable-next-line no-new-func
       const val = Function(`"use strict"; return (${safe || '0'})`)()
       setCalcExpr(String(val))
     } catch {
@@ -348,7 +347,7 @@ export default function AdminBiller() {
                 const allOpen = grouped.every(g => openCats.has(g.id))
                 const label = allOpen ? 'Collapse all' : 'Expand all'
                 return (
-                  <button className="btn btn-xs" onClick={() => setOpenCats(prev => {
+                  <button className="btn btn-xs" onClick={() => setOpenCats(() => {
                     if (allOpen) return new Set()
                     return new Set(grouped.map(g => g.id))
                   })}>{label}</button>
@@ -658,7 +657,7 @@ export default function AdminBiller() {
                         await sendWhatsAppInvoice(`91${phone}`, payload)
                         pushToast('Invoice sent via WhatsApp', 'success')
                       }
-                    } catch (e) {
+                    } catch {
                       pushToast('Failed to send WhatsApp invoice', 'error')
                     } finally {
                       setSuccess(null); setSuccessPhone('');

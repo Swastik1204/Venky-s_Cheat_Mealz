@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, fetchAllOrders, updateOrder, nextOrderStatus, migrateRemoveCategoryNameFields, removeMenuItem, appendMenuItems as lowAppend, fetchStoreStatus, setStoreOpen, fetchAppearanceSettings, saveCategoriesOrder, fetchImagesByIds, fetchAppSettings, saveAppSettings, fetchDeliverySettings, saveDeliverySettings, sendWhatsAppInvoice, sendSMSInvoice, BRAND_LONG } from '../lib/data'
+import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, fetchAllOrders, updateOrder, nextOrderStatus, removeMenuItem, appendMenuItems as lowAppend, fetchStoreStatus, setStoreOpen, fetchAppearanceSettings, saveCategoriesOrder, fetchImagesByIds, fetchAppSettings, saveAppSettings, fetchDeliverySettings, saveDeliverySettings, sendWhatsAppInvoice, sendSMSInvoice, BRAND_LONG } from '../lib/data'
 import { Link } from 'react-router-dom'
 import { MdDelete, MdAdd, MdKeyboardArrowDown, MdWarningAmber } from 'react-icons/md'
 import { useUI } from '../context/UIContext'
@@ -80,7 +80,7 @@ export default function Admin({ section = 'inventory' }) {
           const normalized = [...existing.filter(id => catIds.includes(id)), ...catIds.filter(id => !existing.includes(id))]
           if (active) setAppearanceOrder(normalized)
           if (settings.__exists === false && !settings.__error) {
-            try { await saveCategoriesOrder(normalized) } catch {}
+            try { await saveCategoriesOrder(normalized) } catch { /* noop */ }
           }
         }
       } catch (e) {
@@ -287,7 +287,7 @@ export default function Admin({ section = 'inventory' }) {
       const cats = await fetchMenuCategories()
       setCategories(cats)
       setConnOk(true)
-    } catch (e) {
+    } catch {
       setConnOk(false)
     }
     try {
@@ -450,7 +450,7 @@ export default function Admin({ section = 'inventory' }) {
           </span>
           <button className="btn btn-xs" onClick={async () => {
             setLiveEnabled(v => !v)
-            try { await setStoreOpen(!liveEnabled) } catch {}
+            try { await setStoreOpen(!liveEnabled) } catch { /* noop */ }
           }}>{liveEnabled ? 'Pause live' : 'Resume live'}</button>
         </div>
       </div>
@@ -627,7 +627,7 @@ export default function Admin({ section = 'inventory' }) {
               className={`collapse bg-base-100/70 backdrop-blur-sm border border-base-300/60 rounded-xl transition-all duration-300 group relative overflow-hidden ${open ? 'ring-1 ring-primary/30 shadow-sm' : 'hover:border-base-300 hover:bg-base-100/50'}`}
             >
               {/* Keep the control non-focusable and not aria-hidden to avoid focus on hidden ancestors. We toggle via header click/keyboard. */}
-              <input type="checkbox" className="sr-only" checked={open} onChange={(e) => toggleCat(c.id, headerRefs.current[c.id])} />
+              <input type="checkbox" className="sr-only" checked={open} onChange={() => toggleCat(c.id, headerRefs.current[c.id])} />
               {/* Decorative left accent when open */}
               {open && <span className="pointer-events-none absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-primary/70 via-primary/30 to-secondary/60" />}
               <div
@@ -1548,7 +1548,7 @@ export default function Admin({ section = 'inventory' }) {
               }}>{appSettingsSaving ? 'Saving…' : 'Save changes'}</button>
               <button className="btn btn-ghost" disabled={appSettingsLoading} onClick={async ()=>{
                 setAppSettingsLoading(true)
-                try { setAppSettings(await fetchAppSettings()) } catch {} finally { setAppSettingsLoading(false) }
+                try { setAppSettings(await fetchAppSettings()) } catch { /* noop */ } finally { setAppSettingsLoading(false) }
               }}>{appSettingsLoading ? 'Loading…' : 'Reload'}</button>
             </div>
             {/* Messaging test panel */}

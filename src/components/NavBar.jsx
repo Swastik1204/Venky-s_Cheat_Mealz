@@ -1,37 +1,35 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useCart } from '../context/CartContext'
 import logo from '../assets/logo.png'
 import useDeliveryLocation from '../hooks/useDeliveryLocation'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { MdLocationOn, MdLogin, MdPerson, MdReceiptLong, MdSearch } from 'react-icons/md'
+import { MdLocationOn, MdLogin, MdPerson, MdSearch } from 'react-icons/md'
 import { fetchMenuCategories, getUserTheme, setUserTheme } from '../lib/data'
 
 export default function NavBar() {
   const [scrolled, setScrolled] = useState(false)
   const [theme, setTheme] = useState('venkys_light')
-  const { totalQty } = useCart()
-  const { user, logout } = useAuth()
+  const { user /*, logout */ } = useAuth()
   useEffect(() => {
     const root = document.documentElement
     async function initTheme() {
       let saved = null
-      try { saved = localStorage.getItem('theme') } catch {}
+  try { saved = localStorage.getItem('theme') } catch { /* noop */ }
       // If user is logged in, prefer their cloud theme
       let cloud = null
       if (user) {
-        try { cloud = await getUserTheme(user.uid) } catch {}
+  try { cloud = await getUserTheme(user.uid) } catch { /* noop */ }
       }
       const next = (cloud === 'venkys_dark' || cloud === 'venkys_light') ? cloud : (saved === 'venkys_dark' ? 'venkys_dark' : 'venkys_light')
       setTheme(next)
       root.setAttribute('data-theme', next)
       // if user exists and local differs, sync up to cloud
       if (user && cloud !== next) {
-        try { await setUserTheme(user.uid, next) } catch {}
+  try { await setUserTheme(user.uid, next) } catch { /* noop */ }
       }
       // persist to local for guests
-      try { localStorage.setItem('theme', next) } catch {}
+  try { localStorage.setItem('theme', next) } catch { /* noop */ }
     }
     initTheme()
   }, [user])
@@ -90,7 +88,7 @@ export default function NavBar() {
       const m = a.length, n = b.length
       if (m === 0) return n
       if (n === 0) return m
-      const dp = Array.from({length: m+1}, (_,i)=> Array(n+1).fill(0))
+  const dp = Array.from({length: m+1}, () => Array(n+1).fill(0))
       for (let i=0;i<=m;i++) dp[i][0] = i
       for (let j=0;j<=n;j++) dp[0][j] = j
       for (let i=1;i<=m;i++) {
@@ -142,21 +140,19 @@ export default function NavBar() {
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
-  function executeSearch(value) {
+  const executeSearch = useCallback((value) => {
     const v = (value ?? query).trim()
     if (!v) return
     setSearchOpen(false)
-    try { inputRef.current?.blur() } catch {}
+    try { inputRef.current?.blur() } catch { /* noop */ }
     setActiveIndex(-1)
-    // If user selects a category suggestion, scroll to that category and clear query
     const catMatch = allSearchItems.find(x => x.type === 'category' && x.label.toLowerCase() === v.toLowerCase())
     if (catMatch) {
       navigate({ pathname: '/', hash: `#${catMatch.cat}` }, { replace: false })
       return
     }
-    // Otherwise, update Home's URL query 'q' so Home shows search-mode results without page transition
     navigate({ pathname: '/', search: `q=${encodeURIComponent(v)}` })
-  }
+  }, [query, allSearchItems, navigate])
 
   const onKeyDown = useCallback((e) => {
     if (!searchOpen) return
@@ -177,7 +173,7 @@ export default function NavBar() {
         executeSearch(query)
       }
     }
-  }, [results, activeIndex, searchOpen, query])
+  }, [results, activeIndex, searchOpen, query, executeSearch])
 
   useEffect(() => {
     if (searchOpen) {
@@ -296,8 +292,8 @@ export default function NavBar() {
                 onChange={async (e) => {
                   const next = e.target.checked ? 'venkys_dark' : 'venkys_light'
                   setTheme(next)
-                  try { localStorage.setItem('theme', next) } catch {}
-                  if (user) { try { await setUserTheme(user.uid, next) } catch {} }
+                  try { localStorage.setItem('theme', next) } catch { /* noop */ }
+                  if (user) { try { await setUserTheme(user.uid, next) } catch { /* noop */ } }
                 }}
               />
               <svg className="swap-on h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -316,22 +312,14 @@ export default function NavBar() {
                 </button>
               </div>
             ) : (
-              <div className="dropdown dropdown-end">
-                <div tabIndex={0} role="button" className="btn btn-ghost btn-sm px-2 gap-2">
-                  <div className="avatar">
-                    <div className="w-8 rounded-full bg-base-300 text-base-content grid place-items-center">
-                      <MdPerson className="w-5 h-5 opacity-80 relative top-[4px]" />
-                    </div>
+              <Link to="/profile" className="btn btn-ghost btn-sm px-2 gap-2 items-center">
+                <div className="avatar">
+                  <div className="w-8 h-8 rounded-full bg-base-300 text-base-content grid place-items-center">
+                    <MdPerson className="w-5 h-5 opacity-80" />
                   </div>
-                  <span className="hidden md:inline max-w-[8rem] truncate font-medium">{displayLabel}</span>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 opacity-70" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.08 1.04l-4.25 4.25a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd"/></svg>
                 </div>
-                <ul tabIndex={0} className="menu menu-sm dropdown-content bg-base-100/95 backdrop-blur rounded-xl z-[1] mt-2 w-56 p-2 shadow-lg border border-base-300/40">
-                  <li><Link to="/profile" className="flex items-center gap-2"><MdPerson className="w-4 h-4" /> Profile</Link></li>
-                  <li><Link to="/profile#orders" className="flex items-center gap-2"><MdReceiptLong className="w-4 h-4" /> Orders</Link></li>
-                  <li className="mt-1"><button onClick={logout} className="text-error">Logout</button></li>
-                </ul>
-              </div>
+                <span className="hidden md:inline max-w-[8rem] truncate font-medium">{displayLabel}</span>
+              </Link>
             )}
 
             {/* Cart button intentionally removed – handled by QuickDock */}
