@@ -1,0 +1,97 @@
+{
+  "Main Course": [
+    ["Grilled Chicken (Tandoori/Garlic Pepper) - Half", 310],
+    ["Grilled Chicken (Tandoori/Garlic Pepper) - Full", 585],
+    ["Butter Chicken", 195],
+    ["Butter Chicken Dhaba Style", 220],
+    ["Chicken Masala With Paratha", 200],
+    ["Chicken Kheema With Paratha", 200],
+    ["Mughlai Biryani", 200],
+    ["Mom's Biryani", 220]
+  ],
+  "Mocktails": [
+    ["Classic Mint Mojito", 99],
+    ["Green Apple Mojito", 99],
+    ["Watermelon Mojito", 99],
+    ["Peach Mojito", 99],
+    ["Blue Margarita", 99],
+    ["Lemon Iced Tea", 89],
+    ["Peach Iced Tea", 99]
+  ],
+  "Shakes": [
+    ["Cold Coffee", 149],
+    ["Chocolate Shake", 149],
+    ["Vanilla Shake", 149],
+    ["KitKat Shake", 179],
+    ["Oreo Shake", 179],
+    ["Brownie Shake", 189]
+  ],
+  "Veg Light Bites": [
+    ["Chilli Garlic Potato Bites (12 Pcs)", 60],
+    ["Cheesy Pizza Fingers (4 Pcs)", 70],
+    ["Cheesy Jalapeno Poppers (6 Pcs)", 70],
+    ["Veggie Pizza Pockets (4 Pcs)", 90],
+    ["Aloo Tikki (3 Pcs)", 90],
+    ["French Fries - Regular", 80],
+    ["French Fries - Peri Peri", 105]
+  ],
+  "Veg Burgers & Wraps": [
+    ["Aloo Tikki Burger", 70],
+    ["Veg Burger", 90],
+    ["Crispy Paneer Burger", 130],
+    ["Aloo Tikki Wrap", 110],
+    ["Crispy Paneer Wrap", 140]
+  ],
+  "Buckets": [
+    ["Ultimate Veg Savings Bucket", 200],
+    ["12 Piece Wings Bucket", 380],
+    ["Fried Chicken Bucket", 430],
+    ["Grilled Chicken Bucket", 550]
+  ],
+  "Burgers": [
+    ["Chicken Smacker", 65],
+    ["Spicy Chicken Burger / Sriracha Burger", 95],
+    ["Classic Chicken Sandwich", 120],
+    ["Chicken & Cheese Burger / Crispy Chicken Burger", 145],
+    ["Grilled Chicken Burger (Tandoori/Garlic Pepper)", 160]
+  ],
+  "Wraps": [
+    ["Chicken Kheema Wrap", 165],
+    ["Chicken Sheekh Wrap", 165],
+    ["Grilled Chicken Wrap (Tandoori/Garlic Pepper)", 165],
+    ["Chicken Tikka Wrap (Achari/Tandoori/Hariyali/Malai)", 165]
+  ],
+  "Light Bites": [
+    ["Chicken Cutlets (2 Pcs)", 120],
+    ["Chicken Nuggets (6 Pcs)", 120],
+    ["Chicken Nuggets (15 Pcs)", 230],
+    ["Chicken Cheese Nuggets (6 Pcs)", 150],
+    ["Chicken Cheese Nuggets (15 Pcs)", 300],
+    ["Chicken Lollipops (4 Pcs)", 160],
+    ["Chicken Lollipops (8 Pcs)", 300],
+    ["Crispy Chicken Strips (3 Pcs)", 180],
+    ["Crispy Chicken Strips (6 Pcs)", 360],
+    ["Hot & Spicy Chicken Wings (6 Pcs)", 220],
+    ["Hot & Spicy Chicken Wings (10 Pcs)", 320],
+    ["Chicken Seekh Kabab (2 Pcs)", 110],
+    ["Grilled Chicken Tender Strips (4 Pcs)", 165],
+    ["Chicken Tikka (6 Pcs) (Achari/Tandoori/Hariyali/Malai)", 220],
+    ["Grilled Chicken Wings (6 Pcs) (Barbeque/Tandoori)", 225],
+    ["Grilled Chicken Wings (10 Pcs) (Barbeque/Tandoori)", 340]
+  ],
+  "Dessert": [
+    ["Choco Lava Cake", 90]
+  ],
+  "Add-ons": [
+    ["Egg", 15],
+    ["Cheese Slice", 15],
+    ["Mayo Dip Any Flavour", 20]
+  ],
+  "Meals": [
+    ["Veg Burger Meal", 220],
+    ["Aloo Tikki Wrap Meal", 250],
+    ["Chicken Burger Meal", 240],
+    ["Chicken Wrap Meal", 320],
+    ["Combo Meal", 85]
+  ]
+}

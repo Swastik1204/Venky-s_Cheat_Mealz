@@ -1,0 +1,136 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===== Auth helper =====
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // ===== DB-based role helpers =====
+    // Role documents stored in /roles/{email} with fields: role ('admin' | 'staff'), name, addedAt
+    // Admin: Full access to everything
+    // Staff: Access to orders, inventory, POS (read-heavy, limited write)
+    
+    function getRoleDoc() {
+      return get(/databases/$(database)/documents/roles/$(request.auth.token.email));
+    }
+    
+    function hasRoleDoc() {
+      return exists(/databases/$(database)/documents/roles/$(request.auth.token.email));
+    }
+    
+    // Any registered staff member (admin or staff)
+    function isStaffMember() {
+      return isSignedIn() && hasRoleDoc();
+    }
+    
+    // Admin only (full access)
+    function isAdmin() {
+      return isSignedIn() && hasRoleDoc() && getRoleDoc().data.role == 'admin';
+    }
+
+    // GLOBAL ADMIN OVERRIDE: If user is admin, allow everything
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // ===== Roles collection =====
+    // Users can read their own role (needed to check access on login)
+    // Admins can list all and write
+    match /roles/{email} {
+      allow read: if isSignedIn() && request.auth.token.email == email;
+      // allow list: if isAdmin(); // Covered by global override
+      // allow write: if isAdmin(); // Covered by global override
+    }
+
+    // ===== Raw Materials / Stock =====
+    // Staff can read and write
+    match /raw_materials/{doc} {
+      allow read, write: if isStaffMember();
+    }
+
+    // ===== Menu (category docs with items array) =====
+    // Public read, staff write
+    match /menu/{doc} {
+      allow read: if true;
+      allow write: if isStaffMember();
+    }
+
+    // Legacy collections
+    match /categories/{doc} {
+      allow read: if isStaffMember();
+      allow write: if isStaffMember();
+    }
+    match /menuItems/{doc} {
+      allow read: if true;
+      allow write: if isStaffMember();
+    }
+    match /items/{doc} {
+      allow read: if true;
+      allow write: if isStaffMember();
+    }
+
+    // Base64 images (menu item images)
+    match /images/{imageId} {
+      allow read: if true;
+      allow write: if isStaffMember();
+    }
+
+    // Health check
+    match /_health/{doc} {
+      allow read, write: if true;
+    }
+
+    // ===== Users root doc and ANY nested data =====
+    match /users/{uid} {
+      // Users can access their own data, admins can access all
+      allow read, write: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+
+      match /orders/{orderId} {
+        allow create: if isSignedIn();
+        // Staff members need to update user orders when changing status
+        allow read, update: if (isSignedIn() && request.auth.uid == uid) || isStaffMember();
+        allow delete: if false;
+      }
+
+      // All other descendants (profile meta, cart, addresses, etc.)
+      // Staff can read (for order context), only owner or admin can write
+      match /{subPath=**} {
+        allow read: if (isSignedIn() && request.auth.uid == uid) || isStaffMember();
+        allow write: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+      }
+    }
+
+    // ===== Top-level orders =====
+    match /orders/{orderId} {
+      // Anyone can create orders (for guest checkout)
+      allow create: if true;
+      // Staff can read and update orders
+      allow read, update: if isStaffMember();
+      // Only admin can delete
+      allow delete: if isAdmin();
+      
+      // Order revisions subcollection - staff can write for audit trail
+      match /revisions/{revId} {
+        allow create: if isStaffMember();
+        allow read: if isStaffMember();
+        allow update, delete: if false; // Revisions are immutable
+      }
+    }
+
+    // ===== Miscellaneous config (appearance, store status, settings) =====
+    match /miscellaneous/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ===== Audit Logs =====
+    // Staff can create logs (any modification creates a log entry)
+    // Only admins can read logs (for audit trail review)
+    match /logs/{logId} {
+      allow create: if isStaffMember();
+      allow read, list: if isAdmin();
+      allow update, delete: if false; // Logs are immutable
+    }
+  }
+}

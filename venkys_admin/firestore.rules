@@ -1,0 +1,178 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===== Centralized role helpers =====
+    function adminEmails() {
+      return [
+        'swastiksaha1204@gmail.com',
+        'sarmistharoysaha@gmail.com',
+        'adwitiyasaha8@gmail.com'
+      ];
+    }
+
+    function billerEmails() {
+      // Add biller-only emails here. Admins are already in adminEmails().
+      return [
+        'swastiksaha1204@gmail.com',
+        'gourabmallick756@gmail.com'
+      ];
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Admins are identified by either a claim or being in the email allow list
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.email in adminEmails()
+      );
+    }
+
+    // Billers are identified by either a claim or being in the biller email allow list
+    // Admins implicitly pass biller checks too.
+    function isBiller() {
+      return isSignedIn() && (
+        request.auth.token.biller == true ||
+        request.auth.token.isBiller == true ||
+        request.auth.token.email in billerEmails() ||
+        isAdmin()
+      );
+    }
+
+    // ===== Delivery geofence helpers (bounding box) =====
+    function deliveryConfig() {
+      // Delivery/geofence settings are stored in miscellaneous/settings
+      return get(/databases/$(database)/documents/miscellaneous/settings).data;
+    }
+    function hasGeo(addr) {
+      return addr.lat is number && addr.lng is number;
+    }
+    function withinBounds(lat, lng) {
+      // Config doc should define minLat, maxLat, minLng, maxLng. If missing, allow by default.
+      let cfg = deliveryConfig();
+      return !(cfg.minLat is number && cfg.maxLat is number && cfg.minLng is number && cfg.maxLng is number)
+        || (lat >= cfg.minLat && lat <= cfg.maxLat && lng >= cfg.minLng && lng <= cfg.maxLng);
+    }
+    function allowDeliveryFor(data) {
+      // Only enforce for delivery orders
+      return (data.orderType != 'delivery') || (
+        data.customer is map && data.customer.address is map && hasGeo(data.customer.address)
+        && withinBounds(data.customer.address.lat, data.customer.address.lng)
+      );
+    }
+
+    function isOrderCounterDoc(orderId) {
+      return orderId.matches('^__counter__\\d{8}$')
+    }
+
+    function allowCounterWrite(data) {
+      return data.__meta == 'orderCounter'
+        && data.dateKey.matches('^\\d{8}$')
+        && data.total is number
+        && data.updatedAt is timestamp
+    }
+
+    // ===== Raw Materials / Stock =====
+    match /raw_materials/{doc} {
+      allow read, write: if isAdmin() || isBiller();
+    }
+
+    // ===== Menu (category docs with items array) =====
+    match /menu/{doc} {
+      allow read: if true;
+      allow write: if isAdmin() || isBiller();
+    }
+
+    // Legacy public collections (optional)
+    // NOTE: These are admin-only by default to avoid leaks. If your app still reads these
+    // from the client, switch `allow read` to `true` for the needed collections.
+    match /categories/{doc} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    match /menuItems/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /items/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Base64 images (menu item images)
+    match /images/{imageId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Health check
+    match /_health/{doc} {
+      allow read, write: if true;
+    }
+
+    // ===== Users root doc and ANY nested data =====
+    match /users/{uid} {
+      // User document
+      allow read, write: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+
+      // Specific nested orders collection: enforce delivery bounds on create
+      match /orders/{orderId} {
+        allow create: if ((isSignedIn() && request.auth.uid == uid) || isAdmin()) && allowDeliveryFor(request.resource.data);
+        allow read, update: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+        allow delete: if false;
+      }
+
+      // All other descendants (profile meta, cart, addresses, etc.)
+      match /{subPath=**} {
+        allow read, write: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+      }
+    }
+
+    // ===== Top-level orders =====
+    match /orders/{orderId} {
+      allow create: if (
+        isOrderCounterDoc(orderId)
+          ? allowCounterWrite(request.resource.data)
+          : (
+            (
+              isAdmin() ||
+              isBiller() ||
+              (isSignedIn() && request.auth.uid == request.resource.data.userId) ||
+              (!isSignedIn() && request.resource.data.userId == null)
+            ) && allowDeliveryFor(request.resource.data)
+          )
+      );
+
+      allow read: if (
+        isOrderCounterDoc(orderId)
+          ? true
+          : (
+            isAdmin() ||
+            isBiller() ||
+            (isSignedIn() && request.auth.uid == resource.data.userId)
+          )
+      );
+
+      allow update: if (
+        isOrderCounterDoc(orderId)
+          ? allowCounterWrite(request.resource.data)
+          : (
+            isAdmin() ||
+            isBiller() ||
+            (isSignedIn() && request.auth.uid == resource.data.userId)
+          )
+      );
+
+      allow delete: if !isOrderCounterDoc(orderId) && isAdmin();
+    }
+
+    // ===== Miscellaneous config (appearance, store status, settings) =====
+    match /miscellaneous/{docId} {
+      allow read: if true;
+      // Only admins can write specific config docs (includes delivery/geofence settings inside 'settings')
+      allow write: if (isAdmin() && docId in ['appearance', 'store', 'settings']) || (isBiller() && docId == 'appearance');
+    }
+  }
+}
