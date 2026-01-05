@@ -1,4 +1,4 @@
-a newexport default function CancellationRefunds() {
+export default function CancellationRefunds() {
   return (
     <div className="page-wrap py-10">
       <div className="max-w-3xl mx-auto">

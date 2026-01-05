@@ -229,36 +229,36 @@ function MenuItemCardInner({ item }) {
             )}
           </div>
           <div className="text-xs uppercase tracking-[0.3em] text-base-content/50">for one</div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              className="btn btn-outline btn-sm w-full px-1 text-xs"
-              onClick={() => openItem(item)}
-            >
-              View details
-            </button>
-            {qty > 0 ? (
-              <div className="flex items-center justify-between bg-base-200 rounded-lg p-1 h-8 w-full" onClick={(e) => e.stopPropagation()}>
-                <button 
-                  type="button"
-                  className={`btn btn-xs btn-ghost h-full aspect-square p-0 min-h-0 ${qty === 1 ? 'text-error hover:bg-error/10' : ''}`}
-                  onClick={() => {
-                    if (qty === 1) remove(item.id)
-                    else setQty(item.id, qty - 1)
-                  }}
-                >
-                  {qty === 1 ? <MdDelete className="w-4 h-4" /> : <MdRemove className="w-4 h-4" />}
-                </button>
-                <span className="text-sm font-bold tabular-nums">{qty}</span>
-                <button 
-                  type="button"
-                  className="btn btn-xs btn-ghost h-full aspect-square p-0 min-h-0"
-                  onClick={() => add(item)}
-                >
-                  <MdAdd className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
+          {qty > 0 ? (
+            <div className="flex items-center justify-between bg-red-600 text-white rounded-lg p-1 h-9 w-full shadow-md" onClick={(e) => e.stopPropagation()}>
+              <button 
+                type="button"
+                className="btn btn-xs btn-ghost h-full aspect-square p-0 min-h-0 text-white hover:bg-white/20"
+                onClick={() => {
+                  if (qty === 1) remove(item.id)
+                  else setQty(item.id, qty - 1)
+                }}
+              >
+                {qty === 1 ? <MdDelete className="w-4 h-4" /> : <MdRemove className="w-4 h-4" />}
+              </button>
+              <span className="text-sm font-bold tabular-nums">{qty}</span>
+              <button 
+                type="button"
+                className="btn btn-xs btn-ghost h-full aspect-square p-0 min-h-0 text-white hover:bg-white/20"
+                onClick={() => add(item)}
+              >
+                <MdAdd className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="btn btn-outline btn-sm w-full px-1 text-xs"
+                onClick={() => openItem(item)}
+              >
+                View details
+              </button>
               <button
                 type="button"
                 className="btn btn-primary btn-sm w-full shadow-md shadow-primary/20 px-1"
@@ -268,8 +268,8 @@ function MenuItemCardInner({ item }) {
               >
                 {item.storeClosed ? 'Closed' : 'Add'}
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </article>

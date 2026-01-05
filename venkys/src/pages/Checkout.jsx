@@ -1,5 +1,5 @@
 import { useCart } from '../context/CartContext'
-import { createOrder, fetchAddresses, addAddress, setDefaultAddress, createRazorpayOrder, verifyRazorpayPayment, BRAND_LONG, fetchUserProfile, updateAddress, fetchOrder } from '../lib/data'
+import { createOrder, fetchAddresses, addAddress, setDefaultAddress, createRazorpayOrder, verifyRazorpayPayment, BRAND_LONG, fetchUserProfile, updateAddress, fetchOrder, getRazorpayKeyId } from '../lib/data'
 import { sendBillToCustomer } from '../lib/whatsapp'
 import { useAuth } from '../context/AuthContext'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -10,6 +10,7 @@ import usePlacesAutocomplete from '../hooks/usePlacesAutocomplete'
 import { useUI } from '../context/UIContext'
 import { db } from '../lib/firebase'
 import { doc, onSnapshot } from 'firebase/firestore'
+import { useNavigate } from 'react-router-dom'
 
 const CHECKOUT_PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash on Delivery', helper: 'Pay when the order arrives.', icon: MdPayment },
@@ -63,6 +64,7 @@ export default function Checkout() {
   const { entries, subtotal, setQty, remove, clear } = useCart()
   const { user } = useAuth()
   const { pushToast } = useUI()
+  const navigate = useNavigate()
   const [addresses, setAddresses] = useState({ list: [], defaultId: null })
   const [profileInfo, setProfileInfo] = useState(null)
   const [form, setForm] = useState({
@@ -94,6 +96,12 @@ export default function Checkout() {
   const [fieldError, setFieldError] = useState(null) // 'name' | 'phone' | 'addressLine1' | 'addressLine2' | 'pin' | 'location' | null
   const [gettingLocation, setGettingLocation] = useState(false)
   const [currentStep, setCurrentStep] = useState(1) // 1=contact, 2=address, 3=payment
+  const [confirmedSteps, setConfirmedSteps] = useState({ contact: false, address: false })
+
+  useEffect(() => {
+    if (!orderId) return
+    navigate(`/active-orders?id=${encodeURIComponent(orderId)}`, { replace: true })
+  }, [navigate, orderId])
   // Refs for auto-scrolling to form sections
   const nameRef = useRef(null)
   const phoneRef = useRef(null)
@@ -122,12 +130,13 @@ export default function Checkout() {
   const phoneRegex = /^\+?[0-9]{7,15}$/
   const pinRegex = /^[0-9]{4,8}$/
   const getNextIncompleteField = useCallback(() => {
+    const usingSavedAddress = !!activeAddressId && !showAddressForm
     // Step 1: Contact details
     if (!form.name) return { step: 1, field: 'name', ref: nameRef, label: 'Full Name', hint: 'Enter your full name' }
     if (!form.phone) return { step: 1, field: 'phone', ref: phoneRef, label: 'Phone Number', hint: 'Enter your phone number' }
     if (form.phone && !phoneRegex.test(form.phone)) return { step: 1, field: 'phone', ref: phoneRef, label: 'Phone Number', hint: 'Enter a valid phone number' }
     // Step 2: Address details (required fields first)
-    if (!form.addressLine1) return { step: 2, field: 'addressLine1', ref: addressLine1Ref, label: 'House/Flat + Street', hint: 'Enter your house number and street' }
+    if (!usingSavedAddress && !form.addressLine1) return { step: 2, field: 'addressLine1', ref: addressLine1Ref, label: 'House/Flat + Street', hint: 'Enter your house number and street' }
     if (!form.addressLine2) return { step: 2, field: 'addressLine2', ref: addressLine2Ref, label: 'Area/Locality', hint: 'Type your area and pick a Google suggestion' }
     if (!form.pin) return { step: 2, field: 'pin', ref: pinRef, label: 'PIN Code', hint: 'Enter your PIN code' }
     if (form.pin && !pinRegex.test(form.pin)) return { step: 2, field: 'pin', ref: pinRef, label: 'PIN Code', hint: 'Enter a valid PIN code' }
@@ -137,7 +146,7 @@ export default function Checkout() {
     // Step 3: Payment
     if (!form.paymentMethod) return { step: 3, field: 'paymentMethod', ref: paymentRef, label: 'Payment Method', hint: 'Select a payment method' }
     return null // All complete
-  }, [form])
+  }, [form, activeAddressId, showAddressForm])
 
   // Auto-guide to next incomplete field
   const guideToNextField = useCallback(() => {
@@ -171,15 +180,24 @@ export default function Checkout() {
     // Clear targeted error as user edits that field
     setFieldError((prev) => (prev === k ? null : prev))
     // Auto-update current step indicator
-    if (contactFields.includes(k)) setCurrentStep(1)
-    else if (addressFields.includes(k)) setCurrentStep(2)
+    if (contactFields.includes(k)) {
+      setCurrentStep(1)
+      setConfirmedSteps((prev) => (prev.contact ? { ...prev, contact: false } : prev))
+    }
+    else if (addressFields.includes(k)) {
+      setCurrentStep(2)
+      setConfirmedSteps((prev) => (prev.address ? { ...prev, address: false } : prev))
+    }
     else if (paymentFields.includes(k)) setCurrentStep(3)
   }, [])
-  const handleAutocompleteSelect = useCallback((parts) => {
+  const handleAutocompleteSelect = useCallback((parts, place) => {
     if (!parts) return
-    // Keep line 1 for manual entry; put autofill into line 2
-    const autoAddress = parts.formatted || [parts.line1, parts.line2].filter(Boolean).join(', ')
-    update('addressLine2', autoAddress || '')
+    // Address line 1 is for house/flat/building; line 2 is for Area/Locality.
+    const placeName = typeof place?.name === 'string' ? place.name.trim() : ''
+    const partsCity = typeof parts.city === 'string' ? parts.city.trim() : ''
+    const partsCityOk = partsCity && partsCity.toLowerCase() !== 'durgapur' ? partsCity : ''
+    const locality = (parts.line2 || '').trim() || placeName || partsCityOk
+    update('addressLine2', locality || '')
     // City is fixed to Durgapur; do not override from Google
     update('city', 'Durgapur')
     if (parts.state) update('state', parts.state)
@@ -191,13 +209,28 @@ export default function Checkout() {
   }, [update])
   // Attach autocomplete to Address line 2 (auto-filled), not line 1
   usePlacesAutocomplete(addressLine2Ref, handleAutocompleteSelect)
+
+  const handleAddressLine2Change = useCallback((value) => {
+    const next = String(value ?? '')
+    setForm((s) => ({
+      ...s,
+      addressLine2: next,
+      // If user edits locality manually, require re-confirming location
+      lat: null,
+      lng: null,
+      placeId: '',
+      mapUrl: '',
+    }))
+    setFieldError((prev) => (prev === 'addressLine2' ? null : prev))
+    setCurrentStep(2)
+  }, [])
   const fillFromAddress = useCallback((a) => {
     if (!a) return
+    setConfirmedSteps((prev) => ({ ...prev, address: false }))
     setForm(prev => ({
       ...prev,
-      // Keep line 1 empty for manual entry; move saved address into line 2
-      addressLine1: '',
-      addressLine2: [a.line1, a.line2].filter(Boolean).join(', '),
+      addressLine1: a.line1 || '',
+      addressLine2: a.line2 || '',
       city: 'Durgapur',
       state: a.state || prev.state || 'West Bengal',
       pin: a.zip || '',
@@ -232,6 +265,7 @@ export default function Checkout() {
   const handleStartNewAddress = useCallback(() => {
     setActiveAddressId(null)
     setShowAddressForm(true)
+    setConfirmedSteps((prev) => ({ ...prev, address: false }))
     setGeoError('')
     setSetAsDefault(!(addresses?.list?.length))
     setForm(prev => ({
@@ -573,6 +607,11 @@ export default function Checkout() {
     setFieldError(null)
     if (!entries.length || placing) return
 
+    if (!user?.uid) {
+      pushToast('Please sign in to place an order.', 'error', 5000)
+      return
+    }
+
     let lat = typeof form.lat === 'number' ? form.lat : null
     let lng = typeof form.lng === 'number' ? form.lng : null
     let geoParts = null
@@ -747,7 +786,7 @@ export default function Checkout() {
       let razorpayOrderId = null
       if (isOnlinePayment) {
         // Use Vite-exposed public key (VITE_RAZORPAY_KEY_ID). Server-side secret remains in RAZORPAY_KEY_SECRET.
-        const keyId = import.meta.env.VITE_RAZORPAY_KEY_ID || import.meta.env.RAZORPAY_KEY_ID
+        const keyId = await getRazorpayKeyId()
         if (!keyId) {
           throw new Error('Online payments are not configured yet. Please contact support.')
         }
@@ -891,7 +930,14 @@ export default function Checkout() {
           totalAmount: Number(subtotal),
           orderType: 'delivery'
         }
-        sendBillToCustomer(billOrder).catch(err => console.warn('Failed to send WhatsApp bill', err))
+        sendBillToCustomer(billOrder)
+          .then(res => {
+             if (res?.__error) pushToast('WhatsApp confirmation failed: ' + (res.message || res.__error), 'warning')
+          })
+          .catch(err => {
+             console.warn('Failed to send WhatsApp bill', err)
+             pushToast('WhatsApp confirmation failed', 'warning')
+          })
       } catch (e) {
         console.warn('Error preparing WhatsApp bill', e)
       }
@@ -954,8 +1000,13 @@ export default function Checkout() {
 
   // Step completion tracking for step indicator
   const step1Complete = form.name && form.phone && phoneOk
-  const step2Complete = form.addressLine1 && form.addressLine2 && form.pin && pinOk && (typeof form.lat === 'number') && (typeof form.lng === 'number') && withinRegion && addressPhoneOk
+  const step2Complete = (
+    (activeAddressId && !showAddressForm) || !!form.addressLine1
+  ) && form.addressLine2 && form.pin && pinOk && (typeof form.lat === 'number') && (typeof form.lng === 'number') && withinRegion && addressPhoneOk
   const step3Complete = !!orderId
+
+  const step1Done = confirmedSteps.contact
+  const step2Done = confirmedSteps.address
 
   const paymentOptions = CHECKOUT_PAYMENT_OPTIONS
   const describePaymentMethod = (method) => {
@@ -983,7 +1034,10 @@ export default function Checkout() {
 
   const handleNext = async () => {
     if (currentStep === 1) {
-      if (step1Complete) setCurrentStep(2)
+      if (step1Complete) {
+        setConfirmedSteps((prev) => ({ ...prev, contact: true }))
+        setCurrentStep(2)
+      }
       else guideToNextField()
     } else if (currentStep === 2) {
       if (step2Complete) {
@@ -1019,6 +1073,7 @@ export default function Checkout() {
             console.error('Failed to save address', e)
           }
         }
+        setConfirmedSteps((prev) => ({ ...prev, address: true }))
         setCurrentStep(3)
       }
       else guideToNextField()
@@ -1039,16 +1094,17 @@ export default function Checkout() {
   return (
     <div className="min-h-[90vh] flex items-center justify-center py-8 px-4 bg-base-200/30">
       {orderId ? (
-        <div className="w-full max-w-md text-center space-y-6 animate-in zoom-in duration-300">
-          <div className="alert alert-success shadow-lg flex-col items-center gap-4 p-8 rounded-2xl">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center text-3xl">🎉</div>
-            <div className="text-center">
-              <h3 className="font-bold text-lg">Order Placed Successfully!</h3>
-              <div className="text-sm opacity-90 mt-1">Order ID: <span className="font-mono font-bold">{orderId}</span></div>
+        <div className="w-full max-w-md text-center space-y-4 animate-in zoom-in duration-300">
+          <div className="rounded-2xl border border-base-300/60 bg-base-100/90 p-8 shadow-lg">
+            <div className="flex justify-center">
+              <span className="loading loading-spinner loading-lg text-primary" />
             </div>
+            <h3 className="font-bold text-lg mt-4">Taking you to your active order…</h3>
+            <div className="text-sm opacity-80 mt-1">Order ID: <span className="font-mono font-bold">{orderId}</span></div>
           </div>
-          <p className="text-sm opacity-60">You can track your order in the Profile section.</p>
-          <button className="btn btn-primary btn-wide rounded-xl" onClick={() => window.location.href = '/'}>Continue Shopping</button>
+          <button className="btn btn-primary btn-wide rounded-xl" onClick={() => navigate(`/active-orders?id=${encodeURIComponent(orderId)}`, { replace: true })}>
+            View order status
+          </button>
         </div>
       ) : entries.length === 0 ? (
         <div className="bg-base-100 rounded-2xl shadow-xl p-10 flex flex-col items-center gap-6 max-w-sm w-full text-center animate-in zoom-in duration-300">
@@ -1073,8 +1129,8 @@ export default function Checkout() {
                 {/* Step Indicator */}
                 <div className="flex items-center justify-between relative px-4">
                   <div className={`flex flex-col items-center gap-1 z-10 ${currentStep >= 1 ? 'text-primary' : 'opacity-40'}`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${step1Complete ? 'bg-success text-success-content' : currentStep === 1 ? 'bg-primary text-primary-content ring-4 ring-primary/20' : 'bg-base-300'}`}>
-                        {step1Complete ? <MdCheck className="w-5 h-5" /> : '1'}
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${step1Done ? 'bg-success text-success-content' : currentStep === 1 ? 'bg-primary text-primary-content ring-4 ring-primary/20' : 'bg-base-300'}`}>
+                        {step1Done ? <MdCheck className="w-5 h-5" /> : '1'}
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-wider">Contact</span>
                   </div>
@@ -1082,8 +1138,8 @@ export default function Checkout() {
                     <div className="h-full bg-success transition-all duration-500 ease-out" style={{ width: currentStep === 1 ? '0%' : currentStep === 2 ? '50%' : '100%' }}></div>
                   </div>
                   <div className={`flex flex-col items-center gap-1 z-10 ${currentStep >= 2 ? 'text-primary' : 'opacity-40'}`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${step2Complete ? 'bg-success text-success-content' : currentStep === 2 ? 'bg-primary text-primary-content ring-4 ring-primary/20' : 'bg-base-300'}`}>
-                        {step2Complete ? <MdCheck className="w-5 h-5" /> : '2'}
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${step2Done ? 'bg-success text-success-content' : currentStep === 2 ? 'bg-primary text-primary-content ring-4 ring-primary/20' : 'bg-base-300'}`}>
+                        {step2Done ? <MdCheck className="w-5 h-5" /> : '2'}
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-wider">Address</span>
                   </div>
@@ -1144,15 +1200,12 @@ export default function Checkout() {
                             <div className="space-y-3">
                                 {sortedAddresses.map(a => (
                                     <div key={a.id} className={`p-4 rounded-xl border transition-all hover:shadow-md group ${activeAddressId === a.id ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-base-200 hover:border-primary/50'}`}>
-                                        <div className="flex items-center justify-between mb-1 cursor-pointer" onClick={() => { fillFromAddress(a); setTimeout(() => setCurrentStep(3), 300); }}>
+                                        <div className="flex items-center justify-between mb-1 cursor-pointer" onClick={() => { fillFromAddress(a); setShowAddressForm(true); }}>
                                             <span className="font-bold flex items-center gap-2 text-sm"><MdPlace className={`w-4 h-4 ${activeAddressId === a.id ? 'text-primary' : 'opacity-50'}`} /> {a.tag || 'Address'}</span>
-                                            {activeAddressId === a.id ? <MdCheck className="text-primary w-5 h-5" /> : <MdArrowForward className="w-4 h-4 opacity-0 group-hover:opacity-50 -translate-x-2 group-hover:translate-x-0 transition-all" />}
+                                            {activeAddressId === a.id ? <MdCheck className="text-primary w-5 h-5" /> : <MdEdit className="w-4 h-4 opacity-0 group-hover:opacity-50 -translate-x-2 group-hover:translate-x-0 transition-all" />}
                                         </div>
                                         <div className="flex justify-between items-end">
-                                            <p className="text-xs opacity-70 leading-relaxed pl-6 flex-1 cursor-pointer" onClick={() => { fillFromAddress(a); setTimeout(() => setCurrentStep(3), 300); }}>{[a.line1, a.line2, a.city, a.pin].filter(Boolean).join(', ')}</p>
-                                            <button className="btn btn-xs btn-ghost opacity-50 hover:opacity-100 z-10" onClick={(e) => { e.stopPropagation(); fillFromAddress(a); setShowAddressForm(true); }}>
-                                                <MdEdit className="w-3 h-3 mr-1" /> Edit
-                                            </button>
+                                            <p className="text-xs opacity-70 leading-relaxed pl-6 flex-1 cursor-pointer" onClick={() => { fillFromAddress(a); setShowAddressForm(true); }}>{[a.line1, a.line2, a.city, a.pin].filter(Boolean).join(', ')}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -1177,11 +1230,11 @@ export default function Checkout() {
                                 {/* Auto-fill via GPS Button */}
                                 <button 
                                     type="button" 
-                                    className={`btn btn-sm btn-block rounded-xl border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 hover:border-primary/50 relative overflow-hidden group ${gettingLocation ? 'loading' : ''}`} 
+                                  className={`btn btn-block rounded-xl min-h-[3.25rem] text-base font-semibold border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 hover:border-primary/50 relative overflow-hidden group transition-opacity duration-300 ease-in-out ${gettingLocation ? 'loading opacity-70' : 'opacity-100'}`} 
                                     onClick={handleAutoFillLocation}
                                 >
                                     <div className="absolute inset-0 bg-primary/10 animate-pulse group-hover:animate-none"></div>
-                                    <span className="relative flex items-center gap-2 z-10">
+                                  <span className="relative flex items-center justify-center gap-2 z-10">
                                         <MdGpsFixed className="animate-bounce" /> Press to Auto-fill via GPS
                                     </span>
                                 </button>
@@ -1203,7 +1256,7 @@ export default function Checkout() {
                                 <div className="form-control w-full">
                                     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border ${fieldError === 'addressLine2' ? 'border-error' : 'border-transparent'} focus-within:border-primary/50 focus-within:bg-base-100 transition-all`}>
                                         <MdMap className="w-5 h-5 opacity-50" />
-                                        <input ref={addressLine2Ref} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="Area / Locality (Auto-filled)" value={form.addressLine2} onChange={(e)=>update('addressLine2', e.target.value)} />
+                                    <input ref={addressLine2Ref} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="Search Area / Locality (pick a suggestion)" value={form.addressLine2} onChange={(e)=>handleAddressLine2Change(e.target.value)} />
                                     </div>
                                     <label className="label py-1"><span className="label-text-alt opacity-60">Select from suggestions for best accuracy</span></label>
                                 </div>
@@ -1220,7 +1273,11 @@ export default function Checkout() {
                                 </div>
 
                                 {/* Confirm Location Only Button */}
-                                <button type="button" className={`btn btn-sm btn-block rounded-xl ${gettingLocation ? 'loading' : 'btn-ghost bg-base-200/50'}`} onClick={handleGPSOnly}>
+                                <button
+                                  type="button"
+                                  className={`btn btn-block rounded-xl min-h-[3.25rem] text-base font-semibold border-error/20 bg-error/10 text-error hover:bg-error/15 transition-opacity duration-300 ease-in-out ${gettingLocation ? 'loading opacity-70' : 'opacity-100'}`}
+                                  onClick={handleGPSOnly}
+                                >
                                     <MdGpsFixed /> Press to share location for faster delivery
                                 </button>
                                 

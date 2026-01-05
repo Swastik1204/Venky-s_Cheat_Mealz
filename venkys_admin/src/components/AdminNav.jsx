@@ -10,10 +10,25 @@ import { db } from '../lib/firebase'
 
 function AdminLinks({ section, vertical = false, onClick }) {
   const { pathname } = useLocation()
-  const { isAdmin, role } = useAuth()
-  const active = section || (pathname.startsWith('/admin/') ? pathname.split('/')[2] : 'inventory')
-  const isDelivery = role?.role === 'delivery'
-  const isStaff = role?.role === 'staff'
+  const { canAccess } = useAuth()
+
+  const links = useMemo(() => {
+    const defs = [
+      { key: 'inventory', label: 'Inventory', to: '/admin/inventory' },
+      { key: 'stock', label: 'Stock', to: '/admin/stock' },
+      { key: 'orders', label: 'Orders', to: '/admin/orders' },
+      { key: 'analytics', label: 'Analytics', to: '/admin/analytics' },
+      { key: 'appearance', label: 'Appearance', to: '/admin/appearance' },
+      { key: 'settings', label: 'Settings', to: '/admin/settings' },
+      { key: 'logs', label: 'Logs', to: '/admin/logs' },
+      { key: 'biller', label: 'Biller', to: '/admin/biller' },
+      { key: 'delivery', label: 'Delivery', to: '/admin/delivery' },
+    ]
+    return defs.filter((d) => canAccess(d.key))
+  }, [canAccess])
+
+  const pathSection = pathname.startsWith('/admin/') ? pathname.split('/')[2] : null
+  const active = section || pathSection || links[0]?.key || 'inventory'
   
   const baseLinkClass = vertical 
     ? "flex items-center gap-3 px-4 py-3 rounded-xl text-base font-medium transition-colors" 
@@ -33,37 +48,11 @@ function AdminLinks({ section, vertical = false, onClick }) {
     ? "flex flex-col gap-1 py-2"
     : "admin-nav-links"
 
-  if (isDelivery) {
-    return (
-      <nav className={containerClass} aria-label="Admin sections">
-        <Link to="/admin/delivery" onClick={onClick} className={linkCls('delivery')} aria-current={active === 'delivery' ? 'page' : undefined}>Delivery</Link>
-      </nav>
-    )
-  }
-
-  if (isStaff) {
-    return (
-      <nav className={containerClass} aria-label="Admin sections">
-        <Link to="/admin/inventory" onClick={onClick} className={linkCls('inventory')} aria-current={active === 'inventory' ? 'page' : undefined}>Inventory</Link>
-        <Link to="/admin/stock" onClick={onClick} className={linkCls('stock')} aria-current={active === 'stock' ? 'page' : undefined}>Stock</Link>
-        <Link to="/admin/orders" onClick={onClick} className={linkCls('orders')} aria-current={active === 'orders' ? 'page' : undefined}>Orders</Link>
-        <Link to="/admin/analytics" onClick={onClick} className={linkCls('analytics')} aria-current={active === 'analytics' ? 'page' : undefined}>Analytics</Link>
-        <Link to="/admin/biller" onClick={onClick} className={linkCls('biller')} aria-current={active === 'biller' ? 'page' : undefined}>Biller</Link>
-      </nav>
-    )
-  }
-
   return (
     <nav className={containerClass} aria-label="Admin sections">
-      <Link to="/admin/inventory" onClick={onClick} className={linkCls('inventory')} aria-current={active === 'inventory' ? 'page' : undefined}>Inventory</Link>
-      <Link to="/admin/stock" onClick={onClick} className={linkCls('stock')} aria-current={active === 'stock' ? 'page' : undefined}>Stock</Link>
-      <Link to="/admin/orders" onClick={onClick} className={linkCls('orders')} aria-current={active === 'orders' ? 'page' : undefined}>Orders</Link>
-      <Link to="/admin/analytics" onClick={onClick} className={linkCls('analytics')} aria-current={active === 'analytics' ? 'page' : undefined}>Analytics</Link>
-      <Link to="/admin/appearance" onClick={onClick} className={linkCls('appearance')} aria-current={active === 'appearance' ? 'page' : undefined}>Appearance</Link>
-      <Link to="/admin/settings" onClick={onClick} className={linkCls('settings')} aria-current={active === 'settings' ? 'page' : undefined}>Settings</Link>
-      {isAdmin && <Link to="/admin/logs" onClick={onClick} className={linkCls('logs')} aria-current={active === 'logs' ? 'page' : undefined}>Logs</Link>}
-      <Link to="/admin/biller" onClick={onClick} className={linkCls('biller')} aria-current={active === 'biller' ? 'page' : undefined}>Biller</Link>
-      <Link to="/admin/delivery" onClick={onClick} className={linkCls('delivery')} aria-current={active === 'delivery' ? 'page' : undefined}>Delivery</Link>
+      {links.map((l) => (
+        <Link key={l.key} to={l.to} onClick={onClick} className={linkCls(l.key)} aria-current={active === l.key ? 'page' : undefined}>{l.label}</Link>
+      ))}
     </nav>
   )
 }
@@ -79,10 +68,11 @@ export function AdminNav({ section, bare = true }) {
 }
 
 export default function AdminTopNav() {
-  const { user, logout, isStaffMember, isAdmin, role, roleLoading } = useAuth()
+  const { user, logout, isStaffMember, roleLoading, isAdmin, role } = useAuth()
   const { openAuth } = useUI()
   const { pathname } = useLocation()
   const [theme, setTheme] = useState('venkys_light')
+  const [themeReady, setThemeReady] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [liveEnabled, setLiveEnabled] = useState(true)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -127,6 +117,7 @@ export default function AdminTopNav() {
   useEffect(() => {
     let cancelled = false
     async function initTheme() {
+      setThemeReady(false)
       let saved = 'venkys_light'
       try {
         const local = localStorage.getItem('theme')
@@ -138,12 +129,16 @@ export default function AdminTopNav() {
           const remote = await getUserTheme(user.uid)
           if ((remote === 'venkys_dark' || remote === 'venkys_light') && !cancelled) {
             setTheme(remote)
+            setThemeReady(true)
             return
           }
         } catch { /* ignore remote theme miss */ }
       }
 
-      if (!cancelled) setTheme(saved)
+      if (!cancelled) {
+        setTheme(saved)
+        setThemeReady(true)
+      }
     }
     initTheme()
     return () => { cancelled = true }
@@ -151,11 +146,12 @@ export default function AdminTopNav() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
+    if (!themeReady) return
     try { localStorage.setItem('theme', theme) } catch { /* ignore storage write issues */ }
     if (user) {
       setUserTheme(user.uid, theme).catch(() => { /* ignore cloud sync errors */ })
     }
-  }, [theme, user])
+  }, [theme, user, themeReady])
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 8)
@@ -211,7 +207,7 @@ export default function AdminTopNav() {
                 <MdMenu className="h-6 w-6" />
               </button>
               
-              <Link to="/admin/inventory" className="shrink-0" aria-label="Admin home">
+              <Link to="/admin" className="shrink-0" aria-label="Admin home">
                 <img src="/icons/logo.png" alt="Venky's" className="brand-logo drop-shadow-sm" />
               </Link>
               

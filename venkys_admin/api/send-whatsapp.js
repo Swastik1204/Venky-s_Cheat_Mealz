@@ -79,8 +79,7 @@ export default async function handler(req, res) {
       }
       // Fallback template send
       const fallbackName = process.env.WA_TEMPLATE_DEFAULT_NAME || 'hello_world'
-      const fallbackLangRaw = (process.env.WA_TEMPLATE_DEFAULT_LANG || 'en_US').replace('-', '_')
-      const fallbackLang = fallbackLangRaw.length === 2 ? (fallbackLangRaw.toLowerCase() === 'en' ? 'en_US' : fallbackLangRaw) : fallbackLangRaw
+      const fallbackLang = process.env.WA_TEMPLATE_DEFAULT_LANG || 'en_US'
       const tplBody = {
         messaging_product: 'whatsapp',
         to: textBody.to,
@@ -102,8 +101,9 @@ export default async function handler(req, res) {
       return
     } else if (payload && payload.templateName) {
       // Optional template support if caller provides template
-      const rawLang = String(payload.templateLanguage || 'en_US').replace('-', '_')
-      const lang = rawLang.length === 2 ? (rawLang.toLowerCase() === 'en' ? 'en_US' : rawLang) : rawLang
+      const defaultLang = process.env.WA_TEMPLATE_DEFAULT_LANG || 'en_US'
+      const rawLang = String(payload.templateLanguage || defaultLang).replace('-', '_')
+      const lang = rawLang // Use the language code as provided, don't auto-convert 'en' to 'en_US'
       body = {
         messaging_product: 'whatsapp',
         to: to.startsWith('91') ? to : `91${to}`,
@@ -128,7 +128,13 @@ export default async function handler(req, res) {
         // Best-effort logging only; ignore JSON stringify failures
         console.error('[send-whatsapp] WA error (stringify failed)', err)
       }
-      res.status(r.status).json({ __error: 'wa_http_error', status: r.status, data: r.data, request: { to: body?.to, type: body?.type, template: body?.template ? { name: body.template.name, language: body.template.language } : undefined } })
+      res.status(r.status).json({ 
+        __error: 'wa_http_error', 
+        status: r.status, 
+        message: r.data?.error?.message || 'Unknown WA error',
+        data: r.data, 
+        request: { to: body?.to, type: body?.type, template: body?.template ? { name: body.template.name, language: body.template.language } : undefined } 
+      })
       return
     }
     res.status(200).json({ ok: true, data: r.data })

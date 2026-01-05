@@ -29,11 +29,22 @@ export default function ItemModal() {
     : null
   const onAdd = () => {
     if (!selectedItem) return
+    // Ensure we always have a stable id key (some callers may pass items without `id`).
+    const resolvedId =
+      selectedItem.id ||
+      selectedItem.itemId ||
+      selectedItem._id ||
+      selectedItem.docId ||
+      selectedItem.sku ||
+      `${selectedItem.categoryId || ''}:${selectedItem.name || ''}`
+    const itemToAdd = resolvedId && selectedItem.id !== resolvedId
+      ? { ...selectedItem, id: resolvedId }
+      : selectedItem
     // Add the full item object so the cart has all fields
-    add(selectedItem)
+    add(itemToAdd)
     // Mark this item's info as seen so future adds skip the modal
     try {
-      const key = selectedItem.id || `${selectedItem.categoryId || ''}:${selectedItem.name}`
+      const key = itemToAdd.id || `${itemToAdd.categoryId || ''}:${itemToAdd.name}`
       const raw = localStorage.getItem('itemInfoSeen')
       const arr = raw ? JSON.parse(raw) : []
       if (Array.isArray(arr)) {
@@ -42,7 +53,7 @@ export default function ItemModal() {
       } else {
         localStorage.setItem('itemInfoSeen', JSON.stringify([key]))
       }
-  } catch { /* noop */ }
+    } catch { /* noop */ }
     closeItem()
   }
 

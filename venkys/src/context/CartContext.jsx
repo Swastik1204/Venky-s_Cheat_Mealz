@@ -152,12 +152,9 @@ export function CartProvider({ children }) {
       subtotal,
       totalQty,
       add: (item, qty = 1) => {
-        const wasGuest = !user
         dispatch({ type: 'ADD', item, qty })
-        if (wasGuest) {
-          pushToast('You are not logged in. Login to save your cart.', 'warning', 5000)
-          openAuth && openAuth('login')
-        }
+        // Optional: Notify user item added
+        // pushToast(`Added ${item.name} to cart`, 'success')
       },
       remove: (id) => dispatch({ type: 'REMOVE', id }),
       setQty: (id, qty) => dispatch({ type: 'SET_QTY', id, qty }),

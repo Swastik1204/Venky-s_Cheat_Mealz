@@ -23,6 +23,25 @@ export async function logChange({
 	metadata = {}
 }) {
 	try {
+		const sanitize = (value) => {
+			if (value === undefined) return undefined
+			if (value === null) return null
+			if (Array.isArray(value)) {
+				return value
+					.map((v) => sanitize(v))
+					.filter((v) => v !== undefined)
+			}
+			if (typeof value === 'object') {
+				const out = {}
+				Object.entries(value).forEach(([k, v]) => {
+					const next = sanitize(v)
+					if (next !== undefined) out[k] = next
+				})
+				return out
+			}
+			return value
+		}
+
 		const logEntry = {
 			action, // 'create' | 'update' | 'delete'
 			collection: collectionName,
@@ -32,7 +51,7 @@ export async function logChange({
 			performedBy: performedBy || 'system',
 			timestamp: serverTimestamp(),
 			metadata: {
-				...metadata,
+				...sanitize(metadata),
 				userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
 				ip: 'server-side', // Can be enhanced with actual IP tracking
 			}
@@ -61,14 +80,16 @@ export function getChangedFields(before, after) {
 	for (const key of allKeys) {
 		const beforeVal = before?.[key]
 		const afterVal = after?.[key]
+		const safeBeforeVal = beforeVal === undefined ? null : beforeVal
+		const safeAfterVal = afterVal === undefined ? null : afterVal
 		
 		// Skip Firestore Timestamps for comparison
 		if (key === 'createdAt' || key === 'updatedAt' || key === 'timestamp') continue
 		
-		if (JSON.stringify(beforeVal) !== JSON.stringify(afterVal)) {
+		if (JSON.stringify(safeBeforeVal) !== JSON.stringify(safeAfterVal)) {
 			changes[key] = {
-				from: beforeVal,
-				to: afterVal
+				from: safeBeforeVal,
+				to: safeAfterVal
 			}
 		}
 	}

@@ -6,7 +6,6 @@ import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { MdLocationOn, MdLogin, MdPerson, MdSearch } from 'react-icons/md'
 import { fetchMenuCategories, getUserTheme, setUserTheme } from '../lib/data'
-import { getAvatarUrl } from '../lib/userData'
 
 export default function NavBar() {
   const [scrolled, setScrolled] = useState(false)
@@ -331,11 +330,7 @@ export default function NavBar() {
               </div>
             ) : (
               <Link to="/profile" className="btn btn-ghost btn-sm px-2 gap-2 items-center">
-                <div className="avatar placeholder">
-                  <div className="bg-neutral text-neutral-content rounded-full w-8">
-                    <span className="text-xs font-bold">{displayLabel.charAt(0).toUpperCase()}</span>
-                  </div>
-                </div>
+                <MdPerson className="w-5 h-5 opacity-70" />
                 <span className="hidden md:inline max-w-[8rem] truncate font-medium">{displayLabel}</span>
               </Link>
             )}

@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import AdminLayout from '../layouts/AdminLayout'
 import { db } from '../lib/firebase'
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore'
-import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, sendWhatsAppInvoice } from '../lib/data'
+import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, sendWhatsAppInvoice, sendOtpViaWhatsApp } from '../lib/data'
 import { useUI } from '../context/UIContext'
 import { useAuth } from '../context/AuthContext'
 import { MdWarningAmber, MdPrint } from 'react-icons/md'
 
 export default function Orders() {
-  const { confirmState, resolveConfirm, toasts, dismissToast } = useUI()
+  const location = useLocation()
+  const { confirmState, resolveConfirm, pushToast } = useUI()
   const { user, roleLoading, isStaffMember } = useAuth()
   const [orders, setOrders] = useState([])
-  const [liveEnabled, setLiveEnabled] = useState(true)
+  const [liveEnabled] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
   const [orderSearch, setOrderSearch] = useState('')
   const [loadingOrders, setLoadingOrders] = useState(false)
@@ -20,83 +22,279 @@ export default function Orders() {
   const historyHeaderRefs = useRef({})
   const [openHistoryKey, setOpenHistoryKey] = useState(null)
   const [adminPhone, setAdminPhone] = useState('')
-  const audioRef = useRef(typeof Audio !== 'undefined' ? new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3') : null)
+
+  function playNewOrderSound() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext
+      if (!Ctx) return
+      const ctx = new Ctx()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = 880
+      gain.gain.value = 0.03
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.18)
+      osc.onended = () => { try { ctx.close() } catch { /* noop */ } }
+    } catch (e) {
+      console.error('Audio beep failed', e)
+    }
+  }
+
+  const [otpModalOpen, setOtpModalOpen] = useState(false)
+  const [otpModalOrder, setOtpModalOrder] = useState(null)
+  const [otpValue, setOtpValue] = useState('')
+  const [otpBusy, setOtpBusy] = useState(false)
+  const [otpResendBusy, setOtpResendBusy] = useState(false)
+
+  function isDineInCod(o) {
+    const type = String(o?.orderType || '').toLowerCase()
+    const method = String(o?.payment?.method || o?.customer?.payment?.method || '').toLowerCase()
+    return type === 'dine-in' && method === 'cod'
+  }
+
+  function openOtpModalForOrder(o) {
+    setOtpModalOrder(o)
+    setOtpValue('')
+    setOtpModalOpen(true)
+  }
+
+  async function verifyOtpAndAccept(o, rawOtp) {
+    if (!o || o.status !== 'placed') return
+    if (!isDineInCod(o)) return
+    if (!o.cashManagerOtp) {
+      pushToast('OTP not found on this order', 'warning')
+      return
+    }
+    if (o.cashManagerOtpVerified) return
+
+    const typed = String(rawOtp || '').trim()
+    const expected = String(o.cashManagerOtp).trim()
+    if (!typed || typed !== expected) {
+      pushToast('Incorrect OTP', 'error')
+      return
+    }
+
+    setOtpBusy(true)
+    try {
+      const collectedAt = new Date().toISOString()
+      await updateOrder(o.userId || null, o.id, {
+        status: 'preparing',
+        cashManagerOtpVerified: true,
+        cashManagerOtpVerifiedAt: collectedAt,
+        cashManagerOtpVerifiedBy: user?.email || user?.uid || 'staff',
+        payment: {
+          ...(o.payment || {}),
+          status: 'paid',
+          collectedAt,
+          collectedBy: user?.email || user?.uid || 'staff',
+          metadata: { ...(o.payment?.metadata || {}), verifiedBy: 'otp' },
+        },
+      }, user?.email)
+
+      if (Array.isArray(o.items)) {
+        deductStockForOrder(o.items).catch(err => console.error('Stock deduction failed', err))
+      }
+
+      setOrders(arr => arr.map(x => x.id === o.id ? { ...x, status: 'preparing', cashManagerOtpVerified: true, payment: { ...(o.payment || {}), status: 'paid', collectedAt, collectedBy: user?.email || user?.uid || 'staff', metadata: { ...(o.payment?.metadata || {}), verifiedBy: 'otp' } } } : x))
+      pushToast('Order accepted', 'success')
+      setOtpModalOpen(false)
+      setOtpModalOrder(null)
+      setOtpValue('')
+    } catch (err) {
+      console.error('[Orders] OTP accept failed:', err)
+      pushToast('Failed to accept order', 'error')
+    } finally {
+      setOtpBusy(false)
+    }
+  }
+
+  async function resendOtpForOrder(o) {
+    if (!o) return
+    if (!isDineInCod(o)) {
+      pushToast('OTP resend only applies to dine-in COD orders', 'warning')
+      return
+    }
+    if (!o.cashManagerOtp) {
+      pushToast('OTP not found on this order', 'warning')
+      return
+    }
+    if (!adminPhone) {
+      pushToast('Admin WhatsApp number not configured', 'error')
+      return
+    }
+
+    setOtpResendBusy(true)
+    try {
+      const orderRef = o.orderNo || o.id
+      const otp = String(o.cashManagerOtp).trim()
+
+      // Use template-based OTP sending (works outside 24h window)
+      const result = await sendOtpViaWhatsApp(adminPhone, otp, orderRef)
+      if (result?.__error) {
+        throw new Error(result.__error === 'missing_phone' ? 'Invalid phone number' : (result.message || 'WhatsApp send failed'))
+      }
+
+      const resentAt = new Date().toISOString()
+      const nextCount = Number(o.cashManagerOtpResentCount || 0) + 1
+      await updateOrder(o.userId || null, o.id, {
+        cashManagerOtpResentAt: resentAt,
+        cashManagerOtpResentBy: user?.email || user?.uid || 'staff',
+        cashManagerOtpResentCount: nextCount,
+      }, user?.email)
+
+      setOrders(arr => arr.map(x => x.id === o.id ? { ...x, cashManagerOtpResentAt: resentAt, cashManagerOtpResentBy: user?.email || user?.uid || 'staff', cashManagerOtpResentCount: nextCount } : x))
+      pushToast('OTP resent', 'success')
+    } catch (err) {
+      console.error('[Orders] OTP resend failed:', err)
+      pushToast(err?.message || 'Failed to resend OTP', 'error')
+    } finally {
+      setOtpResendBusy(false)
+    }
+  }
 
   const printOrderBill = (order) => {
     if (!order) return
-    const w = window.open('', '_blank', 'width=400,height=600')
+    const w = window.open('', '_blank', 'width=280,height=600')
     if (!w) {
         alert('Please allow popups to print the bill')
         return
     }
     
-    const itemsHtml = (order.items || []).map(item => `
-      <tr>
-        <td style="padding: 4px 0; vertical-align: top;">${item.qty}x</td>
-        <td style="padding: 4px 0; vertical-align: top;">${item.name}</td>
-        <td style="text-align: right; padding: 4px 0; vertical-align: top;">₹${item.price * item.qty}</td>
-      </tr>
-    `).join('')
+    // Helper to truncate/wrap text for thermal printer (72mm ≈ 42 chars at 9pt monospace)
+    const wrapText = (text, maxLen = 32) => {
+      if (!text || text.length <= maxLen) return text
+      const words = text.split(' ')
+      const lines = []
+      let current = ''
+      for (const word of words) {
+        if ((current + ' ' + word).trim().length <= maxLen) {
+          current = current ? current + ' ' + word : word
+        } else {
+          if (current) lines.push(current)
+          current = word.length > maxLen ? word.slice(0, maxLen) : word
+        }
+      }
+      if (current) lines.push(current)
+      return lines.join('<br/>')
+    }
 
-    const dateStr = order.createdAt?.seconds ? new Date(order.createdAt.seconds * 1000).toLocaleString() : new Date().toLocaleString()
-    const total = order.totalAmount || order.subtotal || 0
-    const addressStr = [order.address?.line1, order.address?.line2, order.address?.city].filter(Boolean).join(', ')
+    const itemsHtml = (order.items || []).map(item => {
+      const itemName = String(item.name || '').trim()
+      const qty = Number(item.qty) || 1
+      const price = Number(item.price) || 0
+      const lineTotal = (qty * price).toFixed(0)
+      // Format: "2x Chicken Burger" on one line, price right-aligned on next line if name is long
+      const nameWrapped = wrapText(itemName, 28)
+      return `
+        <tr>
+          <td style="padding: 2px 0; vertical-align: top; width: 25px;">${qty}x</td>
+          <td style="padding: 2px 0; vertical-align: top;">${nameWrapped}</td>
+          <td style="text-align: right; padding: 2px 0; vertical-align: top; white-space: nowrap; width: 50px;">₹${lineTotal}</td>
+        </tr>
+      `
+    }).join('')
+
+    const dateStr = order.createdAt?.seconds 
+      ? new Date(order.createdAt.seconds * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
+      : new Date().toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
+    const total = Number(order.totalAmount || order.subtotal || 0).toFixed(0)
+    const addr = order.address || order.customer?.address || {}
+    const addressParts = [addr?.line1, addr?.line2, addr?.city].filter(Boolean)
+    const addressStr = addressParts.length > 0 ? wrapText(addressParts.join(', '), 32) : ''
+    const customerName = wrapText(String(order.customer?.name || order.name || 'Guest'), 32)
+    const orderRef = String(order.orderNo || order.id || '').slice(-8)
     
     const html = `
+      <!DOCTYPE html>
       <html>
       <head>
-        <title>Bill #${order.id.slice(-6)}</title>
+        <meta charset="UTF-8">
+        <title>Bill #${orderRef}</title>
         <style>
-          body { font-family: 'Courier New', monospace; font-size: 12px; width: 300px; margin: 0 auto; padding: 10px; color: black; }
-          .header { text-align: center; margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
-          .title { font-size: 16px; font-weight: bold; margin: 0; }
-          .meta { font-size: 10px; margin-top: 5px; }
-          .customer { margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
-          table { width: 100%; border-collapse: collapse; }
-          .totals { margin-top: 10px; border-top: 1px dashed #000; padding-top: 5px; }
-          .row { display: flex; justify-content: space-between; margin-bottom: 2px; }
-          .footer { text-align: center; margin-top: 20px; font-size: 10px; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: 'Courier New', 'Courier', monospace; 
+            font-size: 9pt;
+            line-height: 1.3;
+            width: 72mm;
+            max-width: 72mm;
+            margin: 0;
+            padding: 4mm 2mm;
+            color: #000;
+            background: #fff;
+          }
+          .center { text-align: center; }
+          .right { text-align: right; }
+          .bold { font-weight: bold; }
+          .small { font-size: 8pt; }
+          .header { margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed #000; }
+          .title { font-size: 11pt; font-weight: bold; margin-bottom: 3px; }
+          .section { margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed #000; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+          td { padding: 2px 0; vertical-align: top; word-wrap: break-word; }
+          .totals { border-top: 1px dashed #000; padding-top: 6px; margin-top: 8px; }
+          .total-row { display: flex; justify-content: space-between; margin-bottom: 3px; line-height: 1.2; }
+          .footer { text-align: center; margin-top: 12px; font-size: 8pt; }
+          @page { 
+            size: 72mm auto;
+            margin: 0;
+          }
           @media print {
-            @page { margin: 0; size: auto; }
-            body { margin: 0; width: 100%; }
+            body { 
+              width: 72mm;
+              max-width: 72mm;
+              padding: 2mm;
+            }
           }
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1 class="title">Venky's Cheat Mealz</h1>
-          <div class="meta">Order #${order.id.slice(-6)}</div>
-          <div class="meta">${dateStr}</div>
+        <div class="header center">
+          <div class="title">Venky's Cheat Mealz</div>
+          <div class="small">Order #${orderRef}</div>
+          <div class="small">${dateStr}</div>
         </div>
-        <div class="customer">
-          <div style="font-weight: bold;">${order.customer?.name || order.name || 'Guest'}</div>
-          <div>${order.customer?.phone || order.phone || ''}</div>
-          <div style="font-size: 10px; margin-top: 2px;">${addressStr}</div>
+        
+        <div class="section small">
+          <div class="bold">${customerName}</div>
+          ${order.customer?.phone || order.phone ? `<div>${order.customer?.phone || order.phone}</div>` : ''}
+          ${addressStr ? `<div style="margin-top: 2px;">${addressStr}</div>` : ''}
         </div>
+        
         <table>
           ${itemsHtml}
         </table>
+        
         <div class="totals">
-          <div class="row"><span>Subtotal:</span><span>₹${order.subtotal}</span></div>
-          ${order.deliveryFee ? `<div class="row"><span>Delivery:</span><span>₹${order.deliveryFee}</span></div>` : ''}
-          ${order.discount ? `<div class="row"><span>Discount:</span><span>-₹${order.discount}</span></div>` : ''}
-          <div class="row" style="font-weight: bold; font-size: 14px; margin-top: 5px;">
-            <span>Total:</span><span>₹${total}</span>
+          <div class="total-row">
+            <span>Subtotal:</span>
+            <span class="bold">₹${Number(order.subtotal || 0).toFixed(0)}</span>
           </div>
-          <div class="row" style="font-size: 10px; margin-top: 2px;">
-            <span>Payment:</span><span style="text-transform: uppercase;">${order.payment?.method || 'COD'}</span>
+          ${order.deliveryFee ? `<div class="total-row"><span>Delivery:</span><span>₹${Number(order.deliveryFee).toFixed(0)}</span></div>` : ''}
+          ${order.discount ? `<div class="total-row"><span>Discount:</span><span>-₹${Number(order.discount).toFixed(0)}</span></div>` : ''}
+          <div class="total-row" style="font-size: 11pt; margin-top: 4px; padding-top: 4px; border-top: 1px solid #000;">
+            <span class="bold">TOTAL:</span>
+            <span class="bold">₹${total}</span>
           </div>
+          <div class="total-row small" style="margin-top: 3px;">
+            <span>Payment:</span>
+            <span style="text-transform: uppercase;">${order.payment?.method || 'COD'}</span>
+          </div>
+          ${order.payment?.status === 'paid' ? '<div class="center small" style="margin-top: 3px;">✓ PAID</div>' : ''}
         </div>
+        
         <div class="footer">
           Thank you for ordering!<br/>
-          Visit us again.
+          Visit us again 🍗
         </div>
+        
         <script>
-          // Auto print and close
           setTimeout(() => {
             window.print();
-            // window.close(); // Optional: close after print
-          }, 500);
+          }, 300);
         </script>
       </body>
       </html>
@@ -107,7 +305,7 @@ export default function Orders() {
 
   useEffect(() => {
     fetchAppSettings().then(s => {
-      if (s?.adminMobile) setAdminPhone(s.adminMobile)
+      if (s?.cashManagerPhone) setAdminPhone(s.cashManagerPhone)
     })
   }, [])
 
@@ -131,7 +329,7 @@ export default function Orders() {
           
           if (order.status === 'placed' && isRecent) {
             // Play sound
-            audioRef.current?.play().catch(e => console.error('Audio play failed', e))
+            playNewOrderSound()
             
             // Send WhatsApp to Admin
             if (adminPhone) {
@@ -169,6 +367,11 @@ export default function Orders() {
   async function acceptOrder(o) { 
     if (o.status !== 'placed') return; 
     try {
+      // For dine-in COD orders, OTP (if present) must be verified before accepting.
+      if (isDineInCod(o) && o.cashManagerOtp && !o.cashManagerOtpVerified) {
+        openOtpModalForOrder(o)
+        return
+      }
       console.log('[Orders] Accepting order:', o.id, 'userId:', o.userId)
       await updateOrder(o.userId || null, o.id, { status: 'preparing' }, user?.email); 
       console.log('[Orders] Order accepted successfully:', o.id)
@@ -182,13 +385,115 @@ export default function Orders() {
     }
   }
   async function rejectOrder(o) { if (o.status !== 'placed') return; await updateOrder(o.userId || null, o.id, { status: 'rejected' }, user?.email); setOrders(arr => arr.map(x => x.id === o.id ? { ...x, status: 'rejected' } : x)) }
-  async function advanceOrder(o) { const next = nextOrderStatus(o.status); if (next === o.status) return; await updateOrder(o.userId || null, o.id, { status: next }, user?.email); setOrders((arr) => arr.map(x => x.id === o.id ? { ...x, status: next } : x)) }
+  async function advanceOrder(o) { 
+    const next = nextOrderStatus(o.status); 
+    if (next === o.status) return; 
+    await updateOrder(o.userId || null, o.id, { status: next }, user?.email); 
+    setOrders((arr) => arr.map(x => x.id === o.id ? { ...x, status: next } : x))
+    
+    // Send Google review request if order just became delivered
+    if (next === 'delivered' && o.status !== 'delivered') {
+      const phone = o.customer?.phone || o.phone
+      if (phone) {
+        try {
+          const settings = await fetchAppSettings()
+          const googlePlaceId = settings.googlePlaceId
+          if (googlePlaceId) {
+            const reviewUrl = `https://search.google.com/local/writereview?placeid=${googlePlaceId}`
+            const message = `Thank you for your order at Venky's Cheat Mealz! 🍽️\n\nWe hope you enjoyed your meal. Your feedback helps us improve! Please take a moment to share your experience:\n\n${reviewUrl}\n\nThank you! 😊`
+            await sendWhatsAppInvoice(phone, { text: message })
+          }
+        } catch (err) {
+          console.error('[Orders] Failed to send review request:', err)
+        }
+      }
+    }
+  }
 
   function progressPercent(s) { const idx = statusFlow.indexOf(s); if (idx === -1) return 0; return ((idx + 1) / statusFlow.length) * 100 }
   function toggleHistory(key, el) { const beforeTop = el?.getBoundingClientRect?.().top; setOpenHistoryKey(prev => (prev === key ? null : key)); requestAnimationFrame(() => { const afterTop = el?.getBoundingClientRect?.().top; if (typeof beforeTop === 'number' && typeof afterTop === 'number') { window.scrollBy({ top: afterTop - beforeTop, left: 0, behavior: 'auto' }) } }) }
 
+  // If navigated from the Biller, auto-open the newly created order.
+  useEffect(() => {
+    const st = location?.state
+    const highlightId = st?.highlightOrderId
+    const autoOpen = !!st?.autoOpen
+    if (!autoOpen || !highlightId || !orders.length) return
+    const target = orders.find(o => o.id === highlightId || o.orderNo === highlightId)
+    if (!target) return
+    setSelectedOrder(target)
+    setOrderModalOpen(true)
+  }, [location, orders])
+
   return (
     <AdminLayout section="orders">
+      {otpModalOpen && otpModalOrder && (
+        <dialog open className="modal modal-open z-[200]">
+          <div className="modal-box z-[210]">
+            <h3 className="font-bold text-lg">Verify OTP</h3>
+            <p className="text-sm opacity-70 mt-1">Enter OTP to accept this dine-in COD order.</p>
+
+            <div className="mt-4">
+              <div className="text-xs opacity-60 mb-1">Order</div>
+              <div className="font-mono text-sm">{otpModalOrder.orderNo || otpModalOrder.id}</div>
+            </div>
+
+            <div className="mt-4">
+              <input
+                className="input input-bordered w-full text-center font-mono text-xl tracking-widest"
+                value={otpValue}
+                onChange={(e) => {
+                  const expectedLen = otpModalOrder?.cashManagerOtp ? String(otpModalOrder.cashManagerOtp).trim().length : 6
+                  setOtpValue(e.target.value.replace(/\D/g, '').slice(0, Math.max(expectedLen, 4)))
+                }}
+                inputMode="numeric"
+                placeholder="Enter OTP"
+                autoFocus
+              />
+            </div>
+
+            <div className="modal-action">
+              <button
+                className="btn btn-ghost"
+                disabled={otpBusy || otpResendBusy}
+                onClick={() => resendOtpForOrder(otpModalOrder)}
+              >
+                {otpResendBusy ? 'Resending…' : 'Resend OTP'}
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  if (otpBusy) return
+                  setOtpModalOpen(false)
+                  setOtpModalOrder(null)
+                  setOtpValue('')
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={otpBusy || otpResendBusy}
+                onClick={() => verifyOtpAndAccept(otpModalOrder, otpValue)}
+              >
+                {otpBusy ? 'Verifying…' : 'Verify & Accept'}
+              </button>
+            </div>
+          </div>
+          <form
+            method="dialog"
+            className="modal-backdrop z-[205]"
+            onClick={() => {
+              if (otpBusy) return
+              setOtpModalOpen(false)
+              setOtpModalOrder(null)
+              setOtpValue('')
+            }}
+          >
+            <button>close</button>
+          </form>
+        </dialog>
+      )}
       <div className="flex flex-col gap-4">
         <h2 className="text-3xl font-extrabold tracking-tight" style={{lineHeight:'1.1', color:'var(--color-base-content)'}}>
           Orders
@@ -200,8 +505,7 @@ export default function Orders() {
               <input className="input input-bordered join-item input-sm w-full" placeholder="Search id, name or phone" value={orderSearch} onChange={(e)=> setOrderSearch(e.target.value)} />
               {orderSearch && (<button className="btn btn-sm join-item" onClick={()=> setOrderSearch('')}>Clear</button>)}
             </div>
-            <button className="btn btn-sm btn-outline" onClick={() => setLiveEnabled(v => !v)}>{liveEnabled ? 'Pause live' : 'Resume live'}</button>
-            <button className="btn btn-sm btn-outline" onClick={loadOrders} disabled={loadingOrders || liveEnabled} title={liveEnabled ? 'Pause live to use manual refresh' : 'Manual refresh'}>
+            <button className="btn btn-sm btn-outline" onClick={loadOrders} disabled={loadingOrders} title="Refresh">
               {loadingOrders ? 'Loading…' : 'Refresh'}
             </button>
           </div>
@@ -330,8 +634,8 @@ export default function Orders() {
       </div>
 
       {orderModalOpen && selectedOrder && (
-        <dialog open className="modal modal-open">
-          <div className="modal-box max-w-3xl">
+        <dialog open className="modal modal-open z-[100]">
+          <div className="modal-box z-[110]">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-lg flex items-center gap-2">
                 Order #{selectedOrder.id.slice(-6)} 
@@ -353,7 +657,7 @@ export default function Orders() {
                    </div>
                    <div className="min-w-0 flex-1">
                      <div className="font-bold text-lg">{selectedOrder.customer?.name || selectedOrder.name || 'Guest'}</div>
-                     <button 
+                     <button
                        className="text-lg font-mono text-primary hover:underline flex items-center gap-2 mt-1"
                        onClick={() => {
                          const phone = selectedOrder.customer?.phone || selectedOrder.phone;
@@ -368,46 +672,60 @@ export default function Orders() {
                    </div>
                 </div>
                 <div className="pl-0 md:pl-4 md:border-l border-base-300/50">
-                  <div className="font-bold text-xs uppercase opacity-50 mb-1">Delivery Address</div>
-                  <div className="text-xs leading-relaxed mb-2">
-                    {[selectedOrder.address?.line1, selectedOrder.address?.line2, selectedOrder.address?.city, selectedOrder.address?.pin].filter(Boolean).join(', ') || 'No address provided'}
-                  </div>
-                  
-                  {/* Explicit Lat/Lng Display */}
-                  {(selectedOrder.address?.lat || selectedOrder.address?.lng) && (
-                    <div className="text-[10px] font-mono opacity-60 mb-2 select-all">
-                      Lat: {selectedOrder.address?.lat || 'N/A'}, Lng: {selectedOrder.address?.lng || 'N/A'}
-                    </div>
-                  )}
+                  {(() => {
+                    const addr = selectedOrder.address || selectedOrder.customer?.address || {}
+                    const addressParts = [addr?.line1, addr?.line2, addr?.city, addr?.pin].filter(Boolean)
+                    const hasAddress = addressParts.length > 0
+                    const hasCoords = addr?.lat && addr?.lng
+                    return (
+                      <>
+                        <div className="font-bold text-xs uppercase opacity-50 mb-1">Delivery Address</div>
+                        <div className="text-xs leading-relaxed mb-2">
+                          {hasAddress ? addressParts.join(', ') : 'No address provided'}
+                        </div>
+                        
+                        {/* Explicit Lat/Lng Display */}
+                        {(addr?.lat || addr?.lng) && (
+                          <div className="text-[10px] font-mono opacity-60 mb-2 select-all">
+                            Lat: {addr?.lat || 'N/A'}, Lng: {addr?.lng || 'N/A'}
+                          </div>
+                        )}
 
-                  {selectedOrder.address?.lat && selectedOrder.address?.lng ? (
-                    <a href={`https://www.google.com/maps/search/?api=1&query=${selectedOrder.address.lat},${selectedOrder.address.lng}`} target="_blank" rel="noreferrer" className="btn btn-xs btn-outline btn-primary gap-1 w-full">
-                      Open in Google Maps ↗
-                    </a>
-                  ) : (
-                    <button disabled className="btn btn-xs btn-outline gap-1 w-full opacity-50">
-                      No Location Coordinates
-                    </button>
-                  )}
+                        {hasCoords ? (
+                          <a href={`https://www.google.com/maps/search/?api=1&query=${addr.lat},${addr.lng}`} target="_blank" rel="noreferrer" className="btn btn-xs btn-outline btn-primary gap-1 w-full">
+                            Open in Google Maps ↗
+                          </a>
+                        ) : (
+                          <button disabled className="btn btn-xs btn-outline gap-1 w-full opacity-50">
+                            No Location Coordinates
+                          </button>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
 
               {/* Embedded Map */}
-              {selectedOrder.address?.lat && selectedOrder.address?.lng && (
-                <div className="w-full h-64 rounded-xl overflow-hidden border border-base-300 shadow-inner bg-base-200 relative">
-                   <iframe 
-                     width="100%" 
-                     height="100%" 
-                     frameBorder="0" 
-                     scrolling="no" 
-                     marginHeight="0" 
-                     marginWidth="0" 
-                     src={`https://maps.google.com/maps?q=${selectedOrder.address.lat},${selectedOrder.address.lng}&z=15&output=embed`}
-                     className="absolute inset-0"
-                     title="Customer Location"
-                   ></iframe>
-                </div>
-              )}
+              {(() => {
+                const addr = selectedOrder.address || selectedOrder.customer?.address || {}
+                if (!addr?.lat || !addr?.lng) return null
+                return (
+                  <div className="w-full h-64 rounded-xl overflow-hidden border border-base-300 shadow-inner bg-base-200 relative">
+                     <iframe 
+                       width="100%" 
+                       height="100%" 
+                       frameBorder="0" 
+                       scrolling="no" 
+                       marginHeight="0" 
+                       marginWidth="0" 
+                       src={`https://maps.google.com/maps?q=${addr.lat},${addr.lng}&z=15&output=embed`}
+                       className="absolute inset-0"
+                       title="Customer Location"
+                     ></iframe>
+                  </div>
+                )
+              })()}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -495,17 +813,7 @@ export default function Orders() {
         </dialog>
       )}
 
-      {/* Page-scoped Toasts */}
-      {toasts && toasts.length > 0 && (
-        <div className="toast toast-end toast-bottom z-[60] gap-2">
-          {toasts.map(t => (
-            <div key={t.id} role="alert" className={`alert ${({ info: 'alert-info', success: 'alert-success', error: 'alert-error', warning: 'alert-warning' }[t.type]) || 'alert-info'} shadow`}>
-              <span className="whitespace-pre-wrap text-sm">{t.msg}</span>
-              <button className="btn btn-ghost btn-xs" onClick={() => dismissToast(t.id)}>✕</button>
-            </div>
-          ))}
-        </div>
-      )}
+
     </AdminLayout>
   )
 }

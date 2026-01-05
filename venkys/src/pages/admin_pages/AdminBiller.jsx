@@ -652,7 +652,10 @@ export default function AdminBiller() {
                       const phone = successPhone.replace(/\D/g,'')
                       if (phone && phone.length >= 10) {
                         const rate = success.gstRate ?? 0.05
-                        const payload = { orderNo: success.orderNo, items: success.items, subtotal: success.subtotal, taxRate: rate, taxAmount: (success.gstAmount ?? Math.round((success.subtotal ?? 0) * rate)), total: (success.total ?? ((success.subtotal ?? 0) + Math.round((success.subtotal ?? 0) * rate))) }
+                        const itemsStr = (success.items || []).map(i => `${i.qty || 1}x ${i.name}`).join(', ')
+                        const total = (success.total ?? ((success.subtotal ?? 0) + Math.round((success.subtotal ?? 0) * rate)))
+                        const text = `*Invoice #${success.orderNo}*\n\n${itemsStr}\n\nTotal: ₹${total}\n\nThank you!`
+                        const payload = { text, orderNo: success.orderNo, items: success.items, subtotal: success.subtotal, taxRate: rate, taxAmount: (success.gstAmount ?? Math.round((success.subtotal ?? 0) * rate)), total }
                         await sendWhatsAppInvoice(`91${phone}`, payload)
                         pushToast('Invoice sent via WhatsApp', 'success')
                       }

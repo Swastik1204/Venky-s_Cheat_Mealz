@@ -11,7 +11,7 @@ import { MdDelete, MdEdit, MdPersonAdd } from 'react-icons/md'
 export default function Settings() {
   const { pushToast } = useUI()
   const { user, isAdmin, refreshRole } = useAuth()
-  const [appSettings, setAppSettings] = useState({ gstRate: 0.05, adminMobile: '', shopAddress: '', shopPhone: '', cashManagerPhone: '', chefName: '', centerLat: '', centerLng: '', radiusKm: 8, locationLink: '', googlePlaceId: '' })
+  const [appSettings, setAppSettings] = useState({ adminMobile: '', shopAddress: '', shopPhone: '', cashManagerPhone: '', chefName: '', centerLat: '', centerLng: '', radiusKm: 8, locationLink: '', googlePlaceId: '' })
   const [appSettingsLoading, setAppSettingsLoading] = useState(false)
   const [appSettingsSaving, setAppSettingsSaving] = useState(false)
   const [info, setInfo] = useState('')
@@ -19,10 +19,42 @@ export default function Settings() {
   const [businessProfile, setBusinessProfile] = useState(null)
   const [syncing, setSyncing] = useState(false)
 
+  useEffect(() => {
+    if (error) {
+      pushToast(error, 'error')
+      setError('')
+    }
+  }, [error, pushToast])
+
+  useEffect(() => {
+    if (info) {
+      pushToast(info, 'success')
+      setInfo('')
+    }
+  }, [info, pushToast])
+
+  const STAFF_PAGE_DEFS = [
+    { key: 'orders', label: 'Orders' },
+    { key: 'biller', label: 'Biller (POS)' },
+    { key: 'inventory', label: 'Inventory' },
+    { key: 'stock', label: 'Stock' },
+    { key: 'analytics', label: 'Analytics' },
+    { key: 'appearance', label: 'Appearance' },
+    { key: 'settings', label: 'Settings' },
+    { key: 'delivery', label: 'Delivery' },
+    { key: 'logs', label: 'Logs' },
+  ]
+
+  const defaultPagesForRole = (role) => {
+    if (role === 'delivery') return { delivery: true }
+    if (role === 'staff') return { orders: true, biller: true, inventory: true, stock: true, analytics: true }
+    return null
+  }
+
   // Staff management state
   const [staff, setStaff] = useState([])
   const [staffLoading, setStaffLoading] = useState(false)
-  const [staffModal, setStaffModal] = useState({ open: false, mode: 'add', email: '', name: '', role: 'staff', saving: false })
+  const [staffModal, setStaffModal] = useState({ open: false, mode: 'add', email: '', name: '', role: 'staff', pages: defaultPagesForRole('staff'), defaultPage: '', saving: false })
 
   // Messaging test state
   const [testPhone, setTestPhone] = useState('')
@@ -92,8 +124,7 @@ export default function Settings() {
           Settings
         </h2>
       </div>
-      {error && <div className="alert alert-error mb-4"><span>{error}</span><button className="btn btn-sm btn-ghost" onClick={() => setError('')}>✕</button></div>}
-      {info && <div className="alert alert-success mb-4"><span>{info}</span><button className="btn btn-sm btn-ghost" onClick={() => setInfo('')}>✕</button></div>}
+
 
       <div className="rounded-2xl border border-base-300/60 bg-base-100/80 backdrop-blur p-5 shadow-sm max-w-3xl mb-6 flex flex-wrap gap-4 items-center justify-between">
         <div>
@@ -135,24 +166,6 @@ export default function Settings() {
           <table className="table table-sm border-0">
             <tbody>
               <tr>
-                <td className="font-medium">GST Rate (%)</td>
-                <td>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="input input-bordered w-24"
-                      value={Math.round((appSettings.gstRate || 0) * 10000)/100}
-                      onChange={(e)=> setAppSettings(s => ({ ...s, gstRate: (Number(e.target.value)||0)/100 }))}
-                      onWheel={(e) => e.preventDefault()}
-                    />
-                    <span className="btn btn-ghost">%</span>
-                    <span className="text-xs opacity-60 ml-2">Default used in POS; can be overridden later.</span>
-                  </div>
-                </td>
-              </tr>
-              <tr>
                 <td className="font-medium">Shop phone</td>
                 <td>
                   <div className="flex items-center gap-2">
@@ -160,7 +173,7 @@ export default function Settings() {
                     <input type="tel" className="input input-bordered validator tabular-nums" required placeholder="+91XXXXXXXXXX" 
                       pattern="[0-9]{10}" minLength={10} maxLength={10} title="Must be 10 digits" value={appSettings.shopPhone} onChange={(e)=> setAppSettings(s => ({ ...s, shopPhone: e.target.value.replace(/\D/g, '') }))} />
                     <p className="validator-hint">Must be 10 digits</p>
-                    <span className="text-xs opacity-60 ml-2">Shown on WhatsApp/SMS e-bill.</span>
+                    <span className="text-xs opacity-60 ml-2">Shown on WhatsApp e-bill.</span>
                   </div>
                 </td>
               </tr>
@@ -314,7 +327,6 @@ export default function Settings() {
             setAppSettingsSaving(true)
             try {
               await saveAppSettings({
-                gstRate: appSettings.gstRate,
                 shopAddress: appSettings.shopAddress,
                 shopPhone: appSettings.shopPhone,
                 cashManagerPhone: appSettings.cashManagerPhone,
@@ -358,8 +370,7 @@ export default function Settings() {
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-semibold">Messaging test</h3>
             <div className="text-[10px] opacity-70">
-              <span className={`mr-2 ${import.meta.env.VITE_WHATSAPP_FUNCTION_URL ? 'text-success' : 'text-error'}`}>WA {import.meta.env.VITE_WHATSAPP_FUNCTION_URL ? 'configured' : 'not set'}</span>
-              <span className={`${import.meta.env.VITE_SMS_FUNCTION_URL ? 'text-success' : 'text-error'}`}>SMS {import.meta.env.VITE_SMS_FUNCTION_URL ? 'configured' : 'not set'}</span>
+              <span className="text-success">WA Service Active</span>
             </div>
           </div>
           <p className="text-xs opacity-70 mb-3">Send a one-off test message to verify your backend endpoints. Uses your configured URLs and does not expose any tokens in the browser.</p>
@@ -454,24 +465,6 @@ export default function Settings() {
                 } finally { setTestSending(s => ({ ...s, wa: false })) }
               }}
             >{testSending.wa ? 'Sending…' : 'Send WhatsApp test'}</button>
-            <button
-              className="btn btn-outline btn-sm"
-              disabled={testSending.sms}
-              onClick={async ()=>{
-                const phone = (testPhone||'').trim()
-                if (!/^\d{10}$/.test(phone)) { setError('Enter a valid 10-digit Indian mobile'); return }
-                setTestSending(s => ({ ...s, sms: true }))
-                try {
-                  const text = testMsg || `Hello from ${BRAND_LONG}`
-                  const smsUrl = import.meta.env.VITE_SMS_FUNCTION_URL
-                  if (!smsUrl) { pushToast('SMS endpoint not configured', 'warning'); return }
-                  await fetch(smsUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: `91${phone}`, text }) })
-                  pushToast('SMS test sent', 'success')
-                } catch (e) {
-                  pushToast(e.message || 'SMS test failed', 'error')
-                } finally { setTestSending(s => ({ ...s, sms: false })) }
-              }}
-            >{testSending.sms ? 'Sending…' : 'Send SMS test'}</button>
           </div>
           {waDebug && (
             <div className="mt-3">
@@ -493,7 +486,7 @@ export default function Settings() {
           <h3 className="font-semibold tracking-tight">Staff Management</h3>
           <button 
             className="btn btn-primary btn-sm gap-1"
-            onClick={() => setStaffModal({ open: true, mode: 'add', email: '', name: '', role: 'staff', saving: false })}
+            onClick={() => setStaffModal({ open: true, mode: 'add', email: '', name: '', role: 'staff', pages: defaultPagesForRole('staff'), defaultPage: '', saving: false })}
             disabled={!isAdmin}
             title={!isAdmin ? 'Only admins can manage staff' : 'Add new staff member'}
           >
@@ -539,7 +532,7 @@ export default function Settings() {
                       <div className="flex gap-1 justify-end">
                         <button
                           className="btn btn-ghost btn-xs"
-                          onClick={() => setStaffModal({ open: true, mode: 'edit', email: s.email, name: s.name || '', role: s.role, saving: false })}
+                          onClick={() => setStaffModal({ open: true, mode: 'edit', email: s.email, name: s.name || '', role: s.role, pages: s.pages || defaultPagesForRole(s.role), defaultPage: s.defaultPage || '', saving: false })}
                           disabled={!isAdmin}
                           title="Edit"
                         >
@@ -579,7 +572,7 @@ export default function Settings() {
           className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" 
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              setStaffModal({ open: false, mode: 'add', email: '', name: '', role: 'staff', saving: false })
+              setStaffModal({ open: false, mode: 'add', email: '', name: '', role: 'staff', pages: defaultPagesForRole('staff'), defaultPage: '', saving: false })
             }
           }}
         >
@@ -627,24 +620,98 @@ export default function Settings() {
                   <select
                     className="select select-bordered w-full"
                     value={staffModal.role}
-                    onChange={(e) => setStaffModal((prev) => ({ ...prev, role: e.target.value }))}
+                    onChange={(e) => {
+                      const nextRole = e.target.value
+                      setStaffModal((prev) => ({
+                        ...prev,
+                        role: nextRole,
+                        pages: nextRole === 'admin' ? null : (defaultPagesForRole(nextRole) || {}),
+                        defaultPage: '',
+                      }))
+                    }}
                   >
-                    <option value="staff">Staff (Orders + POS only)</option>
+                    <option value="staff">Staff (Custom pages)</option>
                     <option value="admin">Admin (Full Access)</option>
+                    <option value="delivery">Delivery (Delivery page only)</option>
                   </select>
                   <div className="text-xs opacity-60 mt-1">
-                    {staffModal.role === 'admin' 
-                      ? 'Admins have full access to all pages including staff management and settings.' 
-                      : 'Staff can only access Orders and POS (Biller) pages.'}
+                    {staffModal.role === 'admin'
+                      ? 'Admins have full access to all pages including staff management and settings.'
+                      : staffModal.role === 'delivery'
+                        ? 'Delivery role can only access the Delivery page.'
+                        : 'Staff access is controlled per page below.'}
                   </div>
                 </div>
+
+                {staffModal.role === 'staff' && (
+                  <div>
+                    <label className="label"><span className="label-text">Page access</span></label>
+                    <div className="rounded-xl border border-base-300/60 bg-base-100/70 p-3">
+                      <div className="text-xs opacity-70 mb-2">Choose Allow/Deny for each page.</div>
+                      <div className="space-y-2">
+                        {STAFF_PAGE_DEFS.map((p) => {
+                          const allowed = !!(staffModal.pages && staffModal.pages[p.key])
+                          return (
+                            <div key={p.key} className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-medium">{p.label}</div>
+                              <div className="join">
+                                <input
+                                  type="radio"
+                                  name={`page-${p.key}`}
+                                  className="btn btn-xs join-item"
+                                  aria-label="Allow"
+                                  checked={allowed}
+                                  onChange={() => setStaffModal(prev => ({
+                                    ...prev,
+                                    pages: { ...(prev.pages || {}), [p.key]: true }
+                                  }))}
+                                />
+                                <input
+                                  type="radio"
+                                  name={`page-${p.key}`}
+                                  className="btn btn-xs join-item"
+                                  aria-label="Deny"
+                                  checked={!allowed}
+                                  onChange={() => setStaffModal(prev => ({
+                                    ...prev,
+                                    pages: { ...(prev.pages || {}), [p.key]: false }
+                                  }))}
+                                />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Default Landing Page */}
+                {staffModal.role !== 'admin' && (
+                  <div>
+                    <label className="label"><span className="label-text">Default Landing Page</span></label>
+                    <select
+                      className="select select-bordered w-full"
+                      value={staffModal.defaultPage || ''}
+                      onChange={(e) => setStaffModal(prev => ({ ...prev, defaultPage: e.target.value }))}
+                    >
+                      <option value="">Auto (first allowed page)</option>
+                      {STAFF_PAGE_DEFS.filter(p => staffModal.role === 'delivery' ? p.key === 'delivery' : (staffModal.pages && staffModal.pages[p.key])).map(p => (
+                        <option key={p.key} value={p.key}>{p.label}</option>
+                      ))}
+                    </select>
+                    <div className="text-xs opacity-60 mt-1">
+                      Page shown when this user opens the admin app
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="modal-action p-4 pt-0">
               <button
                 className="btn btn-ghost"
-                onClick={() => setStaffModal({ open: false, mode: 'add', email: '', name: '', role: 'staff', saving: false })}
+                onClick={() => setStaffModal({ open: false, mode: 'add', email: '', name: '', role: 'staff', pages: defaultPagesForRole('staff'), defaultPage: '', saving: false })}
               >
                 Cancel
               </button>
@@ -654,17 +721,23 @@ export default function Settings() {
                 onClick={async () => {
                   setStaffModal((prev) => ({ ...prev, saving: true }))
                   try {
+                    const defaultPageVal = staffModal.role === 'admin' ? null : (staffModal.defaultPage || null)
                     if (staffModal.mode === 'add') {
-                      await addStaffMember(staffModal.email, staffModal.role, staffModal.name, user?.email)
-                      setStaff((prev) => [...prev, { email: staffModal.email.toLowerCase().trim(), role: staffModal.role, name: staffModal.name }])
+                      await addStaffMember(staffModal.email, staffModal.role, staffModal.name, user?.email, staffModal.role === 'admin' ? null : (staffModal.pages || defaultPagesForRole(staffModal.role) || {}), defaultPageVal)
+                      setStaff((prev) => [...prev, { email: staffModal.email.toLowerCase().trim(), role: staffModal.role, name: staffModal.name, pages: staffModal.role === 'admin' ? null : (staffModal.pages || defaultPagesForRole(staffModal.role) || {}), defaultPage: defaultPageVal }])
                       pushToast('Staff member added', 'success')
                     } else {
-                      await updateStaffMember(staffModal.email, { role: staffModal.role, name: staffModal.name }, user?.email)
-                      setStaff((prev) => prev.map((s) => s.email === staffModal.email ? { ...s, role: staffModal.role, name: staffModal.name } : s))
+                      const updates = {
+                        role: staffModal.role,
+                        name: staffModal.name,
+                        ...(staffModal.role === 'admin' ? {} : { pages: staffModal.pages || defaultPagesForRole(staffModal.role) || {}, defaultPage: defaultPageVal })
+                      }
+                      await updateStaffMember(staffModal.email, updates, user?.email)
+                      setStaff((prev) => prev.map((s) => s.email === staffModal.email ? { ...s, ...updates } : s))
                       pushToast('Staff member updated', 'success')
                     }
                     if (staffModal.email.toLowerCase().trim() === user?.email?.toLowerCase()) refreshRole()
-                    setStaffModal({ open: false, mode: 'add', email: '', name: '', role: 'staff', saving: false })
+                    setStaffModal({ open: false, mode: 'add', email: '', name: '', role: 'staff', pages: defaultPagesForRole('staff'), defaultPage: '', saving: false })
                   } catch (e) {
                     pushToast(e.message || 'Failed to save', 'error')
                     setStaffModal((prev) => ({ ...prev, saving: false }))

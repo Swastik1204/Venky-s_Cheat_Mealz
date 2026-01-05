@@ -11,7 +11,7 @@ export function UIProvider({ children }) {
   const [toasts, setToasts] = useState([])
   const [confirmState, setConfirmState] = useState(null)
 
-  function pushToast(msg, type = 'info', ttl = 4000, action = null) {
+  function pushToast(msg, type = 'info', ttl = 8000, action = null) {
     const id = genId()
     setToasts(t => [...t, { id, msg, type, action }])
     if (ttl > 0) setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), ttl)

@@ -84,6 +84,15 @@ html[data-theme='venkys_dark'] .admin-shell::before,
   body {
     @apply min-h-screen bg-base-100 text-base-content/90 antialiased;
   }
+  body.force-mobile-view {
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  @media (min-width: 768px) {
+    body.force-mobile-view .page-wrap {
+      max-width: 520px;
+    }
+  }
   :root[data-theme='venkys_light'], [data-theme='venkys_light'] {
     --color-primary:#f59e0b; --color-primary-content:#1f1400;
     --color-secondary:#ef4444; --color-secondary-content:#ffffff;

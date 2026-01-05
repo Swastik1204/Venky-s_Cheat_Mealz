@@ -19,7 +19,7 @@ const Delivery = lazy(() => import('./pages/Delivery'))
 
 // Access denied component for guests/unregistered users
 function AccessDenied() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   return (
     <div className="min-h-screen flex items-center justify-center bg-base-200">
       <div className="card bg-base-100 shadow-xl max-w-md mx-4">
@@ -37,11 +37,6 @@ function AccessDenied() {
           <p className="text-sm opacity-60 mt-4">
             Contact an administrator to get access.
           </p>
-          <div className="card-actions justify-center mt-6">
-            <button className="btn btn-primary" onClick={logout}>
-              Sign Out
-            </button>
-          </div>
         </div>
       </div>
     </div>
@@ -50,7 +45,7 @@ function AccessDenied() {
 
 export default function App() {
   const { authMode } = useUI()
-  const { user, loading, roleLoading, isStaffMember, isAdmin, role } = useAuth()
+  const { user, loading, roleLoading, isStaffMember, canAccess, role } = useAuth()
 
   // Show skeleton while loading auth or role
   if (loading || roleLoading) {
@@ -84,12 +79,34 @@ export default function App() {
     )
   }
 
-  // Staff member (admin or staff) - show app with appropriate routes
-  // Admin: Full access to all pages
-  // Staff: Access to Orders, Biller (POS) only
-  // Delivery: Access to Delivery page only
+  const pageDefs = [
+    { key: 'analytics', path: '/admin/analytics', element: <Analytics /> },
+    { key: 'inventory', path: '/admin/inventory', element: <Inventory /> },
+    { key: 'stock', path: '/admin/stock', element: <StockManager /> },
+    { key: 'orders', path: '/admin/orders', element: <Orders /> },
+    { key: 'appearance', path: '/admin/appearance', element: <Appearance /> },
+    { key: 'settings', path: '/admin/settings', element: <Settings /> },
+    { key: 'logs', path: '/admin/logs', element: <AuditLogs /> },
+    { key: 'biller', path: '/admin/biller', element: <AdminBiller /> },
+    { key: 'delivery', path: '/admin/delivery', element: <Delivery /> },
+  ]
 
-  const isDelivery = role?.role === 'delivery'
+  const allowedPages = pageDefs.filter((p) => canAccess(p.key))
+  
+  // Use user's defaultPage if set and allowed, otherwise first allowed page
+  const defaultPageKey = role?.defaultPage
+  const defaultPageDef = defaultPageKey ? allowedPages.find(p => p.key === defaultPageKey) : null
+  const firstAllowedPath = defaultPageDef?.path || allowedPages[0]?.path || '/admin'
+
+  // If a staff role exists but has no allowed pages, treat as denied.
+  if (isStaffMember && allowedPages.length === 0) {
+    return (
+      <>
+        <InstallPWA />
+        <AccessDenied />
+      </>
+    )
+  }
 
   return (
     <>
@@ -100,41 +117,13 @@ export default function App() {
           <Suspense fallback={<div className="py-20 text-center text-sm opacity-70">Loading module…</div>}>
             <Routes>
               <Route path="/" element={<Navigate to="/admin" replace />} />
-              
-              {isAdmin ? (
-                <>
-                  {/* Admin routes - full access */}
-                  <Route path="/admin" element={<Navigate to="/admin/analytics" replace />} />
-                  <Route path="/admin/inventory" element={<Inventory />} />
-                  <Route path="/admin/stock" element={<StockManager />} />
-                  <Route path="/admin/orders" element={<Orders />} />
-                  <Route path="/admin/analytics" element={<Analytics />} />
-                  <Route path="/admin/appearance" element={<Appearance />} />
-                  <Route path="/admin/settings" element={<Settings />} />
-                  <Route path="/admin/logs" element={<AuditLogs />} />
-                  <Route path="/admin/biller" element={<AdminBiller />} />
-                  <Route path="/admin/delivery" element={<Delivery />} />
-                  <Route path="*" element={<Navigate to="/admin/analytics" replace />} />
-                </>
-              ) : isDelivery ? (
-                <>
-                  {/* Delivery routes */}
-                  <Route path="/admin" element={<Navigate to="/admin/delivery" replace />} />
-                  <Route path="/admin/delivery" element={<Delivery />} />
-                  <Route path="*" element={<Navigate to="/admin/delivery" replace />} />
-                </>
-              ) : (
-                <>
-                  {/* Staff routes - expanded access */}
-                  <Route path="/admin" element={<Navigate to="/admin/orders" replace />} />
-                  <Route path="/admin/orders" element={<Orders />} />
-                  <Route path="/admin/biller" element={<AdminBiller />} />
-                  <Route path="/admin/inventory" element={<Inventory />} />
-                  <Route path="/admin/stock" element={<StockManager />} />
-                  <Route path="/admin/analytics" element={<Analytics />} />
-                  <Route path="*" element={<Navigate to="/admin/orders" replace />} />
-                </>
-              )}
+
+              <Route path="/admin" element={<Navigate to={firstAllowedPath} replace />} />
+              {allowedPages.map((p) => (
+                <Route key={p.key} path={p.path} element={p.element} />
+              ))}
+
+              <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />
             </Routes>
           </Suspense>
         </main>

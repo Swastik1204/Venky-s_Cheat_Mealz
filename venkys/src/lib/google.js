@@ -40,7 +40,11 @@ export function extractAddressFromPlace(place) {
   }
   const streetNumber = get('street_number')
   const route = get('route')
+  const neighborhood = get('neighborhood')
+  const sublocality1 = get('sublocality_level_1') || get('sublocality')
+  const sublocality2 = get('sublocality_level_2')
   out.line1 = [streetNumber, route].filter(Boolean).join(' ') || place.name || ''
+  out.line2 = [sublocality2, sublocality1, neighborhood].filter(Boolean).join(', ')
   out.city = get('locality') || get('sublocality') || get('administrative_area_level_2')
   out.state = get('administrative_area_level_1')
   out.zip = get('postal_code')

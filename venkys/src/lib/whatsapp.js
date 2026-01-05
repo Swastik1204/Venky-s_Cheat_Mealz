@@ -73,13 +73,13 @@ export async function sendBillToCustomer(order) {
   const phone = order.customer.phone
 
   // Use Template Message (Recommended for 24h window compliance)
-  // Template Name: venkys_order_bill
-  // Variables: {{1}}=Name, {{2}}=OrderNo, {{3}}=Total, {{4}}=Items, {{5}}=Address
-  
+  // Template Name: venkys_bill
+  // Variables: {{1}}=Name, {{2}}=OrderNo, {{3}}=Total, {{4}}=Items
+
   const itemsList = formatItemsList(order.items)
   
   const payload = {
-    templateName: 'venkys_order_bill',
+    templateName: 'venkys_bill',
     templateLanguage: 'en', 
     components: [
       {
@@ -89,12 +89,36 @@ export async function sendBillToCustomer(order) {
           { type: 'text', text: String(order.orderNo) },
           { type: 'text', text: String(order.totalAmount) },
           { type: 'text', text: itemsList },
-          { type: 'text', text: order.customer.address || 'Pickup' }
         ]
       }
     ]
   }
 
   // Use the existing data layer function which calls the API
-  return await sendWhatsAppInvoice(phone, payload)
+  const templateRes = await sendWhatsAppInvoice(phone, payload)
+  if (!templateRes?.__error && !templateRes?.__skipped) {
+    return templateRes
+  }
+
+  // Fallback to plain text (may work inside the 24h window; serverless also tries to open a session template when needed)
+  const text = formatBillMessage(order)
+  const textRes = await sendWhatsAppInvoice(phone, { text })
+  if (!textRes?.__error && !textRes?.__skipped) {
+    return { ...textRes, __fallback: 'text' }
+  }
+
+  // Surface details so callers' .catch() logs the real reason
+  const details =
+    templateRes?.data?.error?.message ||
+    textRes?.data?.error?.message ||
+    templateRes?.error ||
+    textRes?.error ||
+    templateRes?.message ||
+    textRes?.message ||
+    templateRes?.__skipped ||
+    textRes?.__skipped ||
+    templateRes?.__error ||
+    textRes?.__error ||
+    'unknown'
+  throw new Error(`WhatsApp failed: ${details}`)
 }

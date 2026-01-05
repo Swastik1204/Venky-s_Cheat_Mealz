@@ -5,6 +5,43 @@ export const BRAND_SHORT = "Venky's"
 import { db } from './firebase'
 import { logOrderChange, logInventoryChange, logStaffChange, logSettingsChange, logMenuChange, logBillingChange } from './auditLog'
 
+function apiUrl(path) {
+	const normalizedPath = path.startsWith('/') ? path : `/${path}`
+	const env = typeof import.meta !== 'undefined' ? import.meta.env : undefined
+	const normalize = (value) => {
+		if (!value) return ''
+		return value.endsWith('/') ? value.slice(0, -1) : value
+	}
+	
+	// Always use production Vercel URL for API calls (works in both local dev and production)
+	// This ensures consistency and avoids issues with local serverless functions
+	const productionBase = 'https://venkys-admin.vercel.app'
+	
+	// Allow override via env var if needed
+	const envBase = env?.VITE_API_BASE_URL
+		|| (env?.VITE_VERCEL_URL ? `https://${env.VITE_VERCEL_URL}` : '')
+		|| env?.VITE_SITE_URL
+		|| env?.VITE_PUBLIC_BASE_URL
+	if (envBase) {
+		return `${normalize(envBase)}${normalizedPath}`
+	}
+	
+	// In production, use window.location.origin (same domain)
+	// In development, use the production Vercel URL
+	if (typeof window !== 'undefined') {
+		const runtimeBase = window.__APP_API_BASE__ || window.__API_BASE__ || window.__API_BASE_URL__
+		if (runtimeBase) {
+			return `${normalize(runtimeBase)}${normalizedPath}`
+		}
+		if (env?.DEV) {
+			// Use production URL in local dev since serverless functions don't run locally
+			return `${productionBase}${normalizedPath}`
+		}
+		return `${window.location.origin}${normalizedPath}`
+	}
+	return `${productionBase}${normalizedPath}`
+}
+
 function safeRandomId(prefix = '') {
 	const core = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
 		? crypto.randomUUID()
@@ -253,7 +290,26 @@ export async function generateDailyOrderNo(orderType = 'dine-in', userId = null)
 	return `${dateKey}-${seq}-${segment}`
 }
 
-export async function createOrder({ userId = null, customer = {}, items, orderType = 'delivery', source = 'web', orderNo = null, taxRate = null, taxAmount = null, totalAmount = null }) {
+export async function createOrder({
+	userId = null,
+	customer = {},
+	items,
+	orderType = 'delivery',
+	source = 'web',
+	orderNo = null,
+	taxRate = null,
+	taxAmount = null,
+	totalAmount = null,
+	status = 'placed',
+	guestOrder = null,
+	guestOrderDate = null,
+	guestOrderAt = null,
+	cashManagerOtp = null,
+	cashManagerOtpFor = null,
+	cashManagerOtpVerified = null,
+	cashManagerOtpVerifiedAt = null,
+	cashManagerOtpVerifiedBy = null,
+} = {}) {
 	const safeItems = Array.isArray(items) ? items : []
 	if (!safeItems.length) {
 		throw new Error('Order must include at least one item')
@@ -311,6 +367,8 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
 	// Use Timestamp.now() instead of serverTimestamp() in arrays (Firestore limitation)
 	const nowTs = Timestamp.now()
 
+	const normalizedStatus = String(status || 'placed').toLowerCase()
+	const safeStatus = ['placed', 'preparing', 'ready', 'delivered', 'rejected'].includes(normalizedStatus) ? normalizedStatus : 'placed'
 	const base = {
 		userId: userId || null,
 		customer: customerPayload,
@@ -319,14 +377,47 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
 		orderType,
 		source,
 		orderNo: resolvedOrderNo,
-		status: 'placed',
-		statusHistory: [{ status: 'placed', at: nowTs, actor: statusActor }],
+		status: safeStatus,
+		statusHistory: [{ status: safeStatus, at: nowTs, actor: statusActor }],
 		payment,
 		totalAmount: resolvedTotalAmount,
 		revisionCount: 0,
 		createdAt: serverTimestamp(),
 		updatedAt: serverTimestamp(),
 	}
+
+	const normalizedOrderType = String(orderType || '').toLowerCase()
+	const normalizedPayMethod = String(payment?.method || '').toLowerCase()
+	const needsManagerOtp = normalizedOrderType === 'dine-in' && normalizedPayMethod === 'cod'
+	if (needsManagerOtp) {
+		const providedOtp = String(cashManagerOtp || '').trim()
+		if (providedOtp) {
+			base.cashManagerOtp = providedOtp
+			base.cashManagerOtpFor = String(cashManagerOtpFor || 'dine-in-cod')
+		} else {
+			let otp = ''
+			try {
+				if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+					const buf = new Uint32Array(1)
+					crypto.getRandomValues(buf)
+					otp = String(buf[0] % 1000000).padStart(6, '0')
+				} else {
+					otp = String(Math.floor(100000 + Math.random() * 900000))
+				}
+			} catch {
+				otp = String(Math.floor(100000 + Math.random() * 900000))
+			}
+			base.cashManagerOtp = otp
+			base.cashManagerOtpFor = 'dine-in-cod'
+		}
+	}
+
+	if (cashManagerOtpVerified != null) base.cashManagerOtpVerified = !!cashManagerOtpVerified
+	if (cashManagerOtpVerifiedAt) base.cashManagerOtpVerifiedAt = cashManagerOtpVerifiedAt
+	if (cashManagerOtpVerifiedBy) base.cashManagerOtpVerifiedBy = cashManagerOtpVerifiedBy
+	if (guestOrder != null) base.guestOrder = !!guestOrder
+	if (guestOrderDate) base.guestOrderDate = String(guestOrderDate)
+	if (guestOrderAt) base.guestOrderAt = String(guestOrderAt)
 	if (normalizedTaxRate != null) base.taxRate = normalizedTaxRate
 	if (normalizedTaxAmount != null) base.taxAmount = normalizedTaxAmount
 
@@ -336,25 +427,214 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
 		const nestedRef = doc(db, 'users', userId, 'orders', resolvedOrderNo)
 		await setDoc(nestedRef, base)
 	}
+	// Best-effort: notify Cash Manager
+	try { void notifyCashManagerOnOrder(resolvedOrderNo, base) } catch { /* noop */ }
 	return resolvedOrderNo
+}
+
+function normalizeWhatsappPhone(phone) {
+	// Handle different input types
+	let raw = ''
+	if (typeof phone === 'string') {
+		raw = phone.trim()
+	} else if (typeof phone === 'number') {
+		raw = String(phone).trim()
+	} else if (phone && typeof phone === 'object') {
+		// If phone is an object, try to extract a string value
+		raw = String(phone.phone || phone.value || phone.number || '').trim()
+	} else {
+		raw = String(phone || '').trim()
+	}
+	
+	if (!raw) return ''
+	
+	// Extract only digits
+	const digits = raw.replace(/\D/g, '')
+	
+	// If 10 digits, add 91 prefix (Indian mobile)
+	if (digits.length === 10) {
+		return `91${digits}`
+	}
+	
+	// If 12 digits starting with 91, return as-is
+	if (digits.length === 12 && digits.startsWith('91')) {
+		return digits
+	}
+	
+	// Return digits as-is for other cases
+	return digits
+}
+
+async function notifyCashManagerOnOrder(orderId, orderPayload) {
+	try {
+		const settings = await fetchAppSettings()
+		const manager = settings?.cashManagerPhone || settings?.adminMobile || ''
+		const phone = normalizeWhatsappPhone(manager)
+		if (!phone) return { __skipped: 'no_cash_manager_phone' }
+
+		const orderNo = orderPayload?.orderNo || orderId
+		const amount = orderPayload?.totalAmount ?? orderPayload?.subtotal ?? 0
+		const type = String(orderPayload?.orderType || '').toLowerCase()
+		const method = String(orderPayload?.payment?.method || '').toLowerCase()
+		const otp = orderPayload?.cashManagerOtp
+
+		if (type === 'dine-in' && method === 'cod' && otp) {
+			// Template has a URL button that requires a parameter (Meta error 131008).
+			// Meta enforces a max length of 15 characters for URL button parameters.
+			// Prefer OTP (short) and fall back to a truncated orderNo.
+			const rawButtonParam = otp ? String(otp) : String(orderNo || '')
+			const buttonParam = rawButtonParam.replace(/\s+/g, '').slice(0, 15)
+			const templatePayload = {
+				templateName: 'venkys_otp',
+				templateLanguage: 'en',
+				components: [
+					{
+						type: 'body',
+						parameters: [
+							{ type: 'text', text: String(otp) },
+						],
+					},
+					{
+						type: 'button',
+						sub_type: 'url',
+						index: '0',
+						parameters: [{ type: 'text', text: buttonParam }],
+					},
+				]
+			}
+			const res = await sendWhatsAppInvoice(phone, templatePayload)
+			if (res?.__error) {
+				try {
+					console.warn('[OTP Template Failed]', JSON.stringify({
+						error: res.__error,
+						message: res.message,
+						details: res.data?.error?.error_data?.details,
+						template: { name: 'venkys_otp', language: 'en', bodyParamCount: 1, urlButtonIndex0Param: buttonParam }
+					}, null, 2))
+				} catch {}
+				// Fallback to plain text if template send fails.
+				return await sendWhatsAppInvoice(phone, { text: `OTP: ${otp}` })
+			}
+			return res
+		}
+
+		const lines = [
+			`f514 New Order Placed`,
+			`Order: ${orderNo}`,
+			`Type: ${type || '-'}`,
+			`Payment: ${method || '-'}`,
+			`Amount: f4b9${amount || 0}`,
+		]
+		return await sendWhatsAppInvoice(phone, { text: lines.join('\n') })
+	} catch (e) {
+		return { __error: 'notify_failed', message: String(e) }
+	}
 }
 
 export async function sendWhatsAppInvoice(phone, payload) {
 	try {
-		const url = import.meta.env.VITE_WHATSAPP_FUNCTION_URL
-		if (!url) return { __skipped: 'no_whatsapp_endpoint_configured' }
+		const normalizedPhone = normalizeWhatsappPhone(phone)
+		if (!normalizedPhone) {
+			return { __skipped: 'missing_phone' }
+		}
+		
+		// Use apiUrl() to get the correct URL (production in dev, relative in prod)
+		const url = apiUrl('/api/send-whatsapp')
+		
 		const res = await fetch(url, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ phone, payload })
+			body: JSON.stringify({ phone: normalizedPhone, payload })
 		})
 		let body = null
 		try { body = await res.json() } catch { /* ignore non-JSON responses */ }
-		if (!res.ok) return { __error: 'http_error', status: res.status, ...(body || {}) }
-		return body || {}
+		
+		if (res.ok) {
+			return body || {}
+		}
+		const errObj = { __error: 'http_error', status: res.status, ...(body || {}) }
+		try { console.warn('[wa] send failed', JSON.stringify(errObj, null, 2)) } catch {}
+		return errObj
 	} catch (e) {
-		return { __error: 'network', message: String(e) }
+		const errObj = { __error: 'network', message: String(e) }
+		try { console.warn('[wa] send failed', JSON.stringify(errObj, null, 2)) } catch {}
+		return errObj
 	}
+}
+
+let __publicConfigCache = null
+
+export async function fetchPublicConfig() {
+	if (__publicConfigCache) return __publicConfigCache
+	const url = apiUrl('/api/public-config')
+	const res = await fetch(url, { method: 'GET' })
+	let body = null
+	try { body = await res.json() } catch {}
+	if (!res.ok) {
+		throw new Error(body?.error || `Failed to load public config (${res.status})`)
+	}
+	__publicConfigCache = body || {}
+	return __publicConfigCache
+}
+
+export async function getRazorpayKeyId() {
+	const fromVite = import.meta.env.VITE_RAZORPAY_KEY_ID
+	if (fromVite) return String(fromVite)
+	try {
+		const cfg = await fetchPublicConfig()
+		if (cfg?.razorpayKeyId) return String(cfg.razorpayKeyId)
+	} catch { /* noop */ }
+	return ''
+}
+
+/**
+ * Send OTP via WhatsApp using template (works outside 24h window)
+ * Uses venkys_otp template with OTP as parameter
+ * Falls back to plain text if template fails
+ */
+export async function sendOtpViaWhatsApp(phone, otp, orderRef = '') {
+	// sendWhatsAppInvoice already normalizes the phone, so don't normalize here
+	if (!phone) {
+		return { __error: 'missing_phone' }
+	}
+	
+	// First try template (works outside 24h window)
+	// Note: venkys_otp template has a URL button that *requires* a parameter.
+	// Meta enforces a max length of 15 chars for URL button parameters.
+	const rawButtonParam = otp ? String(otp) : String(orderRef || '')
+	const buttonParam = rawButtonParam.replace(/\s+/g, '').slice(0, 15) || '0'
+	const templatePayload = {
+		templateName: 'venkys_otp',
+		templateLanguage: 'en',
+		components: [
+			{
+				type: 'body',
+				parameters: [
+					{ type: 'text', text: String(otp) },
+				],
+			},
+			{
+				type: 'button',
+				sub_type: 'url',
+				index: '0',
+				parameters: [{ type: 'text', text: buttonParam }],
+			},
+		]
+	}
+	
+	const res = await sendWhatsAppInvoice(phone, templatePayload)
+	
+	// If template succeeded, return
+	if (!res?.__error) {
+		return res
+	}
+	
+	// Fallback to plain text (only works within 24h window)
+	const textMessage = orderRef
+		? `🔐 Dine-in COD OTP\nOrder: ${orderRef}\nOTP: ${otp}`
+		: `🔐 Your OTP: ${otp}`
+	
+	return await sendWhatsAppInvoice(phone, { text: textMessage })
 }
 
 export async function updateOrder(userId, orderId, data = {}, actor = null) {
@@ -466,6 +746,28 @@ export async function fetchRecentOrders(limitCount = 10, sourceFilter = null) {
 		console.error('[firestore] fetchRecentOrders failed', err)
 		return []
 	}
+}
+
+export const GUEST_USER_ID = 'guest'
+
+export async function ensureGuestUser() {
+	const ref = doc(db, 'users', GUEST_USER_ID)
+	let exists = false
+	try {
+		const snap = await getDoc(ref)
+		exists = snap.exists()
+	} catch {
+		// ignore existence check errors; still attempt to create/merge
+	}
+	const payload = {
+		isGuest: true,
+		name: 'Guest',
+		role: 'guest',
+		updatedAt: serverTimestamp(),
+	}
+	if (!exists) payload.createdAt = serverTimestamp()
+	await setDoc(ref, payload, { merge: true })
+	return GUEST_USER_ID
 }
 
 export function nextOrderStatus(current) {
@@ -797,32 +1099,32 @@ export async function fetchBusinessProfile() {
 
 export async function syncBusinessProfile(placeId) {
 	const url = import.meta.env.VITE_SYNC_BUSINESS_PROFILE_URL || '/api/sync-business-profile'
-	const res = await fetch(url, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ placeId })
-	})
+	let res
+	try {
+		res = await fetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ placeId })
+		})
+	} catch (e) {
+		throw new Error(
+			`Sync failed: cannot reach the sync API. ` +
+			`In dev, Vite doesn't serve /api routes. Run \`vercel dev\` (default http://localhost:3000) ` +
+			`or set VITE_SYNC_BUSINESS_PROFILE_URL to your deployed /api/sync-business-profile URL.`
+		)
+	}
 	if (!res.ok) {
 		const error = await res.json().catch(() => ({}))
+		if (res.status === 404 && String(url || '').startsWith('/')) {
+			throw new Error(
+				`Sync failed: /api/sync-business-profile not found (404). ` +
+				`In dev, start \`vercel dev\` so /api routes exist (and keep Vite running), ` +
+				`or set VITE_SYNC_BUSINESS_PROFILE_URL to a deployed API URL.`
+			)
+		}
 		throw new Error(error.error || `Sync failed: ${res.status}`)
 	}
 	return res.json()
-}
-
-export async function sendSMSInvoice(phone, text) {
-	try {
-		const url = import.meta.env.VITE_SMS_FUNCTION_URL
-		if (!url) return { __skipped: 'no_sms_endpoint_configured' }
-		const res = await fetch(url, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ phone, text })
-		})
-		if (!res.ok) return { __error: 'http_error', status: res.status }
-		return await res.json().catch(() => ({}))
-	} catch (e) {
-		return { __error: 'network', message: String(e) }
-	}
 }
 
 export async function upsertMenuCategory(name) {
@@ -1158,23 +1460,48 @@ export async function fetchImagesByIds(ids) {
 	return out
 }
 
-function getSessionImage(id) {
+// --- Image caching ---
+// IMPORTANT: Do not persist large base64 blobs into localStorage/sessionStorage.
+// It easily exceeds browser quotas (QuotaExceededError) and can break the biller UI.
+// We keep a small in-memory cache only.
+
+function purgeLegacyStorageImageCache() {
 	try {
-		const raw = localStorage.getItem(`img:${id}`)
-		if (!raw) return null
-		const parsed = JSON.parse(raw)
-		if (parsed && typeof parsed === 'object' && parsed.data) return parsed
-	} catch { /* ignore storage read */ }
-	return null
+		if (typeof window === 'undefined') return
+		const stores = [window.localStorage, window.sessionStorage].filter(Boolean)
+		stores.forEach((store) => {
+			try {
+				const toRemove = []
+				for (let i = 0; i < store.length; i++) {
+					const k = store.key(i)
+					if (k && k.startsWith('img:')) toRemove.push(k)
+				}
+				toRemove.forEach((k) => {
+					try { store.removeItem(k) } catch { /* ignore */ }
+				})
+			} catch { /* ignore */ }
+		})
+	} catch { /* ignore */ }
 }
 
-function setSessionImage(id, obj) {
-	try {
-		const payload = { data: obj.data, mime: obj.mime || null }
-		localStorage.setItem(`img:${id}`, JSON.stringify(payload))
-	} catch (e) {
-		// If quota exceeded, clear old images or just ignore
-		console.warn('Image cache full', e)
+// Run once on module load in the browser
+purgeLegacyStorageImageCache()
+
+const __imageObjectCache = new Map() // id -> { data, mime } or { url }
+const __imageObjectCacheOrder = []
+const __MAX_IMAGE_OBJECT_CACHE = 250
+
+function getCachedImageObject(id) {
+	return __imageObjectCache.get(id) || null
+}
+
+function setCachedImageObject(id, obj) {
+	if (!id || !obj) return
+	__imageObjectCache.set(id, obj)
+	__imageObjectCacheOrder.push(id)
+	while (__imageObjectCacheOrder.length > __MAX_IMAGE_OBJECT_CACHE) {
+		const oldest = __imageObjectCacheOrder.shift()
+		if (oldest) __imageObjectCache.delete(oldest)
 	}
 }
 
@@ -1184,28 +1511,31 @@ export async function fetchImagesByIdsCached(ids) {
 	const cachedOut = {}
 	const toFetch = []
 	for (const id of unique) {
-		const hit = getSessionImage(id)
-		if (hit) {
-			cachedOut[id] = hit
-		} else {
-			toFetch.push(id)
-		}
+		const hit = getCachedImageObject(id)
+		if (hit) cachedOut[id] = hit
+		else toFetch.push(id)
 	}
-	if (toFetch.length) {
-		const fetched = await fetchImagesByIds(toFetch)
-		Object.entries(fetched).forEach(([id, obj]) => {
-			setSessionImage(id, obj)
-		})
-		return { ...fetched, ...cachedOut }
-	}
-	return cachedOut
+	if (!toFetch.length) return cachedOut
+	const fetched = await fetchImagesByIds(toFetch)
+	Object.entries(fetched).forEach(([id, obj]) => {
+		setCachedImageObject(id, obj)
+	})
+	return { ...fetched, ...cachedOut }
 }
 
 const memoryImageCache = new Map()
 export function getImageDataUrl(obj) {
-	const key = `${obj.mime || 'image/*'}:${obj.data?.slice?.(0, 24) || ''}:${obj.data?.length || 0}`
+	if (!obj) return ''
+	if (typeof obj === 'string') return obj
+	if (typeof obj === 'object' && typeof obj.url === 'string' && obj.url.trim()) {
+		return obj.url.trim()
+	}
+	const data = (typeof obj === 'object' && typeof obj.data === 'string') ? obj.data.trim() : ''
+	if (!data) return ''
+	const mime = (typeof obj === 'object' && typeof obj.mime === 'string' && obj.mime.trim()) ? obj.mime.trim() : 'image/*'
+	const key = `${mime}:${data.slice(0, 24)}:${data.length}`
 	if (memoryImageCache.has(key)) return memoryImageCache.get(key)
-	const url = `data:${obj.mime || 'image/*'};base64,${obj.data}`
+	const url = `data:${mime};base64,${data}`
 	memoryImageCache.set(key, url)
 	return url
 }
@@ -1244,7 +1574,24 @@ export async function removeCategoryImage(categoryId) {
 }
 
 // ===== Staff Management =====
-// Role documents are stored in /roles/{email} with fields: role ('admin' | 'staff'), name, addedAt, addedBy
+// Role documents are stored in /roles/{email} with fields:
+// - role: 'admin' | 'staff' | 'delivery'
+// - name: string
+// - pages: { [pageKey]: boolean } (optional for fine-grained access)
+// - addedAt/addedBy/updatedAt/updatedBy
+
+function normalizeRolePages(pages) {
+	if (!pages || typeof pages !== 'object') return null
+	const out = {}
+	for (const [k, v] of Object.entries(pages)) {
+		out[k] = !!v
+	}
+	return out
+}
+
+function assertValidStaffRole(role) {
+	if (!['admin', 'staff', 'delivery'].includes(role)) throw new Error('Invalid role - must be admin, staff, or delivery')
+}
 
 export async function fetchStaff() {
 	try {
@@ -1268,16 +1615,25 @@ export async function getStaffMember(email) {
 	}
 }
 
-export async function addStaffMember(email, role, name, addedByEmail) {
+export async function addStaffMember(email, role, name, addedByEmail, pages = null, defaultPage = null) {
 	if (!email || !role) throw new Error('Email and role are required')
 	const normalizedEmail = email.toLowerCase().trim()
-	if (!['admin', 'staff'].includes(role)) throw new Error('Invalid role - must be admin or staff')
+	assertValidStaffRole(role)
 	
 	const newData = {
 		role,
 		name: name || '',
 		addedAt: serverTimestamp(),
 		addedBy: addedByEmail || null
+	}
+
+	// pages can be passed as 5th argument
+	const normalizedPages = normalizeRolePages(pages)
+	if (normalizedPages) newData.pages = normalizedPages
+	
+	// defaultPage can be passed as 6th argument
+	if (defaultPage && typeof defaultPage === 'string') {
+		newData.defaultPage = defaultPage
 	}
 	
 	const ref = doc(db, 'roles', normalizedEmail)
@@ -1288,19 +1644,28 @@ export async function addStaffMember(email, role, name, addedByEmail) {
 		reason: 'Staff member added'
 	})
 	
-	return { email: normalizedEmail, role, name }
+	return { email: normalizedEmail, role, name, defaultPage: defaultPage || null }
 }
 
 export async function updateStaffMember(email, updates, updatedByEmail) {
 	if (!email) throw new Error('Email is required')
 	const normalizedEmail = email.toLowerCase().trim()
 	const ref = doc(db, 'roles', normalizedEmail)
+	if (updates?.role) assertValidStaffRole(updates.role)
+	
+	// If promoting to admin, clear any stale per-page permissions/default landing.
+	if (updates?.role === 'admin') {
+		updates = { ...updates, pages: deleteField(), defaultPage: deleteField() }
+	}
+	if (Object.prototype.hasOwnProperty.call(updates || {}, 'pages')) {
+		updates = { ...updates, pages: normalizeRolePages(updates.pages) }
+	}
 	
 	// Get current state before update
 	const beforeSnap = await getDoc(ref)
 	const before = beforeSnap.exists() ? { email: normalizedEmail, ...beforeSnap.data() } : null
 	
-	const updateData = { ...updates, updatedAt: serverTimestamp() }
+	const updateData = { ...updates, updatedAt: serverTimestamp(), updatedBy: updatedByEmail || null }
 	await setDoc(ref, updateData, { merge: true })
 	
 	// Get new state after update
@@ -1351,4 +1716,41 @@ export async function getRandomOtp() {
   const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
   const random = list[Math.floor(Math.random() * list.length)]
   return random
+}
+
+// ---- Razorpay helpers (Admin POS) ---- //
+export async function createRazorpayOrder(amount) {
+	const value = Number(amount)
+	if (!value || value <= 0) {
+		throw new Error('Invalid amount for Razorpay order')
+	}
+	// Use apiUrl() to get the correct URL (production in dev, relative in prod)
+	const res = await fetch(apiUrl('/api/create-order'), {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ amount: value })
+	})
+	let body = null
+	try { body = await res.json() } catch { /* ignore */ }
+	if (!res.ok) {
+		const message = body?.error || `Failed to create Razorpay order (${res.status})`
+		throw new Error(message)
+	}
+	return body
+}
+
+export async function verifyRazorpayPayment(payload) {
+	// Use apiUrl() to get the correct URL (production in dev, relative in prod)
+	const res = await fetch(apiUrl('/api/verify-payment'), {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload)
+	})
+	let body = null
+	try { body = await res.json() } catch { /* ignore */ }
+	if (!res.ok) {
+		const message = body?.error || `Payment verification failed (${res.status})`
+		throw new Error(message)
+	}
+	return body
 }

@@ -12,6 +12,12 @@ function apiUrl(path) {
     if (!value) return ''
     return value.endsWith('/') ? value.slice(0, -1) : value
   }
+  
+  // Always use production Vercel URL for API calls (works in both local dev and production)
+  // This ensures consistency and avoids issues with local serverless functions
+  const productionBase = 'https://venkys.vercel.app'
+  
+  // Allow override via env var if needed
   const envBase = env?.VITE_API_BASE_URL
     || (env?.VITE_VERCEL_URL ? `https://${env.VITE_VERCEL_URL}` : '')
     || env?.VITE_SITE_URL
@@ -19,20 +25,21 @@ function apiUrl(path) {
   if (envBase) {
     return `${normalize(envBase)}${normalizedPath}`
   }
+  
+  // In production, use window.location.origin (same domain)
+  // In development, use the production Vercel URL
   if (typeof window !== 'undefined') {
     const runtimeBase = window.__APP_API_BASE__ || window.__API_BASE__ || window.__API_BASE_URL__
     if (runtimeBase) {
       return `${normalize(runtimeBase)}${normalizedPath}`
     }
     if (env?.DEV) {
-      const devBase = env?.VITE_DEV_API_BASE_URL
-      if (devBase) return `${normalize(devBase)}${normalizedPath}`
-      // Fallback to relative path so Vite proxy handles it (works for localhost and IP)
-      return normalizedPath
+      // Use production URL in local dev since serverless functions don't run locally
+      return `${productionBase}${normalizedPath}`
     }
     return `${window.location.origin}${normalizedPath}`
   }
-  return normalizedPath
+  return `${productionBase}${normalizedPath}`
 }
 
 function isPermissionDenied(err) {
@@ -189,25 +196,38 @@ export async function generateDailyOrderNo(orderType = 'dine-in', userId = null)
   const d = String(now.getDate()).padStart(2, '0')
   const dateKey = `${y}${m}${d}`
   const counterRef = doc(db, 'orders', buildCounterDocId(dateKey))
-  const next = await runTransaction(db, async (tx) => {
-    const snap = await tx.get(counterRef)
-    const data = snap.exists() ? snap.data() : { total: 0 }
-    const total = Number(data.total || 0) + 1
-    tx.set(counterRef, {
-      __meta: 'orderCounter',
-      dateKey,
-      lastOrderType: type,
-      total,
-      updatedAt: serverTimestamp(),
-    }, { merge: true })
-    return total
-  })
-  const seq = String(next).padStart(4, '0')
+  let next = null
+  try {
+    next = await runTransaction(db, async (tx) => {
+      const snap = await tx.get(counterRef)
+      const data = snap.exists() ? snap.data() : { total: 0 }
+      const total = Number(data.total || 0) + 1
+      tx.set(counterRef, {
+        __meta: 'orderCounter',
+        dateKey,
+        lastOrderType: type,
+        total,
+        updatedAt: serverTimestamp(),
+      }, { merge: true })
+      return total
+    })
+  } catch (err) {
+    if (!isPermissionDenied(err)) throw err
+    // If rules temporarily block counter reads, fall back to a best-effort unique seq.
+    // This avoids order placement failures for signed-in customers.
+    next = null
+  }
+  const seq = next != null
+    ? String(next).padStart(4, '0')
+    : String((Date.now() % 10000)).padStart(4, '0')
   const segment = formatUserSegment(userId)
   return `${dateKey}-${seq}-${segment}`
 }
 
 export async function createOrder({ userId = null, customer = {}, items, orderType = 'delivery', source = 'web', orderNo = null, taxRate = null, taxAmount = null, totalAmount = null }) {
+  if (String(source || '').toLowerCase() === 'web' && !userId) {
+    throw new Error('Please sign in before placing an order.')
+  }
   const safeItems = Array.isArray(items) ? items : []
   if (!safeItems.length) {
     throw new Error('Order must include at least one item')
@@ -281,6 +301,23 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }
+
+  const normalizedOrderType = String(orderType || '').toLowerCase()
+  const normalizedPayMethod = String(payment?.method || '').toLowerCase()
+  const needsManagerOtp = normalizedOrderType === 'dine-in' && normalizedPayMethod === 'cod'
+
+  if (needsManagerOtp) {
+    let otp = ''
+    try {
+      const buf = new Uint32Array(1)
+      crypto.getRandomValues(buf)
+      otp = String(buf[0] % 1000000).padStart(6, '0')
+    } catch {
+      otp = String(Math.floor(100000 + Math.random() * 900000))
+    }
+    base.cashManagerOtp = otp
+    base.cashManagerOtpFor = 'dine-in-cod'
+  }
   if (normalizedTaxRate != null) base.taxRate = normalizedTaxRate
   if (normalizedTaxAmount != null) base.taxAmount = normalizedTaxAmount
 
@@ -289,6 +326,8 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
   try {
     await setDoc(topRef, base)
     topLevelPersisted = true
+    // Best-effort notification (should not block placing an order)
+    try { void notifyCashManagerOnOrder(resolvedOrderNo, base) } catch { /* noop */ }
   } catch (err) {
     if (err?.code !== 'permission-denied') {
       throw err
@@ -313,6 +352,45 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
 
   if (topLevelPersisted) return resolvedOrderNo
   throw new Error('You need to sign in before placing an order.')
+}
+
+function normalizeWhatsappPhone(phone) {
+  const raw = String(phone || '').trim()
+  if (!raw) return ''
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length === 10) return `91${digits}`
+  if (digits.length === 12 && digits.startsWith('91')) return digits
+  return digits
+}
+
+async function notifyCashManagerOnOrder(orderId, orderPayload) {
+  try {
+    const settings = await fetchAppSettings()
+    const manager = settings?.cashManagerPhone || settings?.adminMobile || ''
+    const phone = normalizeWhatsappPhone(manager)
+    if (!phone) return { __skipped: 'no_cash_manager_phone' }
+
+    const orderNo = orderPayload?.orderNo || orderId
+    const amount = orderPayload?.totalAmount ?? orderPayload?.subtotal ?? 0
+    const type = String(orderPayload?.orderType || '').toLowerCase()
+    const method = String(orderPayload?.payment?.method || '').toLowerCase()
+    const otp = orderPayload?.cashManagerOtp
+
+    const lines = [
+      `🔔 New Order Placed`,
+      `Order: ${orderNo}`,
+      `Type: ${type || '-'}`,
+      `Payment: ${method || '-'}`,
+      `Amount: ₹${amount || 0}`,
+    ]
+    if (type === 'dine-in' && method === 'cod' && otp) {
+      lines.push(`OTP: ${otp}`)
+    }
+
+    return await sendWhatsAppInvoice(phone, { text: lines.join('\n') })
+  } catch (e) {
+    return { __error: 'notify_failed', message: String(e) }
+  }
 }
 
 // ---- Razorpay helpers ---- //
@@ -350,24 +428,58 @@ export async function verifyRazorpayPayment(payload) {
   return body
 }
 
-// Optional WhatsApp sender. Configure VITE_WHATSAPP_FUNCTION_URL to a server endpoint
-// that triggers WhatsApp Business API using your business number.
+// Optional WhatsApp sender - uses apiUrl() to route correctly in both local and production
 export async function sendWhatsAppInvoice(phone, payload) {
   try {
-    const url = import.meta.env.VITE_WHATSAPP_FUNCTION_URL
-    if (!url) return { __skipped: 'no_whatsapp_endpoint_configured' }
+    const digits = String(phone || '').replace(/\D/g, '')
+    const normalizedPhone = digits.length === 10 ? `91${digits}` : digits
+    if (!normalizedPhone) return { __skipped: 'missing_phone' }
+
+    // Use apiUrl() to get the correct URL (production in dev, relative in prod)
+    const url = apiUrl('/api/send-whatsapp')
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, payload })
+      body: JSON.stringify({ phone: normalizedPhone, payload })
     })
     let body = null
     try { body = await res.json() } catch {}
-    if (!res.ok) return { __error: 'http_error', status: res.status, ...(body || {}) }
+    if (!res.ok) {
+      const errObj = { __error: 'http_error', status: res.status, ...(body || {}) }
+      try { console.warn('[wa] send failed', JSON.stringify(errObj, null, 2)) } catch {}
+      return errObj
+    }
     return body || {}
   } catch (e) {
-    return { __error: 'network', message: String(e) }
+    const errObj = { __error: 'network', message: String(e) }
+    try { console.warn('[wa] send failed', errObj) } catch {}
+    return errObj
   }
+}
+
+let __publicConfigCache = null
+
+export async function fetchPublicConfig() {
+  if (__publicConfigCache) return __publicConfigCache
+  const url = apiUrl('/api/public-config')
+  const res = await fetch(url, { method: 'GET' })
+  let body = null
+  try { body = await res.json() } catch {}
+  if (!res.ok) {
+    throw new Error(body?.error || `Failed to load public config (${res.status})`)
+  }
+  __publicConfigCache = body || {}
+  return __publicConfigCache
+}
+
+export async function getRazorpayKeyId() {
+  const fromVite = import.meta.env.VITE_RAZORPAY_KEY_ID
+  if (fromVite) return String(fromVite)
+  try {
+    const cfg = await fetchPublicConfig()
+    if (cfg?.razorpayKeyId) return String(cfg.razorpayKeyId)
+  } catch { /* noop */ }
+  return ''
 }
 
 // Update order status/payment (supports both nested and legacy top-level orders)
@@ -477,12 +589,7 @@ export async function fetchLatestUserOrder(userId) {
 
 export async function fetchUserOrders(userId) {
   try {
-    // Preferred nested orders
-    const nested = await getDocs(query(collection(db, 'users', userId, 'orders'), orderBy('createdAt', 'desc')))
-    if (!nested.empty) {
-      return nested.docs.map((d) => ({ id: d.id, ...d.data() }))
-    }
-    // Fallback to legacy top-level WITHOUT orderBy to avoid composite index requirement; sort in-memory
+    // Preferred: top-level orders (single source of truth)
     const snap = await getDocs(query(collection(db, 'orders'), where('userId', '==', userId), fsLimit(100)))
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
     list.sort((a, b) => {
@@ -493,8 +600,14 @@ export async function fetchUserOrders(userId) {
     return list
   } catch (err) {
     if (isPermissionDenied(err)) {
-      console.warn('[firestore] Orders read denied by rules for current user.', err)
-      return []
+      // Fallback: legacy nested orders (if some deployments still used users/{uid}/orders)
+      try {
+        const nested = await getDocs(query(collection(db, 'users', userId, 'orders'), orderBy('createdAt', 'desc')))
+        return nested.docs.map((d) => ({ id: d.id, ...d.data() }))
+      } catch {
+        console.warn('[firestore] Orders read denied by rules for current user.', err)
+        return []
+      }
     }
     console.error('[firestore] fetchUserOrders failed:', err)
     return []
@@ -711,17 +824,18 @@ export async function setStoreOpen(open) {
 export async function fetchAppSettings() {
   try {
     const snap = await getDoc(doc(db, 'miscellaneous', 'settings'))
-    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
+    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', cashManagerPhone: '', shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
     const d = snap.data()
     const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
     const adminMobile = d.adminMobile || ''
+    const cashManagerPhone = d.cashManagerPhone || ''
     const shopAddress = d.shopAddress || ''
     const shopPhone = d.shopPhone || ''
     const chefName = d.chefName || ''
     const googlePlaceId = d.googlePlaceId || ''
-    return { gstRate, adminMobile, shopAddress, shopPhone, chefName, googlePlaceId }
+    return { gstRate, adminMobile, cashManagerPhone, shopAddress, shopPhone, chefName, googlePlaceId }
   } catch {
-    return { gstRate: 0.05, adminMobile: '', shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
+    return { gstRate: 0.05, adminMobile: '', cashManagerPhone: '', shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
   }
 }
 
@@ -760,23 +874,6 @@ export async function syncBusinessProfile(placeId) {
     throw new Error(error.error || `Sync failed: ${res.status}`)
   }
   return res.json()
-}
-
-// Lightweight SMS sender (backend endpoint required)
-export async function sendSMSInvoice(phone, text) {
-  try {
-    const url = import.meta.env.VITE_SMS_FUNCTION_URL
-    if (!url) return { __skipped: 'no_sms_endpoint_configured' }
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, text })
-    })
-    if (!res.ok) return { __error: 'http_error', status: res.status }
-    return await res.json().catch(() => ({}))
-  } catch (e) {
-    return { __error: 'network', message: String(e) }
-  }
 }
 
 export async function upsertMenuCategory(name) {
@@ -1036,7 +1133,7 @@ export async function fetchUserProfile(uid) {
 export async function updateUserProfile(uid, data) {
   if (!uid) return
   // Only store supported profile fields
-  const allowed = ['displayName', 'phone', 'whatsapp', 'gender', 'photoURL', 'email']
+  const allowed = ['displayName', 'phone', 'whatsapp', 'gender', 'email']
   const out = {}
   for (const k of allowed) {
     if (data[k] !== undefined) out[k] = data[k]

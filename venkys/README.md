@@ -2,30 +2,23 @@
 
 Customer-facing single-restaurant ordering web app built with React + Vite, Tailwind CSS, and DaisyUI.
 
-It connects to Firebase (Auth + Firestore) for menu, orders, user profiles, addresses, settings, and cart persistence.
+Firebase is used for Auth + Firestore data (menu, images, orders, user profile, addresses, settings).
 
-Updated: 2025-12-24
+Updated: 2026-01-05
 
-## What this app includes
+## Features
 
 - Menu browsing
-  - Category-first menu and smooth scrolling
-  - Category strip that tracks/centers the active section
-  - Search + filters (Veg/Non-Veg/All) and sorting
-
+  - Category-based menu
+  - Search + veg/non-veg filtering
 - Cart & checkout
-  - Quantity controls per item
-  - When qty is 1, decrement becomes a bin (remove) action
-  - Checkout with address details and delivery radius validation
-
+  - Address selection and validation
+  - COD and Razorpay online payment (UPI / Card)
 - Account/profile
   - Firebase Auth
-  - Avatar is initial-based (no profile picture dependency)
-  - Profile completion banner prompting missing details
-
-- UX infrastructure
-  - Toast notifications stacked at bottom-right
-  - PWA install support and service worker
+  - Initial-based avatar (no profile picture dependency)
+- PWA
+  - Install prompt + service worker
 
 ## Prerequisites
 
@@ -34,9 +27,7 @@ Updated: 2025-12-24
   - Authentication enabled
   - Firestore enabled
 
-## Quick start
-
-From the repository root:
+## Local development
 
 ```powershell
 cd "D:\My projects\Venky's_Cheat_Mealz\venkys";
@@ -44,13 +35,13 @@ npm install;
 npm run dev
 ```
 
-Vite will print the local dev URL (typically http://localhost:5173).
+Vite will print the local URL (usually `http://localhost:5173`).
 
 ## Environment variables
 
-Create `venkys/.env` (or copy from your existing environment). Do not commit real secrets.
+Create `venkys/.env`. Do not commit real secrets.
 
-### Firebase client SDK
+### Required (Firebase client SDK)
 
 - `VITE_FIREBASE_API_KEY`
 - `VITE_FIREBASE_AUTH_DOMAIN`
@@ -59,18 +50,32 @@ Create `venkys/.env` (or copy from your existing environment). Do not commit rea
 - `VITE_FIREBASE_MESSAGING_SENDER_ID`
 - `VITE_FIREBASE_APP_ID`
 
-### Optional integrations
+### Payments (Razorpay)
 
-- `VITE_WHATSAPP_FUNCTION_URL` (server endpoint for WhatsApp messaging)
-- `VITE_SMS_FUNCTION_URL` (server endpoint for SMS)
+The frontend only needs the public key id.
 
-### Delivery defaults (optional fallback)
+- `VITE_RAZORPAY_KEY_ID` (optional if you expose it via `/api/public-config`)
 
-If Firestore delivery settings are not available, these can act as defaults:
+Server-side (Vercel project env vars; never in the client):
 
-- `VITE_DELIVERY_CENTER_LAT`
-- `VITE_DELIVERY_CENTER_LNG`
-- `VITE_DELIVERY_RADIUS_KM`
+- `RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
+
+### WhatsApp (optional)
+
+WhatsApp messaging is driven via `/api/send-whatsapp` (Vercel). Configure these server-side in Vercel:
+
+- `WA_TOKEN`
+- `WA_PHONE_NUMBER_ID`
+- `WA_BUSINESS_ACCOUNT_ID`
+- `WA_VERIFY_TOKEN` (used for webhook verification)
+
+### API base override (optional)
+
+By default, API calls in local dev are routed to the production Vercel base for consistency.
+You can override the API base:
+
+- `VITE_API_BASE_URL`
 
 ## Scripts
 
@@ -78,39 +83,46 @@ If Firestore delivery settings are not available, these can act as defaults:
 npm run dev       # local dev
 npm run build     # production build
 npm run preview   # preview build output
-npm run deploy    # deploy to Firebase Hosting (if configured)
+npm run deploy    # deploy Firebase Hosting (customer UI)
 ```
 
-## Project structure (high level)
+## Deployment model (important)
 
-- UI
-  - `src/components/MenuItemCard.jsx` item card UI and cart controls
-  - `src/components/NavBar.jsx` search + account UI
-  - `src/components/CartDrawer.jsx` cart panel
-  - `src/components/FloatingCartBar.jsx` mobile cart CTA
-  - `src/layouts/Layout.jsx` app shell, toast stack, auth modal
+This repo uses two deployment targets:
 
-- Pages
-  - `src/pages/Home.jsx` menu + search/filter/sort
-  - `src/pages/Checkout.jsx` delivery + payment flow
+1) **Firebase Hosting** for the UI
+2) **Vercel** for serverless endpoints in `api/` (Razorpay + WhatsApp + public-config)
 
-- State & data
-  - `src/context/AuthContext.jsx` authentication state
-  - `src/context/CartContext.jsx` cart state and persistence
-  - `src/context/UIContext.jsx` toasts, item modal state, auth modal state
-  - `src/lib/data.js` Firestore helpers
-  - `src/lib/firebase.js` Firebase initialization
+If you deploy only to Firebase, your UI will update but `/api/*` on Vercel will NOT.
 
-## Payments (serverless)
+### Firebase Hosting (UI)
 
-If you use Razorpay, serverless endpoints live in `venkys/api/`.
+```powershell
+cd "D:\My projects\Venky's_Cheat_Mealz\venkys";
+npm run deploy
+```
 
-- `POST /api/create-order`
-- `POST /api/verify-payment`
+### Vercel (API)
 
-Configure Razorpay keys as server-side environment variables in your hosting platform (never in the client).
+Deploy the `venkys` Vercel project so changes in `venkys/api/*` take effect.
 
-## Notes
+```powershell
+cd "D:\My projects\Venky's_Cheat_Mealz\venkys";
+npx vercel --prod
+```
 
-- Firebase client SDK can produce a larger vendor chunk; manual chunking is configured.
-- If messaging endpoints are not configured, messaging features should be treated as optional/no-op.
+## Troubleshooting
+
+- **CORS error from localhost** calling `https://*.vercel.app/api/...`:
+  - Your Vercel function must reply to the browser preflight `OPTIONS` with `Access-Control-Allow-Origin`.
+  - Ensure `CORS_ORIGIN` includes your dev origin (e.g. `http://localhost:5173`).
+- **Razorpay modal opens but verification fails**:
+  - Confirm `RAZORPAY_KEY_SECRET` is set in Vercel and `verify-payment` is deployed.
+
+## Project layout
+
+- [src/lib/data.js](src/lib/data.js): Firestore + API helpers
+- [src/pages/Checkout.jsx](src/pages/Checkout.jsx): customer payment flow
+- [api/create-order.js](api/create-order.js): create Razorpay order
+- [api/verify-payment.js](api/verify-payment.js): verify Razorpay signature
+- [api/public-config.js](api/public-config.js): exposes public config (Razorpay key id)

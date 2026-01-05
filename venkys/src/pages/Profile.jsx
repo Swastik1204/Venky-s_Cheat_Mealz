@@ -7,9 +7,8 @@ import { MdRefresh } from 'react-icons/md'
 import { useAuth } from '../context/AuthContext'
 import { useCart } from '../context/CartContext'
 import { fetchUserOrders, fetchUserProfile, updateUserProfile, fetchAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress } from '../lib/data'
-import { getAvatarUrl } from '../lib/userData'
 import { db } from '../lib/firebase'
-import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore'
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
 import { useUI } from '../context/UIContext'
 import useDeliveryLocation from '../hooks/useDeliveryLocation'
@@ -36,10 +35,8 @@ export default function Profile() {
 
   // Profile and orders state
   const [profile, setProfile] = useState(null);
-  const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', whatsapp: '', gender: '', photoURL: '', email: '' });
-  const [editForm, setEditForm] = useState({ displayName: '', phone: '', whatsapp: '', gender: '', photoURL: '', email: '' });
-  const [editPicFile, setEditPicFile] = useState(null);
-  const [editPicPreview, setEditPicPreview] = useState('');
+  const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', whatsapp: '', gender: '', email: '' });
+  const [editForm, setEditForm] = useState({ displayName: '', phone: '', whatsapp: '', gender: '', email: '' });
   const [profileSaving, setProfileSaving] = useState(false);
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -69,8 +66,6 @@ export default function Profile() {
     if (profileSaving) return;
     setEditModalOpen(false);
     setEditAlert('');
-    setEditPicFile(null);
-    setEditPicPreview('');
     setUsePhoneForWhatsapp(false);
   }, [profileSaving]);
 
@@ -101,10 +96,24 @@ export default function Profile() {
     
     // Set up real-time listener for user's orders (Query top-level collection by userId)
     const ordersRef = collection(db, 'orders');
-    const qy = query(ordersRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+    const qy = query(ordersRef, where('userId', '==', user.uid));
     
     const unsub = onSnapshot(qy, (snap) => {
-      const ordersList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const toMillis = (v) => {
+        if (!v) return 0
+        if (typeof v.toMillis === 'function') return v.toMillis()
+        if (typeof v.seconds === 'number') return v.seconds * 1000
+        if (typeof v === 'number') return v
+        const parsed = Date.parse(String(v))
+        return Number.isNaN(parsed) ? 0 : parsed
+      }
+      const ordersList = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => {
+          const ta = toMillis(a?.createdAt) || toMillis(a?.updatedAt)
+          const tb = toMillis(b?.createdAt) || toMillis(b?.updatedAt)
+          return tb - ta
+        });
       setOrders(ordersList);
       setLoadingOrders(false);
     }, (err) => {
@@ -137,11 +146,9 @@ export default function Profile() {
   useEffect(() => {
     if (!user) {
       setProfile(null);
-      setProfileForm({ displayName: '', phone: '', whatsapp: '', gender: '', photoURL: '', email: '' });
-      setEditForm({ displayName: '', phone: '', whatsapp: '', gender: '', photoURL: '', email: '' });
+      setProfileForm({ displayName: '', phone: '', whatsapp: '', gender: '', email: '' });
+      setEditForm({ displayName: '', phone: '', whatsapp: '', gender: '', email: '' });
       setUsePhoneForWhatsapp(false);
-      setEditPicFile(null);
-      setEditPicPreview('');
       setEditAlert('');
       setEditModalOpen(false);
       setAddrModalOpen(false);
@@ -162,7 +169,6 @@ export default function Profile() {
           phone: p?.phone || '',
           whatsapp: p?.whatsapp || '',
           gender: p?.gender || '',
-          photoURL: p?.photoURL || '',
           email: p?.email || user?.email || ''
         }));
         const phoneDigits = ((p?.phone || '').replace(/\D/g, '')).slice(0, 10);
@@ -175,7 +181,6 @@ export default function Profile() {
             phone: p?.phone || '',
             whatsapp: p?.whatsapp || '',
             gender: p?.gender || '',
-            photoURL: p?.photoURL || '',
             email: p?.email || user?.email || ''
           }));
         }
@@ -245,11 +250,8 @@ export default function Profile() {
         phone: profileForm.phone || '',
         whatsapp: profileForm.whatsapp || '',
         email: user?.email || '',
-        gender: profileForm.gender || profile?.gender || '',
-        photoURL: user?.photoURL || profileForm.photoURL || ''
+        gender: profileForm.gender || profile?.gender || ''
       });
-      setEditPicFile(null);
-      setEditPicPreview('');
       setEditAlert('');
       setUsePhoneForWhatsapp(sameContact);
       setEditModalOpen(true);
@@ -266,41 +268,12 @@ export default function Profile() {
       phone: profileForm.phone || '',
       whatsapp: profileForm.whatsapp || '',
       email: user?.email || '',
-      gender: profileForm.gender || profile?.gender || '',
-      photoURL: user?.photoURL || profileForm.photoURL || ''
+      gender: profileForm.gender || profile?.gender || ''
     });
-    setEditPicFile(null);
-    setEditPicPreview('');
     setEditAlert('');
     setUsePhoneForWhatsapp(sameContact);
     setEditModalOpen(true);
-  }, [addrState.list, profile, profileForm.displayName, profileForm.gender, profileForm.phone, profileForm.photoURL, profileForm.whatsapp, user?.email, user?.photoURL, openAddAddress]);
-
-  const handleProfilePicInput = (event) => {
-    const file = event.target?.files?.[0]
-    if (!file) {
-      setEditPicFile(null)
-      setEditPicPreview('')
-      return
-    }
-    if (!file.type.startsWith('image/')) {
-      pushToast('Please choose a valid image file.', 'error')
-      return
-    }
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setEditPicPreview(typeof reader.result === 'string' ? reader.result : '')
-    }
-    reader.readAsDataURL(file)
-    setEditPicFile(file)
-    pushToast('Profile photo uploads are coming soon. We will keep your current picture for now.', 'info')
-    event.target.value = ''
-  }
-
-  // TODO: Implement real upload via storage; temporary no-op to keep flow intact
-  async function uploadProfilePic() {
-    return editForm.photoURL || user?.photoURL || ''
-  }
+  }, [addrState.list, profile, profileForm.displayName, profileForm.gender, profileForm.phone, profileForm.whatsapp, user?.email, openAddAddress]);
   async function saveEditModal() {
     if (!user) return;
     // Validation: Full name required
@@ -323,21 +296,15 @@ export default function Profile() {
     setEditAlert("");
     setProfileSaving(true);
     try {
-      let photoURL = editForm.photoURL;
-      if (editPicFile) {
-        // Assume uploadProfilePic returns the URL
-        photoURL = await uploadProfilePic(user.uid, editPicFile);
-      }
       await updateUserProfile(user.uid, {
         ...profileForm,
         displayName: editForm.displayName,
         phone: editForm.phone,
         whatsapp: editForm.whatsapp,
-        gender: editForm.gender,
-        photoURL
+        gender: editForm.gender
       });
-      setProfileForm(f => ({ ...f, displayName: editForm.displayName, phone: editForm.phone, whatsapp: editForm.whatsapp, gender: editForm.gender, photoURL }));
-      setProfile(p => ({ ...(p||{}), displayName: editForm.displayName, phone: editForm.phone, whatsapp: editForm.whatsapp, gender: editForm.gender, photoURL }));
+      setProfileForm(f => ({ ...f, displayName: editForm.displayName, phone: editForm.phone, whatsapp: editForm.whatsapp, gender: editForm.gender }));
+      setProfile(p => ({ ...(p||{}), displayName: editForm.displayName, phone: editForm.phone, whatsapp: editForm.whatsapp, gender: editForm.gender }));
       setEditAlert('Profile updated successfully!');
       setTimeout(() => closeEditModal(), 1200);
     } catch (e) {
@@ -517,31 +484,14 @@ export default function Profile() {
                   );
                 })()}
                 <div className="avatar">
-                  <div className="w-24 rounded-full ring ring-base-200 ring-offset-base-100 ring-offset-2">
-                    <img alt="avatar" src={getAvatarUrl(profileForm.photoURL ? profileForm : (user?.photoURL ? user : { ...profileForm, name: user?.displayName || 'User' }))} />
+                  <div className="w-24 h-24 rounded-full ring ring-base-200 ring-offset-base-100 ring-offset-2 bg-base-200 flex items-center justify-center">
+                    <MdPerson className="w-10 h-10 opacity-60" />
                   </div>
                 </div>
                 <button 
                   className="btn btn-circle btn-xs btn-primary absolute bottom-0 right-0 shadow-md" 
-                  title="Edit photo"
-                  onClick={() => {
-                    // Trigger edit modal logic
-                    const phoneDigits = (profileForm.phone || '').replace(/\D/g, '').slice(0, 10);
-                    const whatsappDigits = (profileForm.whatsapp || '').replace(/\D/g, '').slice(0, 10);
-                    setEditForm({
-                      displayName: profileForm.displayName || '',
-                      phone: profileForm.phone || '',
-                      whatsapp: profileForm.whatsapp || '',
-                      email: user?.email || '',
-                      gender: profileForm.gender || profile?.gender || '',
-                      photoURL: user?.photoURL || profileForm.photoURL || ''
-                    });
-                    setEditPicFile(null);
-                    setEditPicPreview('');
-                    setEditAlert('');
-                    setUsePhoneForWhatsapp(Boolean(phoneDigits) && phoneDigits === whatsappDigits);
-                    setEditModalOpen(true);
-                  }}
+                  title="Edit details"
+                  onClick={openEditModal}
                 >
                   <MdEdit className="w-3 h-3" />
                 </button>
@@ -577,23 +527,7 @@ export default function Profile() {
               </div>
 
               <div className="mt-4 w-full">
-                <button className="btn btn-outline btn-sm w-full rounded-full" onClick={() => {
-                    const phoneDigits = (profileForm.phone || '').replace(/\D/g, '').slice(0, 10);
-                    const whatsappDigits = (profileForm.whatsapp || '').replace(/\D/g, '').slice(0, 10);
-                    setEditForm({
-                      displayName: profileForm.displayName || '',
-                      phone: profileForm.phone || '',
-                      whatsapp: profileForm.whatsapp || '',
-                      email: user?.email || '',
-                      gender: profileForm.gender || profile?.gender || '',
-                      photoURL: user?.photoURL || profileForm.photoURL || ''
-                    });
-                    setEditPicFile(null);
-                    setEditPicPreview('');
-                    setEditAlert('');
-                    setUsePhoneForWhatsapp(Boolean(phoneDigits) && phoneDigits === whatsappDigits);
-                    setEditModalOpen(true);
-                }}>Edit Profile</button>
+                <button className="btn btn-outline btn-sm w-full rounded-full" onClick={openEditModal}>Edit Profile</button>
               </div>
             </div>
           </div>
@@ -746,19 +680,6 @@ export default function Profile() {
               <h3 className="font-bold text-lg text-left pt-6 pb-2 px-6">Edit Personal Details</h3>
               {editAlert && <div className="alert alert-error text-xs px-6 py-2 mb-2 rounded-lg">{editAlert}</div>}
               <form className="px-6 pb-6 pt-2 space-y-6" onSubmit={e=>{e.preventDefault();saveEditModal();}}>
-                <div className="flex items-center gap-4 px-2">
-                  <div className="avatar"><div className="w-16 rounded-full ring ring-base-300/60"><img alt="Profile preview" src={editPicPreview || editForm.photoURL || user?.photoURL || '/icons/logo.png'} /></div></div>
-                  <div className="flex flex-col gap-2 text-xs">
-                    <label className="btn btn-xs btn-outline w-fit">
-                      <span>Select photo</span>
-                      <input type="file" className="hidden" accept="image/*" onChange={handleProfilePicInput} />
-                    </label>
-                    {editPicFile && (
-                      <button type="button" className="btn btn-xs btn-ghost w-fit" onClick={() => { setEditPicFile(null); setEditPicPreview(''); }}>Remove selection</button>
-                    )}
-                    <p className="text-[11px] opacity-70 max-w-[220px]">Profile photo uploads will be enabled soon. Your current picture remains visible.</p>
-                  </div>
-                </div>
                 {/* Display Name (required) */}
                 <div className="flex items-center gap-2 px-2 border-b border-base-300 focus-within:border-primary/60 transition pb-2">
                   <MdPerson className="w-4 h-4 opacity-70" />

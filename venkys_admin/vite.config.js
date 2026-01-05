@@ -8,6 +8,16 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 export default defineConfig({
+  server: {
+    proxy: {
+      // Vite doesn't serve Vercel-style /api routes. In dev, run `vercel dev` (default :3000)
+      // and proxy these calls so buttons like "Sync Now" work locally.
+      '/api': {
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3000',
+        changeOrigin: true,
+      },
+    },
+  },
   css: {
     // Disable Lightning CSS to avoid optimizer warnings like
     // "Unknown at rule: @property" coming from some UI libs (e.g., radial-progress)

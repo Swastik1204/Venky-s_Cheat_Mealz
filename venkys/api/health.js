@@ -25,53 +25,19 @@ export default async function handler(req, res) {
     return
   }
 
-  const rawToken = process.env.WA_TOKEN || ''
-  const rawPhoneId = process.env.WA_PHONE_NUMBER_ID || ''
-  const waToken = rawToken.trim()
-  const phoneId = rawPhoneId.trim()
-  const phoneIdMasked = phoneId ? `${phoneId.slice(0, 3)}****${phoneId.slice(-3)}` : null
+  const checks = {
+    wa_configured: !!(process.env.WA_TOKEN && process.env.WA_PHONE_NUMBER_ID),
+    razorpay_configured: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
+    vite_razorpay_key: !!process.env.VITE_RAZORPAY_KEY_ID,
+    cors_origin: process.env.CORS_ORIGIN || 'not_set'
+  }
 
-  const payload = {
+  return res.status(200).json({
     ok: true,
-    time: new Date().toISOString(),
-    env: {
-      waToken: waToken ? 'present' : 'missing',
-      waPhoneNumberId: phoneId ? 'present' : 'missing',
-      waPhoneNumberIdMasked: phoneIdMasked,
-      warnings: [
-        ...(rawToken !== waToken ? ['WA_TOKEN contains leading/trailing whitespace'] : []),
-        ...(rawPhoneId !== phoneId ? ['WA_PHONE_NUMBER_ID contains leading/trailing whitespace'] : []),
-      ],
-    },
-    cors: {
-      configured: allow,
-      requestOrigin: origin || null,
-      allowed: allow === '*' ? true : isAllowed,
-    },
-    vercel: {
-      env: process.env.VERCEL_ENV || null,
-      region: process.env.VERCEL_REGION || null,
-      url: process.env.VERCEL_URL || null,
-    },
-    routes: {
-      whatsapp: '/api/send-whatsapp',
-      sms: '/api/send-sms',
-    },
-  }
-
-  // Optional WhatsApp probe: verify token access to phone number id
-  if (waToken && phoneId) {
-    try {
-      const u = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneId)}?fields=display_phone_number,verified_name`
-      const r = await fetch(u, { headers: { Authorization: `Bearer ${waToken}` } })
-      const data = await r.json().catch(() => ({}))
-      payload.waProbe = r.ok
-        ? { ok: true, display_phone_number: data.display_phone_number || null, verified_name: data.verified_name || null }
-        : { ok: false, status: r.status, error: { type: data?.error?.type, code: data?.error?.code, subcode: data?.error?.error_subcode, message: data?.error?.message } }
-    } catch (e) {
-      payload.waProbe = { ok: false, error: { message: String(e && e.message || e) } }
-    }
-  }
-
-  res.status(200).json(payload)
+    status: 'healthy',
+    app: 'venkys-customer',
+    timestamp: new Date().toISOString(),
+    env: process.env.NODE_ENV || 'development',
+    checks
+  })
 }

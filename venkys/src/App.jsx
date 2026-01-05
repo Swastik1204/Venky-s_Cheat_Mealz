@@ -1,3 +1,4 @@
+import ActiveOrders from './pages/ActiveOrders'
 import { Suspense, lazy } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './layouts/Layout'
@@ -37,6 +38,7 @@ function App() {
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/shipping" element={<Shipping />} />
           <Route path="/cancellation-refunds" element={<CancellationRefunds />} />
+          <Route path="/active-orders" element={<ActiveOrders />} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>

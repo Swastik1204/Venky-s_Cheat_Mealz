@@ -42,7 +42,7 @@ export default function Home() {
   const [spotlightLoaded, setSpotlightLoaded] = useState(false)
   const { user } = useAuth()
   // Removed unused profile state
-  const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', gender: '', photoURL: '' })
+  const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', gender: '' })
   const [addrState, setAddrState] = useState({ list: [], defaultId: null })
   // Keep prompt flag without exposing unused setter
   const [showProfilePrompt] = useState(true)
@@ -53,13 +53,12 @@ export default function Home() {
   }, [currencyFormatter])
   // Load profile and addresses for completion calculation
   useEffect(() => {
-    if (!user) { setProfileForm({ displayName: '', phone: '', gender: '', photoURL: '' }); setAddrState({ list: [], defaultId: null }); return }
+    if (!user) { setProfileForm({ displayName: '', phone: '', gender: '' }); setAddrState({ list: [], defaultId: null }); return }
     fetchUserProfile(user.uid).then(p => {
       setProfileForm({
         displayName: p?.displayName || '',
         phone: p?.phone || '',
-        gender: p?.gender || '',
-        photoURL: p?.photoURL || ''
+        gender: p?.gender || ''
       })
     })
     // Fetch addresses
@@ -189,11 +188,15 @@ export default function Home() {
     if (!user) { setActiveOrder(null); return }
     let active = true
     fetchLatestUserOrder(user.uid).then(o => {
-      if (active) setActiveOrder(o && o.status !== 'delivered' ? o : null)
+      if (!active) return
+      const status = String(o?.status || '').toLowerCase()
+      setActiveOrder(o && status && status !== 'delivered' && status !== 'rejected' ? o : null)
     })
     const id = setInterval(() => {
       fetchLatestUserOrder(user.uid).then(o => {
-        if (active) setActiveOrder(o && o.status !== 'delivered' ? o : null)
+        if (!active) return
+        const status = String(o?.status || '').toLowerCase()
+        setActiveOrder(o && status && status !== 'delivered' && status !== 'rejected' ? o : null)
       })
     }, 30000) // poll every 30s (was 15s) to reduce network load
     return () => { active = false; clearInterval(id) }
@@ -612,7 +615,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
-                  <button type="button" className="btn btn-sm btn-ghost text-secondary" onClick={() => navigate('/profile#orders')}>
+                  <button type="button" className="btn btn-sm btn-ghost text-secondary" onClick={() => navigate('/active-orders')}>
                     View order status
                   </button>
                 </div>

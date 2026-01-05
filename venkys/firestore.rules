@@ -29,6 +29,17 @@ service cloud.firestore {
       return isSignedIn() && hasRoleDoc() && getRoleDoc().data.role == 'admin';
     }
 
+    // ===== Order counter helpers (customer app needs these to generate daily order numbers) =====
+    function isOrderCounterDoc(orderId) {
+      return orderId.matches('^__counter__\\d{8}$');
+    }
+
+    function allowCounterWrite(data) {
+      return data.__meta == 'orderCounter'
+        && data.dateKey.matches('^\\d{8}$')
+        && data.total is number;
+    }
+
     // GLOBAL ADMIN OVERRIDE: If user is admin, allow everything
     match /{document=**} {
       allow read, write: if isAdmin();
@@ -87,7 +98,7 @@ service cloud.firestore {
       allow read, write: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
 
       match /orders/{orderId} {
-        allow create: if isSignedIn();
+        allow create: if isSignedIn() && request.auth.uid == uid;
         // Staff members need to update user orders when changing status
         allow read, update: if (isSignedIn() && request.auth.uid == uid) || isStaffMember();
         allow delete: if false;
@@ -103,12 +114,15 @@ service cloud.firestore {
 
     // ===== Top-level orders =====
     match /orders/{orderId} {
-      // Anyone can create orders (for guest checkout)
-      allow create: if true;
-      // Staff can read and update orders
-      allow read, update: if isStaffMember();
+      // Counter doc used for daily sequence generation
+      allow read: if isOrderCounterDoc(orderId) ? true : (isStaffMember() || (isSignedIn() && resource.data.userId == request.auth.uid));
+      allow create: if isOrderCounterDoc(orderId)
+        ? allowCounterWrite(request.resource.data)
+        : (isSignedIn() && request.resource.data.userId == request.auth.uid);
+      // Customers should not be able to edit orders after placing; staff handles status/payment updates.
+      allow update: if isOrderCounterDoc(orderId) ? allowCounterWrite(request.resource.data) : isStaffMember();
       // Only admin can delete
-      allow delete: if isAdmin();
+      allow delete: if !isOrderCounterDoc(orderId) && isAdmin();
       
       // Order revisions subcollection - staff can write for audit trail
       match /revisions/{revId} {

@@ -11,6 +11,22 @@ export function AuthProvider({ children }) {
   const [role, setRole] = useState(null) // null | { isStaffMember, role, isAdmin }
   const [roleLoading, setRoleLoading] = useState(true)
 
+  const canAccess = useCallback((pageKey) => {
+    const roleName = role?.role
+    if (!role?.isStaffMember || !roleName) return false
+    if (roleName === 'admin') return true
+    if (roleName === 'delivery') return pageKey === 'delivery'
+    // Staff: prefer explicit pages permissions if present
+    if (role?.pages && typeof role.pages === 'object') {
+      return !!role.pages[pageKey]
+    }
+    // Back-compat defaults (existing installs)
+    if (roleName === 'staff') {
+      return ['orders', 'biller', 'inventory', 'stock', 'analytics'].includes(pageKey)
+    }
+    return false
+  }, [role])
+
   // Check user role from /roles/{email} collection
   const refreshRole = useCallback(async (email) => {
     if (!email) {
@@ -28,16 +44,20 @@ export function AuthProvider({ children }) {
         setRole({
           isStaffMember: true,
           role: userRole,
+          name: data.name || '',
+          pages: data.pages && typeof data.pages === 'object' ? data.pages : null,
+          defaultPage: data.defaultPage || null,
           isAdmin: userRole === 'admin',
-          isStaff: userRole === 'staff'
+          isStaff: userRole === 'staff',
+				isDelivery: userRole === 'delivery'
         })
       } else {
         // No role document = no access
-        setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false })
+			setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
       }
     } catch (err) {
       console.error('[AuthContext] Role check failed:', err)
-      setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false })
+		setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
     } finally {
       setRoleLoading(false)
     }
@@ -105,6 +125,8 @@ export function AuthProvider({ children }) {
     isStaffMember: role?.isStaffMember || false, // Has any role (admin or staff)
     isAdmin: role?.isAdmin || false,             // Is admin (full access)
     isStaff: role?.isStaff || false,             // Is staff (limited access)
+		isDelivery: role?.isDelivery || false,
+		canAccess,
     refreshRole: () => refreshRole(user?.email),
     signup, 
     login, 

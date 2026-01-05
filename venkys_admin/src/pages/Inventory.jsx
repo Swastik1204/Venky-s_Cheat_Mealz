@@ -9,6 +9,11 @@ export default function Inventory() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [categories, setCategories] = useState([])
+  const [bulkEditModalOpen, setBulkEditModalOpen] = useState(false)
+  const [bulkCategory, setBulkCategory] = useState('')
+  const [bulkAspect, setBulkAspect] = useState('pricing')
+  const [bulkDraft, setBulkDraft] = useState({})
+  const [bulkSaving, setBulkSaving] = useState(false)
   const [rawMaterials, setRawMaterials] = useState([])
   const [newCats, setNewCats] = useState([{ name: '' }])
   const [newItems, setNewItems] = useState([{ category: '', name: '', price: '', veg: true }])
@@ -18,7 +23,7 @@ export default function Inventory() {
   const [, setImageModal] = useState({ open: false, categoryId: null, itemIndex: null, itemName: '', preview: null, file: null, uploading: false, progress: 0, error: '', mode: 'item' })
   const [editModal, setEditModal] = useState({
     open: false,
-    activeTab: 'details',
+    activeTab: 'pricing',
     categoryId: null,
     itemIndex: null,
     data: {
@@ -47,6 +52,20 @@ export default function Inventory() {
   const { confirm, pushToast } = useUI()
 
   useEffect(() => {
+    if (error) {
+      pushToast(error, 'error')
+      setError('')
+    }
+  }, [error, pushToast])
+
+  useEffect(() => {
+    if (info) {
+      pushToast(info, 'success')
+      setInfo('')
+    }
+  }, [info, pushToast])
+
+  useEffect(() => {
     let mounted = true
     setLoading(true)
     Promise.all([
@@ -70,6 +89,39 @@ export default function Inventory() {
     fetchImagesByIds(ids).then(map => { if (!active) return; const out = {}; Object.entries(map).forEach(([id, d]) => { out[id] = `data:${d.mime || 'image/*'};base64,${d.data}` }); setCatImages(out) }).catch(()=>{})
     return () => { active = false }
   }, [categories])
+
+  function bulkKey(categoryId, itemIndex) {
+    return `${categoryId}::${itemIndex}`
+  }
+
+  useEffect(() => {
+    if (!bulkEditModalOpen || !bulkCategory) return
+    const c = categories.find(cat => cat.id === bulkCategory)
+    if (!c) return
+    const next = {}
+    const items = Array.isArray(c.items) ? c.items : []
+    for (let idx = 0; idx < items.length; idx++) {
+      const it = items[idx]
+      const mrpNumber = parseAmount(it.mrp ?? it.MRP ?? '')
+      const rateNumber = parseAmount(it.rate ?? it.price ?? '')
+      const explicitDiscount = it.discountPercent !== undefined && it.discountPercent !== null ? parsePercent(it.discountPercent) : null
+      const derivedDiscount = explicitDiscount !== null ? explicitDiscount : computeDiscountPercent(mrpNumber ?? undefined, rateNumber ?? undefined)
+      next[bulkKey(c.id, idx)] = {
+        categoryId: c.id,
+        itemIndex: idx,
+        name: it.name || '',
+        desc: it.desc || it.description || '',
+        mrp: mrpNumber !== null ? formatAmount(mrpNumber) : '',
+        rate: rateNumber !== null ? formatAmount(rateNumber) : '',
+        discountPercent: derivedDiscount !== null && derivedDiscount > 0 ? formatPercent(derivedDiscount) : '',
+        veg: it.veg !== false,
+        active: it.active !== false,
+        imageId: it.imageId || null,
+        isCustom: !!it.isCustom,
+      }
+    }
+    setBulkDraft(next)
+  }, [bulkEditModalOpen, bulkCategory])
 
   function parseAmount(value) {
     if (value === '' || value === null || value === undefined) return null
@@ -214,7 +266,7 @@ export default function Inventory() {
 
     setEditModal({
       open: true,
-      activeTab: 'details',
+      activeTab: 'pricing',
       categoryId,
       itemIndex,
       data: {
@@ -305,21 +357,26 @@ export default function Inventory() {
 
   return (
   <AdminLayout>
-  <h2 className="text-3xl font-extrabold tracking-tight" style={{lineHeight:'1.1', color:'var(--color-base-content)'}}>
-          Inventory
-        </h2>
-  {error && (
-        <div className="alert alert-error mb-4">
-          <span>{error}</span>
-          <button className="btn btn-sm btn-ghost" onClick={() => setError('')}>✕</button>
-        </div>
-      )}
-      {info && (
-        <div className="alert alert-success mb-4">
-          <span>{info}</span>
-          <button className="btn btn-sm btn-ghost" onClick={() => setInfo('')}>✕</button>
-        </div>
-      )}
+  <div className="flex items-center justify-between mb-4">
+    <h2 className="text-3xl font-extrabold tracking-tight" style={{lineHeight:'1.1', color:'var(--color-base-content)'}}>
+      Inventory
+    </h2>
+    <button
+      type="button"
+      className="btn btn-sm btn-outline gap-2"
+      onClick={() => {
+        setError(''); setInfo('')
+        setBulkCategory(categories.length > 0 ? categories[0].id : '')
+        setBulkAspect('pricing')
+        setBulkEditModalOpen(true)
+      }}
+      disabled={categories.length === 0}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+      Bulk edit
+    </button>
+  </div>
+
 
   {/* Quick add rows */}
       <div className="space-y-6">
@@ -569,7 +626,7 @@ export default function Inventory() {
             {/* Header */}
             <div className="px-6 py-4 border-b border-base-200 flex items-center justify-between bg-base-100 z-10">
               <div>
-                <h3 className="font-bold text-xl text-base-content">Edit Item</h3>
+                <h3 className="font-bold text-xl text-base-content">Edit {editModal.data.name}</h3>
                 <p className="text-xs text-base-content/50 mt-0.5">Update item details, pricing, and composition</p>
               </div>
               <button className="btn btn-sm btn-circle btn-ghost hover:bg-base-200" onClick={closeEditModal}>✕</button>
@@ -578,7 +635,7 @@ export default function Inventory() {
             {/* Tabs */}
             <div className="px-6 pt-2 bg-base-100 shrink-0 border-b border-base-200">
               <div className="tabs tabs-bordered -mb-px">
-                {['details', 'pricing', 'composition', 'stock', 'image'].map(tab => (
+                {['pricing', 'details', 'composition', 'stock', 'image'].map(tab => (
                   <a 
                     key={tab}
                     className={`tab tab-lg px-6 pb-3 transition-all duration-200 ${editModal.activeTab === tab ? 'tab-active font-semibold border-primary text-primary' : 'text-base-content/60 hover:text-base-content'}`}
@@ -678,47 +735,50 @@ export default function Inventory() {
 
               {editModal.activeTab === 'details' && (
                 <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in duration-300">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="md:col-span-2 form-control w-full">
-                      <label className="label">
-                        <span className="label-text font-medium">Item Name</span>
-                      </label>
-                      <input
-                        className="input input-bordered w-full focus:input-primary transition-all"
-                        value={editModal.data.name}
-                        onChange={(e) => updateEditData('name', e.target.value)}
-                        placeholder="e.g. Chicken Biryani"
-                      />
-                    </div>
-                    <div className="form-control">
-                      <label className="label">
-                        <span className="label-text font-medium">Dietary Type</span>
-                      </label>
-                      <div className="join w-full grid grid-cols-2">
-                        <button 
-                          type="button" 
-                          className={`btn join-item ${editModal.data.veg ? 'btn-success text-white' : 'btn-outline border-base-300 text-base-content/60 hover:bg-base-100'}`} 
-                          onClick={() => updateEditData('veg', true)}
-                        >Veg</button>
-                        <button 
-                          type="button" 
-                          className={`btn join-item ${!editModal.data.veg ? 'btn-error text-white' : 'btn-outline border-base-300 text-base-content/60 hover:bg-base-100'}`} 
-                          onClick={() => updateEditData('veg', false)}
-                        >Non-Veg</button>
+                  <div className="bg-base-100 border border-base-200 rounded-xl p-5 shadow-sm space-y-5">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="md:col-span-2 form-control w-full">
+                        <label className="label py-1">
+                          <span className="label-text font-medium">Item Name</span>
+                        </label>
+                        <input
+                          className="input input-bordered w-full focus:input-primary transition-all"
+                          value={editModal.data.name}
+                          onChange={(e) => updateEditData('name', e.target.value)}
+                          placeholder="e.g. Chicken Biryani"
+                        />
+                      </div>
+                      <div className="form-control">
+                        <label className="label py-1">
+                          <span className="label-text font-medium">Dietary Type</span>
+                        </label>
+                        <div className="join w-full grid grid-cols-2">
+                          <button 
+                            type="button" 
+                            className={`btn join-item ${editModal.data.veg ? 'btn-success text-white' : 'btn-outline border-base-300 text-base-content/60 hover:bg-base-100'}`} 
+                            onClick={() => updateEditData('veg', true)}
+                          >Veg</button>
+                          <button 
+                            type="button" 
+                            className={`btn join-item ${!editModal.data.veg ? 'btn-error text-white' : 'btn-outline border-base-300 text-base-content/60 hover:bg-base-100'}`} 
+                            onClick={() => updateEditData('veg', false)}
+                          >Non-Veg</button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  
-                  <div className="form-control w-full">
-                    <label className="label">
-                      <span className="label-text font-medium">Description</span>
-                    </label>
-                    <textarea
-                      className="textarea textarea-bordered h-32 focus:textarea-primary transition-all resize-none"
-                      value={editModal.data.desc}
-                      onChange={(e) => updateEditData('desc', e.target.value)}
-                      placeholder="Describe the dish, ingredients, and taste profile..."
-                    />
+
+                    <div className="form-control w-full">
+                      <label className="label py-1">
+                        <span className="label-text font-medium">Description</span>
+                        <span className="label-text-alt opacity-60">Optional</span>
+                      </label>
+                      <textarea
+                        className="textarea textarea-bordered min-h-32 focus:textarea-primary transition-all resize-none"
+                        value={editModal.data.desc}
+                        onChange={(e) => updateEditData('desc', e.target.value)}
+                        placeholder="Describe the dish, ingredients, and taste profile..."
+                      />
+                    </div>
                   </div>
                 </div>
               )}
@@ -998,108 +1058,29 @@ export default function Inventory() {
               )}
 
               {editModal.activeTab === 'image' && (
-                <div className="max-w-xl mx-auto space-y-8 animate-in fade-in duration-300">
-                  <div className="flex flex-col items-center gap-6">
-                    {editModal.data.imageId && catImages[editModal.data.imageId] ? (
-                      <div className="relative group">
-                        <div className="avatar">
-                          <div className="w-48 h-48 rounded-2xl shadow-lg ring-4 ring-base-100 overflow-hidden">
+                <div className="max-w-4xl mx-auto p-6 animate-in fade-in duration-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                    {/* Left Column: Current Image */}
+                    <div className="flex flex-col items-center gap-4">
+                      <h4 className="font-semibold text-base-content/70 uppercase tracking-wider text-xs">Current Display Image</h4>
+                      <div className="relative group w-full aspect-square max-w-sm bg-base-200 rounded-2xl overflow-hidden border-2 border-dashed border-base-300 flex items-center justify-center">
+                        {editModal.data.imageId && catImages[editModal.data.imageId] ? (
+                          <>
                             <img src={catImages[editModal.data.imageId]} alt="Current" className="object-cover w-full h-full" />
-                          </div>
-                        </div>
-                        <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-success text-white text-xs font-bold px-3 py-1 rounded-full shadow-sm">
-                          Active Image
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="w-48 h-48 bg-base-200 rounded-2xl flex flex-col items-center justify-center border-2 border-dashed border-base-300 text-base-content/40">
-                        <span className="text-4xl mb-2">🖼️</span>
-                        <span className="text-sm font-medium">No image set</span>
-                      </div>
-                    )}
-
-                    <div className="w-full max-w-sm space-y-4">
-                      <div className="form-control w-full">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="file-input file-input-bordered file-input-primary w-full"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0]
-                            if (!file) return
-                            setEditModal(m => ({ ...m, imageFile: null, imagePreview: null, imageProgress: 0, imageError: '', imageUploading: false }))
-                            if (!file.type.startsWith('image/')) { setEditModal(m => ({ ...m, imageError: 'Not an image file.' })); return }
-                            const maxBytes = 1024 * 1024
-                            if (file.size > maxBytes) { setEditModal(m => ({ ...m, imageError: `File too large (${Math.round(file.size/1024)}KB). Max 1MB.` })); return }
-                            const reader = new FileReader()
-                            reader.onload = (ev) => { setEditModal(m => ({ ...m, imageFile: file, imagePreview: ev.target?.result || null, imageProgress: 100 })) }
-                            reader.readAsDataURL(file)
-                          }}
-                        />
-                        <label className="label">
-                          <span className="label-text-alt opacity-60">Supported: JPG, PNG, WEBP (Max 1MB)</span>
-                        </label>
-                      </div>
-                      
-                      {editModal.imagePreview && (
-                        <div className="relative rounded-xl overflow-hidden border border-base-300 bg-base-100 shadow-sm">
-                          <img src={editModal.imagePreview} alt="Preview" className="h-48 w-full object-cover" />
-                          {editModal.imageUploading && (
-                            <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 text-white">
-                              <span className="loading loading-spinner loading-lg"></span>
-                              <span className="text-sm font-medium">Uploading...</span>
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <span className="badge badge-lg font-bold">Active</span>
                             </div>
-                          )}
-                        </div>
-                      )}
-
-                      {editModal.imageError && (
-                        <div className="alert alert-error text-sm py-2 rounded-lg">
-                          <MdWarningAmber /> {editModal.imageError}
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-2 gap-3">
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center text-base-content/30">
+                            <span className="text-6xl mb-2">🖼️</span>
+                            <span className="font-medium">No Image Set</span>
+                          </div>
+                        )}
+                      </div>
+                      {editModal.data.imageId && (
                         <button 
-                          className="btn btn-primary" 
-                          disabled={!editModal.imageFile || editModal.imageUploading}
-                          onClick={async () => {
-                            if (!editModal.imageFile) return
-                            try {
-                              setEditModal(m => ({ ...m, imageUploading: true, imageError: '' }))
-                              const dataUrl = editModal.imagePreview
-                              const match = /^data:(.*?);base64,(.*)$/.exec(dataUrl)
-                              const mime = match ? match[1] : editModal.imageFile.type
-                              const b64 = match ? match[2] : null
-                              if (!b64) throw new Error('Invalid data URL')
-                              
-                              const imageId = await saveBase64Image(b64, mime, { ownerType: 'item', categoryId: editModal.categoryId, itemName: editModal.data.name })
-                              
-                              setCategories(prev => prev.map(cat => { 
-                                if (cat.id !== editModal.categoryId) return cat; 
-                                const items = cat.items.map((it, i) => i === editModal.itemIndex ? { ...it, imageId } : it); 
-                                return { ...cat, items } 
-                              }))
-                              
-                              setEditModal(m => ({ ...m, imageUploading: false, imageFile: null, imagePreview: null, data: { ...m.data, imageId } }))
-                              
-                              const target = categories.find(cat => cat.id === editModal.categoryId)
-                              if (target) { 
-                                const items = target.items.map((it, i) => i === editModal.itemIndex ? { ...it, imageId } : it); 
-                                await setMenuItems(editModal.categoryId, items) 
-                              }
-                              
-                              pushToast('Image updated successfully', 'success')
-                            } catch (e) {
-                              setEditModal(m => ({ ...m, imageUploading: false, imageError: e.message }))
-                            }
-                          }}
-                        >
-                          Upload New
-                        </button>
-                        <button 
-                          className="btn btn-outline btn-error"
-                          disabled={!editModal.data.imageId}
+                          className="btn btn-outline btn-error btn-sm w-full max-w-sm gap-2"
                           onClick={() => {
                             confirm({
                               message: 'Delete this image permanently?',
@@ -1127,8 +1108,96 @@ export default function Inventory() {
                             })
                           }}
                         >
-                          Remove
+                          <MdDelete className="w-4 h-4" /> Remove Image
                         </button>
+                      )}
+                    </div>
+
+                    {/* Right Column: Upload New */}
+                    <div className="flex flex-col gap-4">
+                      <h4 className="font-semibold text-base-content/70 uppercase tracking-wider text-xs">Upload New Image</h4>
+                      
+                      <div className="card bg-base-100 border border-base-200 shadow-sm overflow-hidden">
+                        <div className="card-body p-4 gap-4">
+                          <div className="form-control w-full">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="file-input file-input-bordered file-input-primary w-full"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (!file) return
+                                setEditModal(m => ({ ...m, imageFile: null, imagePreview: null, imageProgress: 0, imageError: '', imageUploading: false }))
+                                if (!file.type.startsWith('image/')) { setEditModal(m => ({ ...m, imageError: 'Not an image file.' })); return }
+                                const maxBytes = 1024 * 1024
+                                if (file.size > maxBytes) { setEditModal(m => ({ ...m, imageError: `File too large (${Math.round(file.size/1024)}KB). Max 1MB.` })); return }
+                                const reader = new FileReader()
+                                reader.onload = (ev) => { setEditModal(m => ({ ...m, imageFile: file, imagePreview: ev.target?.result || null, imageProgress: 100 })) }
+                                reader.readAsDataURL(file)
+                              }}
+                            />
+                            <label className="label pb-0">
+                              <span className="label-text-alt opacity-60">Supported: JPG, PNG, WEBP (Max 1MB)</span>
+                            </label>
+                          </div>
+
+                          {editModal.imageError && (
+                            <div className="alert alert-error text-sm py-2 rounded-lg">
+                              <MdWarningAmber /> {editModal.imageError}
+                            </div>
+                          )}
+
+                          {editModal.imagePreview && (
+                            <div className="space-y-3 animate-in slide-in-from-bottom-2">
+                              <div className="relative rounded-xl overflow-hidden border border-base-300 bg-base-200 aspect-video">
+                                <img src={editModal.imagePreview} alt="Preview" className="w-full h-full object-contain" />
+                                {editModal.imageUploading && (
+                                  <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 text-white backdrop-blur-sm">
+                                    <span className="loading loading-spinner loading-lg"></span>
+                                    <span className="text-sm font-medium">Uploading...</span>
+                                  </div>
+                                )}
+                              </div>
+                              <button 
+                                className="btn btn-primary w-full" 
+                                disabled={!editModal.imageFile || editModal.imageUploading}
+                                onClick={async () => {
+                                  if (!editModal.imageFile) return
+                                  try {
+                                    setEditModal(m => ({ ...m, imageUploading: true, imageError: '' }))
+                                    const dataUrl = editModal.imagePreview
+                                    const match = /^data:(.*?);base64,(.*)$/.exec(dataUrl)
+                                    const mime = match ? match[1] : editModal.imageFile.type
+                                    const b64 = match ? match[2] : null
+                                    if (!b64) throw new Error('Invalid data URL')
+                                    
+                                    const imageId = await saveBase64Image(b64, mime, { ownerType: 'item', categoryId: editModal.categoryId, itemName: editModal.data.name })
+                                    
+                                    setCategories(prev => prev.map(cat => { 
+                                      if (cat.id !== editModal.categoryId) return cat; 
+                                      const items = cat.items.map((it, i) => i === editModal.itemIndex ? { ...it, imageId } : it); 
+                                      return { ...cat, items } 
+                                    }))
+                                    
+                                    setEditModal(m => ({ ...m, imageUploading: false, imageFile: null, imagePreview: null, data: { ...m.data, imageId } }))
+                                    
+                                    const target = categories.find(cat => cat.id === editModal.categoryId)
+                                    if (target) { 
+                                      const items = target.items.map((it, i) => i === editModal.itemIndex ? { ...it, imageId } : it); 
+                                      await setMenuItems(editModal.categoryId, items) 
+                                    }
+                                    
+                                    pushToast('Image updated successfully', 'success')
+                                  } catch (e) {
+                                    setEditModal(m => ({ ...m, imageUploading: false, imageError: e.message }))
+                                  }
+                                }}
+                              >
+                                {editModal.imageUploading ? 'Uploading...' : 'Confirm Upload'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1249,6 +1318,329 @@ export default function Inventory() {
             </div>
           </div>
           <form method="dialog" className="modal-backdrop" onClick={() => !editModal.saving && closeEditModal()}>
+            <button>close</button>
+          </form>
+        </dialog>
+      )}
+
+      {/* Bulk Edit Modal */}
+      {bulkEditModalOpen && (
+        <dialog open className="modal modal-open backdrop-blur-sm">
+          <div className="modal-box max-w-6xl h-[85vh] flex flex-col p-0 overflow-hidden bg-base-100 shadow-2xl rounded-2xl">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-base-200 bg-base-100 z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-xl text-base-content">Bulk Edit</h3>
+                  <p className="text-xs text-base-content/50 mt-0.5">Select category and aspect to edit multiple items at once</p>
+                </div>
+                <button className="btn btn-sm btn-circle btn-ghost hover:bg-base-200" onClick={() => setBulkEditModalOpen(false)}>✕</button>
+              </div>
+            </div>
+
+            {/* Selection Controls */}
+            <div className="px-6 py-4 border-b border-base-200 bg-base-50 flex flex-wrap items-center gap-4">
+              <div className="form-control flex-1 min-w-[200px]">
+                <label className="label py-1"><span className="label-text text-xs font-medium">Category</span></label>
+                <select className="select select-bordered select-sm" value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)}>
+                  {categories.map(c => (<option key={c.id} value={c.id}>{displayCategory(c)}</option>))}
+                </select>
+              </div>
+              <div className="form-control flex-1 min-w-[200px]">
+                <label className="label py-1"><span className="label-text text-xs font-medium">Edit Aspect</span></label>
+                <div className="join">
+                  <button className={`btn btn-sm join-item ${bulkAspect === 'pricing' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setBulkAspect('pricing')}>Pricing</button>
+                  <button className={`btn btn-sm join-item ${bulkAspect === 'details' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setBulkAspect('details')}>Details</button>
+                  <button className={`btn btn-sm join-item ${bulkAspect === 'composition' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setBulkAspect('composition')}>Composition</button>
+                  <button className={`btn btn-sm join-item ${bulkAspect === 'image' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setBulkAspect('image')}>Image</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Bulk Edit Table */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {(() => {
+                const c = categories.find(cat => cat.id === bulkCategory)
+                if (!c) return <div className="text-center opacity-60">Select a category</div>
+                const items = Array.isArray(c.items) ? c.items : []
+                if (!items.length) return <div className="text-center opacity-60">No items in this category</div>
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="table table-sm">
+                      <thead>
+                        <tr>
+                          <th className="w-12">#</th>
+                          <th className="min-w-[200px]">Item Name</th>
+                          {bulkAspect === 'pricing' && (
+                            <>
+                              <th className="w-28 text-right">MRP</th>
+                              <th className="w-28 text-right">Rate</th>
+                              <th className="w-28 text-right">Discount %</th>
+                            </>
+                          )}
+                          {bulkAspect === 'details' && (
+                            <>
+                              <th className="w-48">Description</th>
+                              <th className="w-32 text-center">Veg/Non-Veg</th>
+                              <th className="w-32 text-center">Active</th>
+                            </>
+                          )}
+                          {bulkAspect === 'composition' && (
+                            <th className="w-32 text-center">Type</th>
+                          )}
+                          {bulkAspect === 'image' && (
+                            <>
+                              <th className="w-24 text-center">Current</th>
+                              <th className="w-32">Status</th>
+                            </>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((it, idx) => {
+                          const key = bulkKey(c.id, idx)
+                          const d = bulkDraft[key] || {
+                            name: it.name || '',
+                            desc: it.desc || '',
+                            mrp: '',
+                            rate: '',
+                            discountPercent: '',
+                            veg: it.veg !== false,
+                            active: it.active !== false,
+                          }
+                          return (
+                            <tr key={key}>
+                              <td className="text-center opacity-60">{idx + 1}</td>
+                              <td>
+                                <div className="font-medium text-sm">{it.name}</div>
+                              </td>
+                              {bulkAspect === 'pricing' && (
+                                <>
+                                  <td className="text-right">
+                                    <input
+                                      className="input input-bordered input-xs w-24 text-right tabular-nums"
+                                      inputMode="decimal"
+                                      value={d.mrp}
+                                      onChange={(e) => {
+                                        const val = e.target.value.replace(/[^0-9.]/g, '')
+                                        const nextForm = recomputePricing({ ...d, mrp: val }, 'mrp')
+                                        setBulkDraft(prev => ({ ...prev, [key]: { ...d, ...nextForm } }))
+                                      }}
+                                      onWheel={(e) => e.currentTarget.blur()}
+                                    />
+                                  </td>
+                                  <td className="text-right">
+                                    <input
+                                      className="input input-bordered input-xs w-24 text-right tabular-nums font-semibold"
+                                      inputMode="decimal"
+                                      value={d.rate}
+                                      onChange={(e) => {
+                                        const val = e.target.value.replace(/[^0-9.]/g, '')
+                                        const nextForm = recomputePricing({ ...d, rate: val }, 'rate')
+                                        setBulkDraft(prev => ({ ...prev, [key]: { ...d, ...nextForm } }))
+                                      }}
+                                      onWheel={(e) => e.currentTarget.blur()}
+                                    />
+                                  </td>
+                                  <td className="text-right">
+                                    <input
+                                      className="input input-bordered input-xs w-24 text-right tabular-nums"
+                                      inputMode="decimal"
+                                      placeholder="Auto"
+                                      value={d.discountPercent}
+                                      onChange={(e) => {
+                                        const val = e.target.value.replace(/[^0-9.]/g, '')
+                                        const nextForm = recomputePricing({ ...d, discountPercent: val }, 'discountPercent')
+                                        setBulkDraft(prev => ({ ...prev, [key]: { ...d, ...nextForm } }))
+                                      }}
+                                      onWheel={(e) => e.currentTarget.blur()}
+                                    />
+                                  </td>
+                                </>
+                              )}
+                              {bulkAspect === 'details' && (
+                                <>
+                                  <td>
+                                    <input
+                                      className="input input-bordered input-xs w-full"
+                                      placeholder="Description"
+                                      value={d.desc}
+                                      onChange={(e) => {
+                                        const val = e.target.value
+                                        setBulkDraft(prev => ({ ...prev, [key]: { ...d, desc: val } }))
+                                      }}
+                                    />
+                                  </td>
+                                  <td className="text-center">
+                                    <div className="join">
+                                      <button
+                                        type="button"
+                                        className={`btn btn-xs join-item ${d.veg ? 'btn-success' : 'btn-ghost'}`}
+                                        onClick={() => setBulkDraft(prev => ({ ...prev, [key]: { ...d, veg: true } }))}
+                                      >
+                                        Veg
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-xs join-item ${!d.veg ? 'btn-error' : 'btn-ghost'}`}
+                                        onClick={() => setBulkDraft(prev => ({ ...prev, [key]: { ...d, veg: false } }))}
+                                      >
+                                        Non-Veg
+                                      </button>
+                                    </div>
+                                  </td>
+                                  <td className="text-center">
+                                    <input
+                                      type="checkbox"
+                                      className="toggle toggle-sm toggle-primary"
+                                      checked={d.active !== false}
+                                      onChange={(e) => setBulkDraft(prev => ({ ...prev, [key]: { ...d, active: e.target.checked } }))}
+                                    />
+                                  </td>
+                                </>
+                              )}
+                              {bulkAspect === 'composition' && (
+                                <td className="text-center">
+                                  <div className="join">
+                                    <button
+                                      type="button"
+                                      className={`btn btn-xs join-item ${!d.isCustom ? 'btn-primary' : 'btn-ghost'}`}
+                                      onClick={() => setBulkDraft(prev => ({ ...prev, [key]: { ...d, isCustom: false } }))}
+                                    >
+                                      Standard
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={`btn btn-xs join-item ${d.isCustom ? 'btn-warning' : 'btn-ghost'}`}
+                                      onClick={() => setBulkDraft(prev => ({ ...prev, [key]: { ...d, isCustom: true } }))}
+                                    >
+                                      Custom
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                              {bulkAspect === 'image' && (
+                                <>
+                                  <td className="text-center">
+                                    {it.imageId && catImages[it.imageId] ? (
+                                      <img src={catImages[it.imageId]} alt="" className="w-12 h-12 mx-auto rounded object-cover border border-base-300/60" />
+                                    ) : (
+                                      <div className="w-12 h-12 mx-auto rounded border border-dashed border-base-300/60 grid place-items-center text-[9px] opacity-50">—</div>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <div className="text-xs">
+                                      {it.imageId ? (
+                                        <span className="badge badge-success badge-xs">Has image</span>
+                                      ) : (
+                                        <span className="badge badge-ghost badge-xs">No image</span>
+                                      )}
+                                      <div className="text-[10px] opacity-60 mt-1">Click item to edit image</div>
+                                    </div>
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-base-200 bg-base-100 flex justify-end items-center gap-3 z-10">
+              <button className="btn btn-ghost btn-sm" onClick={() => setBulkEditModalOpen(false)} disabled={bulkSaving}>Cancel</button>
+              <button
+                className="btn btn-primary btn-sm px-6"
+                disabled={bulkSaving || !bulkCategory}
+                onClick={async () => {
+                  if (bulkSaving) return
+                  setError(''); setInfo(''); setBulkSaving(true)
+                  try {
+                    const c = categories.find(cat => cat.id === bulkCategory)
+                    if (!c) throw new Error('Category not found')
+                    const items = Array.isArray(c.items) ? c.items : []
+                    const nextItems = items.map((it, idx) => {
+                      const key = bulkKey(c.id, idx)
+                      const d = bulkDraft[key]
+                      if (!d) return it
+                      const next = { ...it }
+
+                      if (bulkAspect === 'pricing') {
+                        if (d.mrp !== '') {
+                          const mrpNumber = parseAmount(d.mrp)
+                          if (mrpNumber !== null) next.mrp = mrpNumber
+                        }
+                        if (d.rate !== '') {
+                          const rateNumber = parseAmount(d.rate)
+                          if (rateNumber !== null) {
+                            next.rate = rateNumber
+                            next.price = rateNumber
+                          }
+                        }
+                        if (d.discountPercent !== '') {
+                          const discountNumber = parsePercent(d.discountPercent)
+                          if (discountNumber !== null) next.discountPercent = discountNumber
+                        }
+                      } else if (bulkAspect === 'details') {
+                        if (d.desc !== undefined) next.desc = d.desc
+                        next.veg = d.veg !== false
+                        if (d.active === false) next.active = false
+                        else {
+                          if (next.active === false) delete next.active
+                        }
+                      } else if (bulkAspect === 'composition') {
+                        if (d.isCustom !== undefined) next.isCustom = d.isCustom
+                      }
+                      return next
+                    })
+                    await setMenuItems(c.id, nextItems)
+                    const cats = await fetchMenuCategories(); setCategories(cats)
+                    // Update bulk draft with refreshed data so changes are visible if user reopens
+                    const refreshedCat = cats.find(cat => cat.id === c.id)
+                    if (refreshedCat) {
+                      const refreshedDraft = {}
+                      const refreshedItems = Array.isArray(refreshedCat.items) ? refreshedCat.items : []
+                      for (let idx = 0; idx < refreshedItems.length; idx++) {
+                        const it = refreshedItems[idx]
+                        const mrpNumber = parseAmount(it.mrp ?? it.MRP ?? '')
+                        const rateNumber = parseAmount(it.rate ?? it.price ?? '')
+                        const explicitDiscount = it.discountPercent !== undefined && it.discountPercent !== null ? parsePercent(it.discountPercent) : null
+                        const derivedDiscount = explicitDiscount !== null ? explicitDiscount : computeDiscountPercent(mrpNumber ?? undefined, rateNumber ?? undefined)
+                        refreshedDraft[bulkKey(refreshedCat.id, idx)] = {
+                          categoryId: refreshedCat.id,
+                          itemIndex: idx,
+                          name: it.name || '',
+                          desc: it.desc || it.description || '',
+                          mrp: mrpNumber !== null ? formatAmount(mrpNumber) : '',
+                          rate: rateNumber !== null ? formatAmount(rateNumber) : '',
+                          discountPercent: derivedDiscount !== null && derivedDiscount > 0 ? formatPercent(derivedDiscount) : '',
+                          veg: it.veg !== false,
+                          active: it.active !== false,
+                          imageId: it.imageId || null,
+                          isCustom: !!it.isCustom,
+                        }
+                      }
+                      setBulkDraft(refreshedDraft)
+                    }
+                    setInfo(`Bulk ${bulkAspect} edits saved for ${displayCategory(c)}.`)
+                    setBulkEditModalOpen(false)
+                  } catch (e) {
+                    setError(e.message || 'Bulk save failed')
+                  } finally {
+                    setBulkSaving(false)
+                  }
+                }}
+              >
+                {bulkSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+          <form method="dialog" className="modal-backdrop" onClick={() => !bulkSaving && setBulkEditModalOpen(false)}>
             <button>close</button>
           </form>
         </dialog>
