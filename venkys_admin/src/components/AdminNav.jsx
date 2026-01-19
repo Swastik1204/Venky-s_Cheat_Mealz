@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { getUserTheme, setUserTheme } from '../lib/data'
 import { fetchStoreStatus, setStoreOpen } from '../lib/storeStatus'
-import { MdLogin, MdPerson, MdMenu, MdClose, MdSmartphone, MdDesktopWindows } from 'react-icons/md'
+import { MdLogin, MdPerson, MdMenu, MdClose, MdPrint } from 'react-icons/md'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 
@@ -76,34 +76,7 @@ export default function AdminTopNav() {
   const [scrolled, setScrolled] = useState(false)
   const [liveEnabled, setLiveEnabled] = useState(true)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [mobileMode, setMobileMode] = useState(false)
 
-  useEffect(() => {
-    if (mobileMode) {
-      document.body.classList.add('force-mobile-view')
-    } else {
-      document.body.classList.remove('force-mobile-view')
-    }
-  }, [mobileMode])
-
-  useEffect(() => {
-    if (!user) return
-    getDoc(doc(db, 'users', user.uid)).then(snap => {
-      if (snap.exists() && snap.data().adminMobileMode) {
-        setMobileMode(true)
-      }
-    }).catch(() => {})
-  }, [user])
-
-  const toggleMobileMode = async () => {
-    const next = !mobileMode
-    setMobileMode(next)
-    if (user) {
-      try {
-        await updateDoc(doc(db, 'users', user.uid), { adminMobileMode: next })
-      } catch { /* ignore */ }
-    }
-  }
 
   useEffect(() => {
     if (drawerOpen) {
@@ -193,6 +166,32 @@ export default function AdminTopNav() {
     }
   }
 
+  const handlePrinterConnect = async () => {
+    try {
+      if (!navigator.bluetooth) {
+        alert('Bluetooth is not supported on this browser. Please use Chrome or Edge.')
+        return
+      }
+
+      // Request bluetooth device (58mm thermal printer typically uses Serial Port Profile)
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: ['battery_service', 'device_information']
+      })
+
+      alert(`Connected to: ${device.name || 'Bluetooth Printer'}`)
+      // Store device reference if needed for later use
+      console.log('Bluetooth device connected:', device)
+    } catch (error) {
+      if (error.name === 'NotFoundError') {
+        console.log('User cancelled device selection')
+      } else {
+        console.error('Bluetooth connection error:', error)
+        alert(`Bluetooth error: ${error.message}`)
+      }
+    }
+  }
+
   return (
     <>
       <header className="nav-sticky">
@@ -232,15 +231,11 @@ export default function AdminTopNav() {
               </button>
 
               <button
-                className="btn btn-ghost btn-circle btn-sm hidden sm:inline-flex"
-                onClick={toggleMobileMode}
-                title={mobileMode ? "Switch to Desktop View" : "Switch to Mobile View"}
+                className="btn btn-ghost btn-circle btn-sm"
+                onClick={handlePrinterConnect}
+                title="Connect Bluetooth Printer"
               >
-                {mobileMode ? (
-                  <MdDesktopWindows className="h-5 w-5" />
-                ) : (
-                  <MdSmartphone className="h-5 w-5" />
-                )}
+                <MdPrint className="h-5 w-5" />
               </button>
 
               <label aria-label="Toggle theme" className="btn btn-ghost btn-circle btn-sm swap swap-rotate hidden sm:inline-grid">
@@ -341,16 +336,6 @@ export default function AdminTopNav() {
                     onChange={(e) => handleToggleTheme(e.target.checked)}
                   />
                 </label>
-                <button 
-                  className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-base-200 cursor-pointer w-full text-left"
-                  onClick={toggleMobileMode}
-                >
-                  <span className="font-medium">View Mode</span>
-                  <div className="flex items-center gap-2 text-xs font-medium opacity-70">
-                    {mobileMode ? 'Mobile' : 'Desktop'}
-                    {mobileMode ? <MdSmartphone className="h-4 w-4" /> : <MdDesktopWindows className="h-4 w-4" />}
-                  </div>
-                </button>
               </div>
             </div>
 

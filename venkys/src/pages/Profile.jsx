@@ -6,7 +6,7 @@ import { FaWhatsapp } from 'react-icons/fa'
 import { MdRefresh } from 'react-icons/md'
 import { useAuth } from '../context/AuthContext'
 import { useCart } from '../context/CartContext'
-import { fetchUserOrders, fetchUserProfile, updateUserProfile, fetchAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress } from '../lib/data'
+import { fetchUserOrders, fetchUserProfile, updateUserProfile, fetchAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress, isCounterDocId } from '../lib/data'
 import { db } from '../lib/firebase'
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
@@ -108,6 +108,7 @@ export default function Profile() {
         return Number.isNaN(parsed) ? 0 : parsed
       }
       const ordersList = snap.docs
+        .filter(d => !isCounterDocId(d.id))
         .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => {
           const ta = toMillis(a?.createdAt) || toMillis(a?.updatedAt)
@@ -471,31 +472,6 @@ export default function Profile() {
           {/* Profile Card */}
           <div className="card bg-base-100 shadow-lg border border-base-200">
             <div className="card-body p-6 text-center">
-              <div className="relative mx-auto w-fit">
-                {(() => {
-                  const completion = getProfileCompletion(user, profileForm, addrState);
-                  return (
-                    <div className="radial-progress absolute -top-1 -left-1 z-0 opacity-20" style={{
-                      '--value': completion,
-                      '--size': '6.5rem',
-                      '--thickness': '4px',
-                      color: completion === 100 ? 'currentColor' : 'currentColor',
-                    }} role="progressbar"></div>
-                  );
-                })()}
-                <div className="avatar">
-                  <div className="w-24 h-24 rounded-full ring ring-base-200 ring-offset-base-100 ring-offset-2 bg-base-200 flex items-center justify-center">
-                    <MdPerson className="w-10 h-10 opacity-60" />
-                  </div>
-                </div>
-                <button 
-                  className="btn btn-circle btn-xs btn-primary absolute bottom-0 right-0 shadow-md" 
-                  title="Edit details"
-                  onClick={openEditModal}
-                >
-                  <MdEdit className="w-3 h-3" />
-                </button>
-              </div>
               
               <div className="mt-2">
                 <h2 className="text-xl font-bold">{profileForm.displayName || user?.displayName || 'User'}</h2>

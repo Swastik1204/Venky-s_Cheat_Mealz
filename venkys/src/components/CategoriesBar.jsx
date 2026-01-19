@@ -157,7 +157,8 @@ function CategoriesBarInner({ items = [] }) {
             key={it.id}
             type="button"
             data-cat-id={it.id}
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault()
               // Center this item in view immediately for snappy UX
               const el = scrollerRef.current
               const btn = el?.querySelector(`[data-cat-id="${CSS.escape(it.id)}"]`)
@@ -166,8 +167,38 @@ function CategoriesBarInner({ items = [] }) {
                 const clamped = Math.max(0, Math.min(target, el.scrollWidth - el.clientWidth))
                 el.scrollTo({ left: clamped, behavior: 'smooth' })
               }
-              // Then navigate so Home updates hash and content focus
-              navigate({ pathname: '/', hash: `#${it.id}` })
+              
+              // Fade-Jump-Fade transition to hide the scroll
+              const section = document.getElementById(it.id)
+              if (section) {
+                const mainEl = document.querySelector('main')
+                if (mainEl) {
+                  // 1. Fade out
+                  mainEl.style.transition = 'opacity 200ms ease-out'
+                  mainEl.style.opacity = '0'
+                  
+                  setTimeout(() => {
+                    // 2. Jump instantly
+                    const headerOffset = 100 // Navbar height + buffer
+                    const elementPosition = section.getBoundingClientRect().top + window.pageYOffset
+                    window.scrollTo({ top: elementPosition - headerOffset, behavior: 'auto' })
+                    
+                    // 3. Fade in
+                    requestAnimationFrame(() => {
+                      mainEl.style.opacity = '1'
+                      setTimeout(() => {
+                        mainEl.style.transition = ''
+                      }, 200)
+                    })
+                  }, 200)
+                } else {
+                  // Fallback if main not found
+                  section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+                
+                // Update URL silently without triggering hashchange jump
+                window.history.pushState(null, '', `#${it.id}`)
+              }
             }}
             className="flex flex-col items-center gap-2 min-w-24 sm:min-w-28 snap-start focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-xl"
           >

@@ -1,6 +1,7 @@
 import { sendWhatsAppInvoice } from './data'
 
-export function formatBillMessage(order) {
+// Internal helper for formatting bill messages
+function formatBillMessage(order) {
   if (!order) return ''
 
   const { orderNo, customer, items, subtotal, taxAmount, totalAmount, orderType } = order

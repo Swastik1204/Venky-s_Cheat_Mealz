@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import { auth, db } from '../lib/firebase'
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, GoogleAuthProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
+import { ensureUserDocument } from '../lib/userData'
 
 const AuthContext = createContext(null)
 

@@ -6,10 +6,13 @@ export async function ensureUserDocument(user) {
   if (!user) return
   const ref = doc(db, 'users', user.uid)
   const snap = await getDoc(ref)
+  const email = (typeof user.email === 'string' && user.email.trim()) ? user.email.trim() : null
+  const emailLower = email ? email.toLowerCase() : null
   if (!snap.exists()) {
     await setDoc(ref, {
       displayName: user.displayName || '',
-      email: user.email,
+      email,
+      emailLower,
       photoURL: user.photoURL || '',
       phoneNumber: user.phoneNumber || '',
       createdAt: serverTimestamp(),
@@ -17,7 +20,7 @@ export async function ensureUserDocument(user) {
     })
   } else {
     try {
-      await setDoc(ref, { updatedAt: serverTimestamp() }, { merge: true })
+      await setDoc(ref, { updatedAt: serverTimestamp(), ...(emailLower ? { emailLower } : {}) }, { merge: true })
     } catch {
       // non-fatal bookkeeping failure
     }

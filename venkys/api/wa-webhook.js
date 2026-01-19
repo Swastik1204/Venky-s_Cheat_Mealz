@@ -3,7 +3,16 @@
 // - Verification: GET with hub.mode, hub.verify_token, hub.challenge
 // - Events: POST JSON with messages/statuses
 
+import { createRateLimiter } from './lib/rateLimiter.js'
+
+const rateLimiter = createRateLimiter({ routeName: 'wa-webhook' })
+
 export default async function handler(req, res) {
+  // Apply rate limiting (only for POST, skip for GET verification)
+  if (req.method === 'POST') {
+    await rateLimiter(req, res, () => {})
+    if (res.headersSent) return // Rate limit exceeded
+  }
   // Verification
   if (req.method === 'GET') {
     const mode = req.query['hub.mode']

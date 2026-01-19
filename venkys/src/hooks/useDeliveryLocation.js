@@ -48,7 +48,9 @@ function useDeliveryLocation(defaultLabel = 'Durgapur') {
 
   const checkWithin = useCallback((lat, lng) => {
     const dist = distanceTo(lat, lng)
-    const ok = dist <= region.radiusKm
+    // Add 2km hardcoded shadow range to the configured radius
+    const effectiveRadius = region.radiusKm + 2
+    const ok = dist <= effectiveRadius
     return { ok, distance: dist, radiusKm: region.radiusKm }
   }, [distanceTo, region])
 
@@ -68,12 +70,13 @@ function useDeliveryLocation(defaultLabel = 'Durgapur') {
       saveDeliveryAddress(payload)
       setLabel(payload.label)
       setLocation({ lat: latitude, lon: longitude })
-      // Geofencing check
+      // Geofencing check with shadow range
       const dist = haversineKm({ lat: latitude, lon: longitude }, region.center)
       setDistance(dist)
-      if (dist > region.radiusKm) {
+      const effectiveRadius = region.radiusKm + 2
+      if (dist > effectiveRadius) {
         setIsWithinRegion(false)
-        setError(`Location is outside delivery region (${dist.toFixed(2)} km > ${region.radiusKm} km)`)
+        setError(`Location is outside delivery region (Distance: ${dist.toFixed(2)} km, Limit: ${region.radiusKm} km + 2km buffer)`)
       } else {
         setIsWithinRegion(true)
         setError(null)

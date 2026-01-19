@@ -1,5 +1,5 @@
 // Data layer for Firestore
-import { collection, doc, getDocs, getDoc, query, where, addDoc, setDoc, serverTimestamp, orderBy, deleteDoc, arrayUnion, writeBatch, runTransaction, increment, limit as fsLimit, Timestamp } from 'firebase/firestore'
+import { collection, doc, getDocs, getDoc, query, where, setDoc, serverTimestamp, orderBy, deleteDoc, arrayUnion, runTransaction, increment, limit as fsLimit, Timestamp } from 'firebase/firestore'
 // Centralized branding constants (moved from separate file)
 export const BRAND_LONG = "Venky's Chicken Xperience Durgapur"
 export const BRAND_SHORT = "Venky's"
@@ -53,11 +53,8 @@ function safeRandomId(prefix = '') {
   return prefix ? `${prefix}-${core}` : core
 }
 
-const ORDER_COUNTER_PREFIX = '__counter__'
-
-function buildCounterDocId(dateKey) {
-  return `${ORDER_COUNTER_PREFIX}${dateKey}`
-}
+// Counter document is now stored in miscellaneous/dailyCounter
+const DAILY_COUNTER_DOC = 'dailyCounter'
 
 function formatUserSegment(userId) {
   const raw = typeof userId === 'string' && userId.trim() ? userId.trim() : null
@@ -67,9 +64,13 @@ function formatUserSegment(userId) {
   return cleaned.length > 10 ? cleaned.slice(-10).toUpperCase() : cleaned.toUpperCase()
 }
 
+// Legacy check - can be removed after migration is complete
 function isCounterDocId(id) {
-  return typeof id === 'string' && id.startsWith(ORDER_COUNTER_PREFIX)
+  return typeof id === 'string' && id.startsWith('__counter__')
 }
+
+// Export for use in components that need to filter counter docs
+export { isCounterDocId }
 
 function toMoney(value) {
   const num = Number(value)
@@ -153,41 +154,14 @@ function sanitizeFirestoreData(input) {
   return null
 }
 
-export async function fetchCategories() {
-  try {
-    const snap = await getDocs(collection(db, 'categories'))
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-  } catch (err) {
-    if (isPermissionDenied(err)) {
-      console.warn('[firestore] Public read denied for categories. Update rules to allow read.', err)
-      return []
-    }
-    console.error('[firestore] fetchCategories failed:', err)
-    return []
-  }
-}
+// DEPRECATED: Old categories API - use fetchMenuCategories instead
+// export async function fetchCategories() { ... }
 
-export async function fetchMenuItems(activeOnly = true) {
-  try {
-    const col = collection(db, 'menuItems')
-    const q = activeOnly ? query(col, where('active', '==', true)) : col
-    let snap = await getDocs(q)
-    // If nothing found with active filter, try without the filter as a fallback
-    if (activeOnly && snap.empty) {
-      snap = await getDocs(col)
-    }
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-  } catch (err) {
-    if (isPermissionDenied(err)) {
-      console.warn('[firestore] Public read denied for menuItems. Update rules to allow read.', err)
-      return []
-    }
-    console.error('[firestore] fetchMenuItems failed:', err)
-    return []
-  }
-}
+// DEPRECATED: Old menuItems API - use fetchMenuCategories instead
+// export async function fetchMenuItems() { ... }
 
-// Generate a daily-reset order number like YYYYMMDD-SEQ-USERSEGMENT stored directly under the orders collection
+// Generate a daily-reset order number like YYYYMMDD-SEQ-USERSEGMENT
+// Counter stored in miscellaneous/dailyCounter document with per-date fields
 export async function generateDailyOrderNo(orderType = 'dine-in', userId = null) {
   const type = String(orderType || 'dine-in').toLowerCase()
   const now = new Date()
@@ -195,26 +169,27 @@ export async function generateDailyOrderNo(orderType = 'dine-in', userId = null)
   const m = String(now.getMonth() + 1).padStart(2, '0')
   const d = String(now.getDate()).padStart(2, '0')
   const dateKey = `${y}${m}${d}`
-  const counterRef = doc(db, 'orders', buildCounterDocId(dateKey))
+  const counterRef = doc(db, 'miscellaneous', DAILY_COUNTER_DOC)
   let next = null
   try {
     next = await runTransaction(db, async (tx) => {
       const snap = await tx.get(counterRef)
-      const data = snap.exists() ? snap.data() : { total: 0 }
-      const total = Number(data.total || 0) + 1
+      const data = snap.exists() ? snap.data() : {}
+      // Get current day's counter or start at 0
+      const currentDateKey = data.currentDate || ''
+      const currentTotal = currentDateKey === dateKey ? (Number(data.total) || 0) : 0
+      const newTotal = currentTotal + 1
       tx.set(counterRef, {
-        __meta: 'orderCounter',
-        dateKey,
+        currentDate: dateKey,
+        total: newTotal,
         lastOrderType: type,
-        total,
         updatedAt: serverTimestamp(),
       }, { merge: true })
-      return total
+      return newTotal
     })
   } catch (err) {
     if (!isPermissionDenied(err)) throw err
     // If rules temporarily block counter reads, fall back to a best-effort unique seq.
-    // This avoids order placement failures for signed-in customers.
     next = null
   }
   const seq = next != null
@@ -302,22 +277,9 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
     updatedAt: serverTimestamp(),
   }
 
-  const normalizedOrderType = String(orderType || '').toLowerCase()
-  const normalizedPayMethod = String(payment?.method || '').toLowerCase()
-  const needsManagerOtp = normalizedOrderType === 'dine-in' && normalizedPayMethod === 'cod'
-
-  if (needsManagerOtp) {
-    let otp = ''
-    try {
-      const buf = new Uint32Array(1)
-      crypto.getRandomValues(buf)
-      otp = String(buf[0] % 1000000).padStart(6, '0')
-    } catch {
-      otp = String(Math.floor(100000 + Math.random() * 900000))
-    }
-    base.cashManagerOtp = otp
-    base.cashManagerOtpFor = 'dine-in-cod'
-  }
+  // IMPORTANT:
+  // OTP must only be generated/sent when the Admin Biller creates a dine-in COD bill.
+  // The customer app should never generate an OTP field.
   if (normalizedTaxRate != null) base.taxRate = normalizedTaxRate
   if (normalizedTaxAmount != null) base.taxAmount = normalizedTaxAmount
 
@@ -326,8 +288,11 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
   try {
     await setDoc(topRef, base)
     topLevelPersisted = true
-    // Best-effort notification (should not block placing an order)
-    try { void notifyCashManagerOnOrder(resolvedOrderNo, base) } catch { /* noop */ }
+    // Best-effort notifications (should not block placing an order)
+    // Order messenger should ONLY trigger for customer-app orders (not POS)
+    if (String(base?.source || '').toLowerCase() !== 'pos') {
+      try { void notifyOrderMessengers(base) } catch { /* noop */ }
+    }
   } catch (err) {
     if (err?.code !== 'permission-denied') {
       throw err
@@ -354,41 +319,70 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
   throw new Error('You need to sign in before placing an order.')
 }
 
-function normalizeWhatsappPhone(phone) {
-  const raw = String(phone || '').trim()
-  if (!raw) return ''
-  const digits = raw.replace(/\D/g, '')
-  if (digits.length === 10) return `91${digits}`
-  if (digits.length === 12 && digits.startsWith('91')) return digits
-  return digits
-}
-
-async function notifyCashManagerOnOrder(orderId, orderPayload) {
+// Send order notification to all order messenger phone numbers
+async function notifyOrderMessengers(orderPayload) {
   try {
     const settings = await fetchAppSettings()
-    const manager = settings?.cashManagerPhone || settings?.adminMobile || ''
-    const phone = normalizeWhatsappPhone(manager)
-    if (!phone) return { __skipped: 'no_cash_manager_phone' }
-
-    const orderNo = orderPayload?.orderNo || orderId
-    const amount = orderPayload?.totalAmount ?? orderPayload?.subtotal ?? 0
-    const type = String(orderPayload?.orderType || '').toLowerCase()
-    const method = String(orderPayload?.payment?.method || '').toLowerCase()
-    const otp = orderPayload?.cashManagerOtp
-
-    const lines = [
-      `🔔 New Order Placed`,
-      `Order: ${orderNo}`,
-      `Type: ${type || '-'}`,
-      `Payment: ${method || '-'}`,
-      `Amount: ₹${amount || 0}`,
-    ]
-    if (type === 'dine-in' && method === 'cod' && otp) {
-      lines.push(`OTP: ${otp}`)
+    const phones = Array.isArray(settings?.orderMessengerPhones) ? settings.orderMessengerPhones : []
+    // STRICT: only accept 10-digit numbers (no 91 prefix).
+    const validPhones = phones
+      .map((p) => String(p || '').replace(/\D/g, ''))
+      .filter((digits) => digits.length === 10)
+    
+    if (!validPhones.length) {
+      console.log('[notifyOrderMessengers] No order messenger phones configured')
+      return { __skipped: 'no_order_messenger_phones' }
     }
 
-    return await sendWhatsAppInvoice(phone, { text: lines.join('\n') })
+    const customerName = String(orderPayload?.customer?.name || 'Customer').trim() || 'Customer'
+    const totalAmount = Number(orderPayload?.totalAmount ?? orderPayload?.subtotal ?? 0)
+    
+    // Build address string
+    const rawAddr = orderPayload?.customer?.address || ''
+    let address = '-'
+    if (typeof rawAddr === 'string' && rawAddr.trim()) {
+      address = rawAddr.trim()
+    } else if (typeof rawAddr === 'object') {
+      const parts = [rawAddr.line1, rawAddr.line2, rawAddr.landmark, rawAddr.city, rawAddr.state, rawAddr.pin]
+        .map(v => (v == null ? '' : String(v).trim()))
+        .filter(Boolean)
+      address = parts.length ? parts.join(', ') : '-'
+    }
+
+    const orderId = String(orderPayload?.orderNo || orderPayload?.id || '').trim()
+    console.log('[notifyOrderMessengers] Sending to', validPhones.length, 'numbers:', validPhones, orderId ? `(orderId: ${orderId})` : '')
+    
+    // Send to all numbers simultaneously
+    const sendPromises = validPhones.map(async (phone) => {
+      try {
+        const url = apiUrl('/api/send-order-messenger')
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, customerName, totalAmount, address, orderId: orderId || undefined }),
+        })
+        let body = null
+        try { body = await res.json() } catch { /* ignore */ }
+        const msgId = body?.msgId || body?.data?.messages?.[0]?.id || ''
+        if (res.ok && msgId) {
+          console.log('[notifyOrderMessengers] Sent to', phone, 'msgId:', msgId)
+          return { phone, success: true, msgId, result: body }
+        }
+        console.warn('[notifyOrderMessengers] Failed for', phone, 'status:', res.status, body)
+        return { phone, success: false, error: body }
+      } catch (e) {
+        console.error('[notifyOrderMessengers] Error sending to', phone, e)
+        return { phone, success: false, error: String(e) }
+      }
+    })
+
+    const results = await Promise.all(sendPromises)
+    const successful = results.filter(r => r.success).length
+    const failed = results.filter(r => !r.success).length
+    console.log(`[notifyOrderMessengers] Complete: ${successful} successful, ${failed} failed`)
+    return { results, successful, failed }
   } catch (e) {
+    console.error('[notifyOrderMessengers] Error:', e)
     return { __error: 'notify_failed', message: String(e) }
   }
 }
@@ -491,12 +485,14 @@ export async function updateOrder(userId, orderId, data = {}, actor = null) {
     const orderRef = doc(db, 'orders', orderId)
     let orderSnap = await tx.get(orderRef)
     let resolvedUserId = userId || null
+    let legacyNestedRef = null
 
     if (!orderSnap.exists() && resolvedUserId) {
       const nestedRef = doc(db, 'users', resolvedUserId, 'orders', orderId)
       const nestedSnap = await tx.get(nestedRef)
       if (nestedSnap.exists()) {
         orderSnap = nestedSnap
+        legacyNestedRef = nestedRef
       }
     }
 
@@ -523,7 +519,14 @@ export async function updateOrder(userId, orderId, data = {}, actor = null) {
     }
     delete updatePayload.statusNote
 
-    tx.set(orderRef, updatePayload, { merge: true })
+    // Canonical storage: always write to top-level order doc.
+    // If this is a legacy nested-only order, migrate it to top-level and remove the nested duplicate.
+    if (legacyNestedRef) {
+      tx.set(orderRef, { ...prev, ...updatePayload, userId: resolvedUserId || null }, { merge: true })
+      try { tx.delete(legacyNestedRef) } catch { /* noop */ }
+    } else {
+      tx.set(orderRef, updatePayload, { merge: true })
+    }
 
     // We no longer update the nested doc since we stopped creating it.
     // if (resolvedUserId) {
@@ -621,10 +624,8 @@ export async function getUser(uid) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null
 }
 
-export async function updateUser(uid, data) {
-  const ref = doc(db, 'users', uid)
-  await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true })
-}
+// DEPRECATED: Use updateUserProfile instead
+// export async function updateUser(uid, data) { ... }
 
 // --- User preferences (theme) --- //
 export async function getUserTheme(uid) {
@@ -645,63 +646,14 @@ export async function setUserTheme(uid, theme) {
   await setDoc(doc(db, 'users', uid), { theme: normalized, updatedAt: serverTimestamp() }, { merge: true })
 }
 
-// Items catalog API
-export async function fetchItems() {
-  try {
-    const snap = await getDocs(collection(db, 'items'))
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-  } catch (err) {
-    if (isPermissionDenied(err)) {
-      console.warn('[firestore] Public read denied for items. Update rules to allow read.', err)
-      return []
-    }
-    console.error('[firestore] fetchItems failed:', err)
-    return []
-  }
-}
+// DEPRECATED: Old items catalog API - not used
+// export async function fetchItems() { ... }
+// export async function addItem(item) { ... }
 
-export async function addItem(item) {
-  // item: { item_name, MRP, GST, Discount }
-  return addDoc(collection(db, 'items'), {
-    item_name: item.item_name,
-    MRP: Number(item.MRP) || 0,
-    GST: Number(item.GST) || 0,
-    Discount: Number(item.Discount) || 0,
-    createdAt: serverTimestamp(),
-  })
-}
-
-// Admin helpers (writes require Firestore rules allowing admin)
-export async function upsertCategory(id, data) {
-  // id is recommended to be a slug for stability
-  const ref = doc(db, 'categories', id)
-  await setDoc(ref, { name: data.name, updatedAt: serverTimestamp() }, { merge: true })
-  return id
-}
-
-export async function upsertMenuItem(id, data) {
-  // id may be a deterministic slug or any string; using merge ensures updates
-  const ref = doc(db, 'menuItems', id)
-  await setDoc(
-    ref,
-    {
-      name: data.name,
-      price: Number(data.price) || 0,
-      categoryId: data.categoryId,
-      active: data.active ?? true,
-      desc: data.desc ?? '',
-      image: data.image ?? '',
-      updatedAt: serverTimestamp(),
-      createdAt: data.createdAt || serverTimestamp(),
-    },
-    { merge: true }
-  )
-  return id
-}
-
-export async function deleteMenuItem(id) {
-  await deleteDoc(doc(db, 'menuItems', id))
-}
+// DEPRECATED: Old admin helpers using menuItems/categories collections - use menu collection APIs instead
+// export async function upsertCategory(id, data) { ... }
+// export async function upsertMenuItem(id, data) { ... }
+// export async function deleteMenuItem(id) { ... }
 
 // New "menu" collection helpers: one document per category with an items array
 export async function fetchMenuCategories() {
@@ -824,18 +776,27 @@ export async function setStoreOpen(open) {
 export async function fetchAppSettings() {
   try {
     const snap = await getDoc(doc(db, 'miscellaneous', 'settings'))
-    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', cashManagerPhone: '', shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
+    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', cashManagerPhone: '', cashManagerPhones: [], orderMessengerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
     const d = snap.data()
+    const normalize10 = (p) => {
+      let digits = String(p || '').replace(/\D/g, '')
+      if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2)
+      return digits.length === 10 ? digits : null
+    }
     const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
     const adminMobile = d.adminMobile || ''
-    const cashManagerPhone = d.cashManagerPhone || ''
+    let cashManagerPhones = Array.isArray(d.cashManagerPhones) ? d.cashManagerPhones.map(normalize10).filter(Boolean) : []
+    const legacyCashManager = normalize10(d.cashManagerPhone)
+    if (!cashManagerPhones.length && legacyCashManager) cashManagerPhones = [legacyCashManager]
+    const cashManagerPhone = cashManagerPhones[0] || legacyCashManager || ''
+    const orderMessengerPhones = Array.isArray(d.orderMessengerPhones) ? d.orderMessengerPhones.map(normalize10).filter(Boolean) : []
     const shopAddress = d.shopAddress || ''
     const shopPhone = d.shopPhone || ''
     const chefName = d.chefName || ''
     const googlePlaceId = d.googlePlaceId || ''
-    return { gstRate, adminMobile, cashManagerPhone, shopAddress, shopPhone, chefName, googlePlaceId }
+    return { gstRate, adminMobile, cashManagerPhone, cashManagerPhones, orderMessengerPhones, shopAddress, shopPhone, chefName, googlePlaceId }
   } catch {
-    return { gstRate: 0.05, adminMobile: '', cashManagerPhone: '', shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
+    return { gstRate: 0.05, adminMobile: '', cashManagerPhone: '', cashManagerPhones: [], orderMessengerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
   }
 }
 
@@ -1014,52 +975,11 @@ export async function renameMenuCategory(oldName, newName) {
   return to
 }
 
-// One-time migration: remove stale `name` fields from `menu` collection documents
-export async function migrateRemoveCategoryNameFields() {
-  try {
-    const snap = await getDocs(collection(db, 'menu'))
-    const batch = writeBatch(db)
-    let count = 0
-    snap.forEach(d => {
-      const data = d.data()
-      const needsStrip = Object.prototype.hasOwnProperty.call(data, 'name') || Object.prototype.hasOwnProperty.call(data, 'merge')
-      if (needsStrip) {
-        const items = Array.isArray(data.items) ? data.items : []
-        // Rewrite doc ONLY with items array (drops stale keys like name/merge)
-        batch.set(doc(db, 'menu', d.id), { items }, { merge: false })
-        count++
-      }
-    })
-    if (count > 0) await batch.commit()
-    return count
-  } catch (err) {
-    console.error('[firestore] migrateRemoveCategoryNameFields failed', err)
-    return 0
-  }
-}
+// DEPRECATED: One-time migration helper - no longer needed
+// export async function migrateRemoveCategoryNameFields() { ... }
 
-// CSV utilities
-export function parseItemsCsv(csvText) {
-  // Very light CSV parser for header: item_name,MRP,GST,Discount
-  const lines = csvText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-  if (lines.length === 0) return []
-  const header = lines[0].split(',').map((h) => h.trim().toLowerCase())
-  const idx = {
-    name: header.indexOf('item_name'),
-    mrp: header.indexOf('mrp'),
-    gst: header.indexOf('gst'),
-    discount: header.indexOf('discount'),
-  }
-  return lines.slice(1).map((row) => {
-    const cols = row.split(',').map((c) => c.trim())
-    return {
-      item_name: cols[idx.name] || '',
-      MRP: Number(cols[idx.mrp]) || 0,
-      GST: Number(cols[idx.gst]) || 0,
-      Discount: Number(cols[idx.discount]) || 0,
-    }
-  })
-}
+// DEPRECATED: CSV utilities - not used
+// export function parseItemsCsv(csvText) { ... }
 
 // --- Cart Persistence --- //
 export async function loadCart(uid) {
@@ -1099,15 +1019,22 @@ export async function saveCart(uid, cartItems) {
   try {
     const ref = doc(db, 'users', uid, 'meta', 'cart')
     // cartItems shape: { [id]: { item, qty } }
-  const sanitizedItems = sanitizeFirestoreData(cartItems) || {}
+    // Minimize storage: only keep id, name, price, qty
+    const minimalItems = {}
+    Object.entries(cartItems || {}).forEach(([id, entry]) => {
+      if (entry && entry.item && entry.qty > 0) {
+        minimalItems[id] = {
+          item: {
+            id: entry.item.id,
+            name: entry.item.name,
+            price: typeof entry.item.price === 'number' ? entry.item.price : Number(entry.item.price) || 0,
+          },
+          qty: entry.qty,
+        }
+      }
+    })
+    const sanitizedItems = sanitizeFirestoreData(minimalItems) || {}
     await setDoc(ref, { items: sanitizedItems, updatedAt: serverTimestamp() }, { merge: true })
-    // Also store a small snapshot on the user doc for quick reads (counts only)
-    const entries = Object.entries(sanitizedItems || {})
-    const totalQty = entries.reduce((s, [,v]) => s + (v?.qty || 0), 0)
-    const subtotal = entries.reduce((s, [,v]) => s + ((v?.item?.price || 0) * (v?.qty || 0)), 0)
-    const compact = {}
-    entries.forEach(([id, v]) => { compact[id] = { qty: v.qty || 0, name: v.item?.name || '', price: Number(v.item?.price)||0 } })
-    await setDoc(doc(db, 'users', uid), { cartLive: { totalQty, subtotal, items: compact }, updatedAt: serverTimestamp() }, { merge: true })
   } catch (e) {
     if (isPermissionDenied(e)) {
       return { __error: 'permission-denied' }

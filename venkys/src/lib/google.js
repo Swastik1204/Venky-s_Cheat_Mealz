@@ -65,34 +65,38 @@ export async function initAutocomplete(inputEl, onPlaceSelected) {
   if (!inputEl || !key) return null
   const g = await loadGoogleMaps(key).catch(() => null)
   if (!g || !g.maps?.places) return null
-  // Use PlaceAutocompleteElement if available (recommended)
-  if (g.maps.places.PlaceAutocompleteElement) {
-    const pae = new g.maps.places.PlaceAutocompleteElement({
-      inputElement: inputEl,
-      fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name'],
-      types: ['geocode'],
-      componentRestrictions: undefined,
-    })
-    pae.addListener('place_changed', () => {
-      const place = pae.getPlace()
-      const parts = extractAddressFromPlace(place)
-      try { onPlaceSelected && onPlaceSelected(parts, place) } catch {}
-    })
-    return pae
-  } else {
-    // Legacy fallback for existing users
-    const ac = new g.maps.places.Autocomplete(inputEl, {
-      fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name'],
-      types: ['geocode'],
-      componentRestrictions: undefined,
-    })
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace()
-      const parts = extractAddressFromPlace(place)
-      try { onPlaceSelected && onPlaceSelected(parts, place) } catch {}
-    })
-    return ac
+
+  // Optionally apply geofencing bounds from delivery settings
+  let bounds = null
+  try {
+    const { fetchDeliverySettings } = await import('./deliverySettings')
+    const s = await fetchDeliverySettings()
+    if (s && typeof s.minLat === 'number' && typeof s.maxLat === 'number' && typeof s.minLng === 'number' && typeof s.maxLng === 'number') {
+      const sw = new g.maps.LatLng(Math.min(s.minLat, s.maxLat), Math.min(s.minLng, s.maxLng))
+      const ne = new g.maps.LatLng(Math.max(s.minLat, s.maxLat), Math.max(s.minLng, s.maxLng))
+      bounds = new g.maps.LatLngBounds(sw, ne)
+    }
+  } catch {
+    // ignore bounds errors
   }
+
+  // Always use the standard Autocomplete class for custom input elements.
+  // The PlaceAutocompleteElement (Web Component) manages its own UI and doesn't attach well to existing inputs.
+  const opts = {
+    fields: ['address_components', 'geometry', 'formatted_address', 'place_id', 'name'],
+    types: ['geocode'],
+  }
+  if (bounds) {
+    opts.bounds = bounds
+    opts.strictBounds = true
+  }
+  const ac = new g.maps.places.Autocomplete(inputEl, opts)
+  ac.addListener('place_changed', () => {
+    const place = ac.getPlace()
+    const parts = extractAddressFromPlace(place)
+    try { onPlaceSelected && onPlaceSelected(parts, place) } catch {}
+  })
+  return ac
 }
 
 export async function reverseGeocode(lat, lng) {

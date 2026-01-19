@@ -6,8 +6,14 @@
 // Returns: { valid: boolean }
 
 import crypto from 'crypto'
+import { createRateLimiter } from './lib/rateLimiter.js'
+
+const rateLimiter = createRateLimiter({ routeName: 'verify-payment' })
 
 export default async function handler(req, res) {
+  // Apply rate limiting
+  await rateLimiter(req, res, () => {})
+  if (res.headersSent) return // Rate limit exceeded
   // CORS: Allow origins from CORS_ORIGIN env (comma-separated), or reflect the request origin if not set
   const allow = process.env.CORS_ORIGIN || ''
   const origin = req.headers?.origin || ''

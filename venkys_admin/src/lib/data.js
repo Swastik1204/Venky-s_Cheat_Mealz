@@ -1,4 +1,4 @@
-// Data layer for Firestore (synced with customer app for consistency)
+﻿// Data layer for Firestore (synced with customer app for consistency)
 import { collection, doc, getDocs, getDoc, query, where, addDoc, setDoc, serverTimestamp, orderBy, deleteDoc, arrayUnion, writeBatch, runTransaction, limit as fsLimit, deleteField, increment, Timestamp } from 'firebase/firestore'
 export const BRAND_LONG = "Venky's Chicken Xperience Durgapur"
 export const BRAND_SHORT = "Venky's"
@@ -13,32 +13,28 @@ function apiUrl(path) {
 		return value.endsWith('/') ? value.slice(0, -1) : value
 	}
 	
-	// Always use production Vercel URL for API calls (works in both local dev and production)
-	// This ensures consistency and avoids issues with local serverless functions
+	// IMPORTANT: Always use Vercel URL for API calls since:
+	// - Frontend is hosted on Firebase Hosting (venkys-admin.web.app)
+	// - API endpoints are on Vercel (venkys-admin.vercel.app)
+	// Firebase Hosting does NOT support serverless functions
 	const productionBase = 'https://venkys-admin.vercel.app'
 	
-	// Allow override via env var if needed
+	// Allow override via env var if needed (useful for staging/testing)
 	const envBase = env?.VITE_API_BASE_URL
 		|| (env?.VITE_VERCEL_URL ? `https://${env.VITE_VERCEL_URL}` : '')
-		|| env?.VITE_SITE_URL
-		|| env?.VITE_PUBLIC_BASE_URL
 	if (envBase) {
 		return `${normalize(envBase)}${normalizedPath}`
 	}
 	
-	// In production, use window.location.origin (same domain)
-	// In development, use the production Vercel URL
+	// Check for runtime override
 	if (typeof window !== 'undefined') {
 		const runtimeBase = window.__APP_API_BASE__ || window.__API_BASE__ || window.__API_BASE_URL__
 		if (runtimeBase) {
 			return `${normalize(runtimeBase)}${normalizedPath}`
 		}
-		if (env?.DEV) {
-			// Use production URL in local dev since serverless functions don't run locally
-			return `${productionBase}${normalizedPath}`
-		}
-		return `${window.location.origin}${normalizedPath}`
 	}
+	
+	// Always use Vercel production URL (APIs don't run on Firebase Hosting)
 	return `${productionBase}${normalizedPath}`
 }
 
@@ -49,11 +45,8 @@ function safeRandomId(prefix = '') {
 	return prefix ? `${prefix}-${core}` : core
 }
 
-const ORDER_COUNTER_PREFIX = '__counter__'
-
-function buildCounterDocId(dateKey) {
-	return `${ORDER_COUNTER_PREFIX}${dateKey}`
-}
+// Document ID for daily order counter in miscellaneous collection
+const DAILY_COUNTER_DOC = 'dailyCounter'
 
 function formatUserSegment(userId) {
 	const raw = typeof userId === 'string' && userId.trim() ? userId.trim() : null
@@ -63,9 +56,13 @@ function formatUserSegment(userId) {
 	return cleaned.length > 10 ? cleaned.slice(-10).toUpperCase() : cleaned.toUpperCase()
 }
 
+// Legacy filter - kept for backward compatibility to filter old __counter__ docs from orders
 function isCounterDocId(id) {
-	return typeof id === 'string' && id.startsWith(ORDER_COUNTER_PREFIX)
+	return typeof id === 'string' && id.startsWith('__counter__')
 }
+
+// Export for use in components that need to filter counter docs
+export { isCounterDocId }
 
 function toMoney(value) {
 	const num = Number(value)
@@ -118,15 +115,8 @@ function normalizeSpotlight(raw) {
 	}
 }
 
-export async function fetchCategories() {
-	try {
-		const snap = await getDocs(collection(db, 'categories'))
-		return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-	} catch (err) {
-		console.error('[firestore] fetchCategories failed:', err)
-		return []
-	}
-}
+// DEPRECATED: Old categories API - use fetchMenuCategories instead
+// export async function fetchCategories() { ... }
 
 // ---- Raw Materials / Stock Management ---- //
 
@@ -271,19 +261,22 @@ export async function generateDailyOrderNo(orderType = 'dine-in', userId = null)
 	const m = String(now.getMonth() + 1).padStart(2, '0')
 	const d = String(now.getDate()).padStart(2, '0')
 	const dateKey = `${y}${m}${d}`
-	const counterRef = doc(db, 'orders', buildCounterDocId(dateKey))
+	// Use single counter document in miscellaneous collection with daily reset
+	const counterRef = doc(db, 'miscellaneous', DAILY_COUNTER_DOC)
 	const next = await runTransaction(db, async (tx) => {
 		const snap = await tx.get(counterRef)
-		const data = snap.exists() ? snap.data() : { total: 0 }
-		const total = Number(data.total || 0) + 1
+		const data = snap.exists() ? snap.data() : {}
+		// Reset counter if it's a new day
+		const currentDateKey = data.currentDate || ''
+		const currentTotal = currentDateKey === dateKey ? (Number(data.total) || 0) : 0
+		const newTotal = currentTotal + 1
 		tx.set(counterRef, {
-			__meta: 'orderCounter',
-			dateKey,
+			currentDate: dateKey,
+			total: newTotal,
 			lastOrderType: type,
-			total,
 			updatedAt: serverTimestamp(),
 		}, { merge: true })
-		return total
+		return newTotal
 	})
 	const seq = String(next).padStart(4, '0')
 	const segment = formatUserSegment(userId)
@@ -422,11 +415,9 @@ export async function createOrder({
 	if (normalizedTaxAmount != null) base.taxAmount = normalizedTaxAmount
 
 	const topRef = doc(db, 'orders', resolvedOrderNo)
+	// Single source of truth: always store orders in top-level `orders/{orderId}`.
+	// We no longer duplicate full orders into `users/{uid}/orders/{orderId}`.
 	await setDoc(topRef, base)
-	if (userId) {
-		const nestedRef = doc(db, 'users', userId, 'orders', resolvedOrderNo)
-		await setDoc(nestedRef, base)
-	}
 	// Best-effort: notify Cash Manager
 	try { void notifyCashManagerOnOrder(resolvedOrderNo, base) } catch { /* noop */ }
 	return resolvedOrderNo
@@ -468,64 +459,62 @@ function normalizeWhatsappPhone(phone) {
 async function notifyCashManagerOnOrder(orderId, orderPayload) {
 	try {
 		const settings = await fetchAppSettings()
-		const manager = settings?.cashManagerPhone || settings?.adminMobile || ''
-		const phone = normalizeWhatsappPhone(manager)
-		if (!phone) return { __skipped: 'no_cash_manager_phone' }
+		const rawList = Array.isArray(settings?.cashManagerPhones) && settings.cashManagerPhones.length
+			? settings.cashManagerPhones
+			: [settings?.cashManagerPhone || '']
+		const phones = rawList.map((p) => normalizeWhatsappPhone(p)).filter(Boolean)
+		if (!phones.length) return { __skipped: 'no_cash_manager_phone' }
 
 		const orderNo = orderPayload?.orderNo || orderId
-		const amount = orderPayload?.totalAmount ?? orderPayload?.subtotal ?? 0
 		const type = String(orderPayload?.orderType || '').toLowerCase()
 		const method = String(orderPayload?.payment?.method || '').toLowerCase()
 		const otp = orderPayload?.cashManagerOtp
 
-		if (type === 'dine-in' && method === 'cod' && otp) {
-			// Template has a URL button that requires a parameter (Meta error 131008).
-			// Meta enforces a max length of 15 characters for URL button parameters.
-			// Prefer OTP (short) and fall back to a truncated orderNo.
-			const rawButtonParam = otp ? String(otp) : String(orderNo || '')
-			const buttonParam = rawButtonParam.replace(/\s+/g, '').slice(0, 15)
-			const templatePayload = {
-				templateName: 'venkys_otp',
-				templateLanguage: 'en',
-				components: [
-					{
-						type: 'body',
-						parameters: [
-							{ type: 'text', text: String(otp) },
-						],
-					},
-					{
-						type: 'button',
-						sub_type: 'url',
-						index: '0',
-						parameters: [{ type: 'text', text: buttonParam }],
-					},
-				]
-			}
-			const res = await sendWhatsAppInvoice(phone, templatePayload)
-			if (res?.__error) {
-				try {
-					console.warn('[OTP Template Failed]', JSON.stringify({
-						error: res.__error,
-						message: res.message,
-						details: res.data?.error?.error_data?.details,
-						template: { name: 'venkys_otp', language: 'en', bodyParamCount: 1, urlButtonIndex0Param: buttonParam }
-					}, null, 2))
-				} catch {}
-				// Fallback to plain text if template send fails.
-				return await sendWhatsAppInvoice(phone, { text: `OTP: ${otp}` })
-			}
-			return res
+		// OTP should ONLY be sent for dine-in COD orders, and only if the OTP exists on the order.
+		if (!(type === 'dine-in' && method === 'cod' && otp)) {
+			return { __skipped: 'not_dinein_cod_or_missing_otp', orderNo }
 		}
 
-		const lines = [
-			`f514 New Order Placed`,
-			`Order: ${orderNo}`,
-			`Type: ${type || '-'}`,
-			`Payment: ${method || '-'}`,
-			`Amount: f4b9${amount || 0}`,
-		]
-		return await sendWhatsAppInvoice(phone, { text: lines.join('\n') })
+		// Template has a URL button that requires a parameter (Meta error 131008).
+		// Meta enforces a max length of 15 characters for URL button parameters.
+		// Prefer OTP (short) and fall back to a truncated orderNo.
+		const rawButtonParam = otp ? String(otp) : String(orderNo || '')
+		const buttonParam = rawButtonParam.replace(/\s+/g, '').slice(0, 15)
+		const templatePayload = {
+			templateName: 'venkys_otp',
+			templateLanguage: 'en',
+			components: [
+				{
+					type: 'body',
+					parameters: [
+						{ type: 'text', text: String(otp) },
+					],
+				},
+				{
+					type: 'button',
+					sub_type: 'url',
+					index: '0',
+					parameters: [{ type: 'text', text: buttonParam }],
+				},
+			]
+		}
+		const results = await Promise.allSettled(phones.map((p) => sendWhatsAppInvoice(p, templatePayload)))
+		const ok = results.filter(r => r.status === 'fulfilled' && !r.value?.__error).length
+		if (ok === 0) {
+			const firstErr = results.find(r => r.status === 'fulfilled' && r.value?.__error)?.value
+			try {
+				console.warn('[OTP Template Failed]', JSON.stringify({
+					error: firstErr?.__error,
+					message: firstErr?.message,
+					details: firstErr?.data?.error?.error_data?.details,
+					template: { name: 'venkys_otp', language: 'en', bodyParamCount: 1, urlButtonIndex0Param: buttonParam }
+				}, null, 2))
+			} catch {}
+			// Fallback to plain text if template send fails.
+			await Promise.allSettled(phones.map((p) => sendWhatsAppInvoice(p, { text: `OTP: ${otp}` })))
+			return { __error: firstErr?.__error || 'template_failed', message: firstErr?.message || 'Template send failed' }
+		}
+		return { ok, total: phones.length }
 	} catch (e) {
 		return { __error: 'notify_failed', message: String(e) }
 	}
@@ -562,19 +551,73 @@ export async function sendWhatsAppInvoice(phone, payload) {
 	}
 }
 
+// Dedicated order_messenger sender (template-based) for online order notifications.
+// Uses the Vercel API function /api/send-order-messenger.
+export async function sendOrderMessengerViaWhatsApp(phone, { customerName, totalAmount, address } = {}) {
+	try {
+		// Use raw number (just digits) without forcing 91 prefix
+		const normalizedPhone = String(phone || '').replace(/\D/g, '')
+		if (!normalizedPhone || normalizedPhone.length < 10) return { __skipped: 'missing_phone' }
+
+		const url = apiUrl('/api/send-order-messenger')
+		const res = await fetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				phone: normalizedPhone,
+				customerName: String(customerName || '').trim(),
+				totalAmount,
+				address: String(address || '').trim(),
+			}),
+		})
+		let body = null
+		try { body = await res.json() } catch { /* ignore */ }
+		if (res.ok) return body || {}
+		const errObj = { __error: 'http_error', status: res.status, ...(body || {}) }
+		try { console.warn('[order_messenger] send failed', JSON.stringify(errObj, null, 2)) } catch {}
+		return errObj
+	} catch (e) {
+		return { __error: 'network', message: String(e) }
+	}
+}
+
 let __publicConfigCache = null
+let __publicConfigFailed = false
 
 export async function fetchPublicConfig() {
-	if (__publicConfigCache) return __publicConfigCache
-	const url = apiUrl('/api/public-config')
-	const res = await fetch(url, { method: 'GET' })
-	let body = null
-	try { body = await res.json() } catch {}
-	if (!res.ok) {
-		throw new Error(body?.error || `Failed to load public config (${res.status})`)
+	// Return cached config if available
+	if (__publicConfigCache) {
+		console.log('[fetchPublicConfig] Returning cached config')
+		return __publicConfigCache
 	}
-	__publicConfigCache = body || {}
-	return __publicConfigCache
+	
+	// Don't retry if previous attempt failed (until page refresh)
+	if (__publicConfigFailed) {
+		console.warn('[fetchPublicConfig] Previous fetch failed - returning failure')
+		throw new Error('Public config fetch previously failed - page refresh required')
+	}
+	
+	try {
+		const url = apiUrl('/api/public-config')
+		console.log('[fetchPublicConfig] Fetching from:', url)
+		const res = await fetch(url, { method: 'GET' })
+		console.log('[fetchPublicConfig] Response status:', res.status, res.statusText)
+		let body = null
+		try { body = await res.json() } catch {}
+		if (!res.ok) {
+			__publicConfigFailed = true
+			const errorMsg = body?.error || `Failed to load public config (${res.status})`
+			console.error('[fetchPublicConfig] Failed:', errorMsg)
+			throw new Error(errorMsg)
+		}
+		__publicConfigCache = body || {}
+		console.log('[fetchPublicConfig] Success, razorpayKeyId present:', !!__publicConfigCache.razorpayKeyId)
+		return __publicConfigCache
+	} catch (e) {
+		__publicConfigFailed = true
+		console.error('[fetchPublicConfig] Exception:', e)
+		throw e
+	}
 }
 
 export async function getRazorpayKeyId() {
@@ -583,7 +626,9 @@ export async function getRazorpayKeyId() {
 	try {
 		const cfg = await fetchPublicConfig()
 		if (cfg?.razorpayKeyId) return String(cfg.razorpayKeyId)
-	} catch { /* noop */ }
+	} catch (e) {
+		console.error('[getRazorpayKeyId] Failed to fetch config:', e)
+	}
 	return ''
 }
 
@@ -646,43 +691,27 @@ export async function updateOrder(userId, orderId, data = {}, actor = null) {
 
 	await runTransaction(db, async (tx) => {
 		const orderRef = doc(db, 'orders', orderId)
-		let orderSnap = await tx.get(orderRef)
-		let resolvedUserId = userId || null
+		const requestedUserId = userId || null
 
-		if (!orderSnap.exists() && resolvedUserId) {
-			const nestedRef = doc(db, 'users', resolvedUserId, 'orders', orderId)
+		let orderSnap = await tx.get(orderRef)
+		let legacyNestedRef = null
+
+		// Legacy fallback: some older deployments duplicated orders under users/{uid}/orders/{orderId}
+		if (!orderSnap.exists() && requestedUserId) {
+			const nestedRef = doc(db, 'users', requestedUserId, 'orders', orderId)
 			const nestedSnap = await tx.get(nestedRef)
 			if (nestedSnap.exists()) {
 				orderSnap = nestedSnap
+				legacyNestedRef = nestedRef
 			}
 		}
 
-		if (!orderSnap.exists()) {
-			throw new Error('Order not found')
-		}
+		if (!orderSnap.exists()) throw new Error('Order not found')
 
 		const prev = orderSnap.data() || {}
 		beforeState = { id: orderId, ...prev } // Capture before state
-		resolvedUserId = resolvedUserId || prev.userId || null
+		const resolvedUserId = requestedUserId || prev.userId || null
 		const actorId = actor || (resolvedUserId ? `user:${resolvedUserId}` : 'admin')
-
-		const revRef = doc(collection(db, 'orders', orderId, 'revisions'))
-		tx.set(revRef, {
-			ts: serverTimestamp(),
-			actor: actorId,
-			prev: {
-				items: prev.items || [],
-				subtotal: prev.subtotal ?? null,
-				taxRate: prev.taxRate ?? null,
-				taxAmount: prev.taxAmount ?? null,
-				totalAmount: prev.totalAmount ?? null,
-				status: prev.status || null,
-				orderType: prev.orderType || null,
-				orderNo: prev.orderNo || orderId,
-				payment: prev.payment || null,
-			},
-			patch,
-		})
 
 		const updatePayload = { ...patch, updatedAt: serverTimestamp(), revisionCount: increment(1) }
 		if (Object.prototype.hasOwnProperty.call(patch, 'status') && patch.status !== prev.status) {
@@ -698,11 +727,13 @@ export async function updateOrder(userId, orderId, data = {}, actor = null) {
 		
 		afterState = { id: orderId, ...prev, ...updatePayload } // Capture after state
 
-		tx.set(orderRef, updatePayload, { merge: true })
-
-		if (resolvedUserId) {
-			const nestedRef = doc(db, 'users', resolvedUserId, 'orders', orderId)
-			tx.set(nestedRef, updatePayload, { merge: true })
+		// Canonical storage: always write to top-level order doc.
+		// If this is a legacy nested-only order, migrate it to top-level and remove the nested duplicate.
+		if (legacyNestedRef) {
+			tx.set(orderRef, { ...prev, ...updatePayload, userId: resolvedUserId || null }, { merge: true })
+			try { tx.delete(legacyNestedRef) } catch { /* noop */ }
+		} else {
+			tx.set(orderRef, updatePayload, { merge: true })
 		}
 	})
 	
@@ -716,9 +747,14 @@ export async function updateOrder(userId, orderId, data = {}, actor = null) {
 }
 
 export async function fetchOrder(userId, orderId) {
-	const ref = userId ? doc(db, 'users', userId, 'orders', orderId) : doc(db, 'orders', orderId)
-	const snap = await getDoc(ref)
-	return snap.exists() ? { id: snap.id, ...snap.data() } : null
+	// Prefer canonical top-level orders; fallback to legacy nested orders if needed.
+	const topSnap = await getDoc(doc(db, 'orders', orderId))
+	if (topSnap.exists()) return { id: topSnap.id, ...topSnap.data() }
+	if (userId) {
+		const nestedSnap = await getDoc(doc(db, 'users', userId, 'orders', orderId))
+		return nestedSnap.exists() ? { id: nestedSnap.id, ...nestedSnap.data() } : null
+	}
+	return null
 }
 
 export async function fetchAllOrders() {
@@ -784,10 +820,7 @@ export async function fetchLatestUserOrder(userId) {
 
 export async function fetchUserOrders(userId) {
 	try {
-		const nested = await getDocs(query(collection(db, 'users', userId, 'orders'), orderBy('createdAt', 'desc')))
-		if (!nested.empty) {
-			return nested.docs.map((d) => ({ id: d.id, ...d.data() }))
-		}
+		// Preferred: top-level orders (single source of truth)
 		const snap = await getDocs(query(collection(db, 'orders'), where('userId', '==', userId), fsLimit(100)))
 		const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 		list.sort((a, b) => {
@@ -797,8 +830,14 @@ export async function fetchUserOrders(userId) {
 		})
 		return list
 	} catch (err) {
-		console.error('[firestore] fetchUserOrders failed:', err)
-		return []
+		// Fallback: legacy nested orders (if some deployments still used users/{uid}/orders)
+		try {
+			const nested = await getDocs(query(collection(db, 'users', userId, 'orders'), orderBy('createdAt', 'desc')))
+			return nested.docs.map((d) => ({ id: d.id, ...d.data() }))
+		} catch {
+			console.error('[firestore] fetchUserOrders failed:', err)
+			return []
+		}
 	}
 }
 
@@ -972,6 +1011,8 @@ export async function fetchAppSettings() {
 		if (!snap.exists()) return {
 			gstRate: 0.05,
 			adminMobile: '',
+			cashManagerPhones: [],
+			orderMessengerPhones: [],
 			shopAddress: '',
 			shopPhone: '',
 			chefName: '',
@@ -986,8 +1027,16 @@ export async function fetchAppSettings() {
 			googlePlaceId: ''
 		}
 		const d = snap.data()
+		const normalize10 = (p) => {
+			let digits = String(p || '').replace(/\D/g, '')
+			if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2)
+			return digits.length === 10 ? digits : null
+		}
 		const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
 		const adminMobile = d.adminMobile || ''
+		const orderMessengerPhones = Array.isArray(d.orderMessengerPhones)
+			? d.orderMessengerPhones.map((p) => normalize10(p)).filter(Boolean)
+			: []
 		const shopAddress = d.shopAddress || ''
 		const shopPhone = d.shopPhone || ''
 		const chefName = d.chefName || ''
@@ -1000,11 +1049,18 @@ export async function fetchAppSettings() {
 		const minLng = typeof d.minLng === 'number' ? d.minLng : null
 		const maxLng = typeof d.maxLng === 'number' ? d.maxLng : null
 		const googlePlaceId = d.googlePlaceId || ''
-		const cashManagerPhone = d.cashManagerPhone || ''
+		let cashManagerPhones = Array.isArray(d.cashManagerPhones)
+			? d.cashManagerPhones.map((p) => normalize10(p)).filter(Boolean)
+			: []
+		const legacyCashManager = normalize10(d.cashManagerPhone)
+		if (!cashManagerPhones.length && legacyCashManager) cashManagerPhones = [legacyCashManager]
+		const cashManagerPhone = cashManagerPhones[0] || legacyCashManager || ''
 		return {
 			gstRate,
 			cashManagerPhone,
+			cashManagerPhones,
 			adminMobile,
+			orderMessengerPhones,
 			shopAddress,
 			shopPhone,
 			chefName,
@@ -1022,7 +1078,9 @@ export async function fetchAppSettings() {
 		return {
 			gstRate: 0.05,
 			cashManagerPhone: '',
+			cashManagerPhones: [],
 			adminMobile: '',
+			orderMessengerPhones: [],
 			shopAddress: '',
 			shopPhone: '',
 			chefName: '',
@@ -1041,12 +1099,34 @@ export async function fetchAppSettings() {
 
 export async function saveAppSettings(partial) {
 	const payload = {}
+	const normalize10 = (p) => {
+		let digits = String(p || '').replace(/\D/g, '')
+		if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2)
+		return digits.length === 10 ? digits : ''
+	}
 	if (partial.gstRate !== undefined) payload.gstRate = Number(partial.gstRate) || 0
 	if (partial.adminMobile !== undefined) payload.adminMobile = String(partial.adminMobile || '')
+	if (partial.cashManagerPhones !== undefined) {
+		const list = Array.isArray(partial.cashManagerPhones)
+			? partial.cashManagerPhones.map((p) => normalize10(p)).filter(Boolean)
+			: []
+		payload.cashManagerPhones = list
+		// keep legacy single-field in sync for older clients
+		payload.cashManagerPhone = list[0] || ''
+	}
+	if (partial.orderMessengerPhones !== undefined) {
+		payload.orderMessengerPhones = Array.isArray(partial.orderMessengerPhones)
+			? partial.orderMessengerPhones.map((p) => normalize10(p)).filter(Boolean)
+			: []
+	}
 	if (partial.shopAddress !== undefined) payload.shopAddress = String(partial.shopAddress || '')
 	if (partial.shopPhone !== undefined) payload.shopPhone = String(partial.shopPhone || '')
 	if (partial.chefName !== undefined) payload.chefName = String(partial.chefName || '')
-	if (partial.cashManagerPhone !== undefined) payload.cashManagerPhone = String(partial.cashManagerPhone || '')
+	if (partial.cashManagerPhone !== undefined && partial.cashManagerPhones === undefined) {
+		const one = normalize10(partial.cashManagerPhone)
+		payload.cashManagerPhone = one
+		payload.cashManagerPhones = one ? [one] : []
+	}
 	if (partial.googlePlaceId !== undefined) payload.googlePlaceId = String(partial.googlePlaceId || '')
 	// Delivery fields
 	if (partial.centerLat !== undefined) payload.centerLat = Number(partial.centerLat)
@@ -1290,12 +1370,6 @@ export async function saveCart(uid, cartItems) {
 	try {
 		const ref = doc(db, 'users', uid, 'meta', 'cart')
 		await setDoc(ref, { items: cartItems, updatedAt: serverTimestamp() }, { merge: true })
-		const entries = Object.entries(cartItems || {})
-		const totalQty = entries.reduce((s, [,v]) => s + (v?.qty || 0), 0)
-		const subtotal = entries.reduce((s, [,v]) => s + ((v?.item?.price || 0) * (v?.qty || 0)), 0)
-		const compact = {}
-		entries.forEach(([id, v]) => { compact[id] = { qty: v.qty || 0, name: v.item?.name || '', price: Number(v.item?.price)||0 } })
-		await setDoc(doc(db, 'users', uid), { cartLive: { totalQty, subtotal, items: compact }, updatedAt: serverTimestamp() }, { merge: true })
 	} catch (e) {
 		console.warn('saveCart failed', e)
 	}

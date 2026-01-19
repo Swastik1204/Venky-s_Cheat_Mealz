@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import AdminLayout from '../layouts/AdminLayout'
 import { db } from '../lib/firebase'
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore'
-import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, sendWhatsAppInvoice, sendOtpViaWhatsApp } from '../lib/data'
+import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, sendWhatsAppInvoice, sendOtpViaWhatsApp, sendOrderMessengerViaWhatsApp, isCounterDocId } from '../lib/data'
+import { printOrderReceiptViaRawBT, shouldUseRawBT } from '../lib/rawbtPrint'
 import { useUI } from '../context/UIContext'
 import { useAuth } from '../context/AuthContext'
 import { MdWarningAmber, MdPrint } from 'react-icons/md'
@@ -21,7 +22,45 @@ export default function Orders() {
   const [orderModalOpen, setOrderModalOpen] = useState(false)
   const historyHeaderRefs = useRef({})
   const [openHistoryKey, setOpenHistoryKey] = useState(null)
-  const [adminPhone, setAdminPhone] = useState('')
+  const [cashManagerPhones, setCashManagerPhones] = useState([])
+  const [orderMessengerPhones, setOrderMessengerPhones] = useState([])
+  const notifiedRef = useRef(new Set())
+
+  function normalizeWhatsappPhone(phone) {
+    const raw = String(phone || '').trim()
+    if (!raw) return ''
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 10) return `91${digits}`
+    if (digits.length === 12 && digits.startsWith('91')) return digits
+    return digits
+  }
+
+  function isOnlineOrder(o) {
+    const source = String(o?.source || '').toLowerCase()
+    if (source === 'pos') return false
+    const method = String(o?.payment?.method || o?.customer?.payment?.method || '').toLowerCase()
+    return method === 'online' || method === 'razorpay'
+  }
+
+  const buildOrderAddressString = useCallback((o) => {
+    const raw = o?.address ?? o?.customer?.address ?? o?.deliveryAddress ?? ''
+    if (!raw) return '-'
+    if (typeof raw === 'string') return raw.trim() || '-'
+    if (typeof raw === 'object') {
+      const parts = [raw.line1, raw.line2, raw.landmark, raw.city, raw.state, raw.pin]
+        .map(v => (v == null ? '' : String(v).trim()))
+        .filter(Boolean)
+      return parts.length ? parts.join(', ') : '-'
+    }
+    return String(raw).trim() || '-'
+  }, [])
+
+  const buildOrderMessengerData = useCallback((o) => {
+    const customerName = String(o?.customer?.name || o?.name || 'Customer').trim() || 'Customer'
+    const totalAmount = Number(o?.totalAmount ?? o?.subtotal ?? 0)
+    const address = buildOrderAddressString(o)
+    return { customerName, totalAmount, address }
+  }, [buildOrderAddressString])
 
   function playNewOrderSound() {
     try {
@@ -121,8 +160,8 @@ export default function Orders() {
       pushToast('OTP not found on this order', 'warning')
       return
     }
-    if (!adminPhone) {
-      pushToast('Admin WhatsApp number not configured', 'error')
+    if (!Array.isArray(cashManagerPhones) || cashManagerPhones.length === 0) {
+      pushToast('Cash manager phone(s) not configured', 'error')
       return
     }
 
@@ -131,10 +170,14 @@ export default function Orders() {
       const orderRef = o.orderNo || o.id
       const otp = String(o.cashManagerOtp).trim()
 
-      // Use template-based OTP sending (works outside 24h window)
-      const result = await sendOtpViaWhatsApp(adminPhone, otp, orderRef)
-      if (result?.__error) {
-        throw new Error(result.__error === 'missing_phone' ? 'Invalid phone number' : (result.message || 'WhatsApp send failed'))
+      // Send the same OTP to all cash-manager phones simultaneously
+      const results = await Promise.allSettled(
+        cashManagerPhones.map((p) => sendOtpViaWhatsApp(p, otp, orderRef))
+      )
+      const successCount = results.filter(r => r.status === 'fulfilled' && !r.value?.__error).length
+      if (successCount === 0) {
+        const firstErr = results.find(r => r.status === 'fulfilled' && r.value?.__error)?.value
+        throw new Error(firstErr?.message || firstErr?.__error || 'WhatsApp send failed')
       }
 
       const resentAt = new Date().toISOString()
@@ -157,6 +200,18 @@ export default function Orders() {
 
   const printOrderBill = (order) => {
     if (!order) return
+
+    // Mobile/tablet/PWA: use RawBT deep-link printing (Android)
+    if (shouldUseRawBT()) {
+      try {
+        printOrderReceiptViaRawBT(order, { title: "Venky's Cheat Mealz", width: 42 })
+      } catch (e) {
+        console.error('[Orders] RawBT print failed', e)
+        pushToast('RawBT print failed. Please ensure RawBT is installed and try again.', 'error', 5000)
+      }
+      return
+    }
+
     const w = window.open('', '_blank', 'width=280,height=600')
     if (!w) {
         alert('Please allow popups to print the bill')
@@ -305,7 +360,19 @@ export default function Orders() {
 
   useEffect(() => {
     fetchAppSettings().then(s => {
-      if (s?.cashManagerPhone) setAdminPhone(s.cashManagerPhone)
+      const to10 = (v) => {
+        const digits = String(v || '').replace(/\D/g, '')
+        const no91 = digits.startsWith('91') && digits.length === 12 ? digits.slice(2) : digits
+        return no91.length === 10 ? no91 : ''
+      }
+
+      const cm = Array.isArray(s?.cashManagerPhones) ? s.cashManagerPhones : []
+      const cmList = cm.map(to10).filter(Boolean)
+      const legacy = to10(s?.cashManagerPhone)
+      setCashManagerPhones(cmList.length ? cmList : (legacy ? [legacy] : []))
+
+      const list = Array.isArray(s?.orderMessengerPhones) ? s.orderMessengerPhones : []
+      setOrderMessengerPhones(list.map(to10).filter(Boolean))
     })
   }, [])
 
@@ -314,12 +381,17 @@ export default function Orders() {
     if (!liveEnabled || roleLoading || !user || !isStaffMember) return undefined
     const qy = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
     const unsub = onSnapshot(qy, (snap) => {
-      const newOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const newOrders = snap.docs
+        .filter(d => !isCounterDocId(d.id))
+        .map(d => ({ id: d.id, ...d.data() }))
       
       // Check for new placed orders
       snap.docChanges().forEach(change => {
         if (change.type === 'added') {
           const order = change.doc.data()
+          // Skip counter documents
+          if (isCounterDocId(change.doc.id)) return
+          
           // Only notify for orders created very recently (e.g. last 1 minute) to avoid noise on reload
           // But 'added' in snapshot usually means new to the query. 
           // If we load 100 orders, all are 'added'. We need to distinguish initial load.
@@ -330,23 +402,23 @@ export default function Orders() {
           if (order.status === 'placed' && isRecent) {
             // Play sound
             playNewOrderSound()
-            
-            // Send WhatsApp to Admin
-            if (adminPhone) {
-               sendWhatsAppInvoice(adminPhone, { text: `🔔 New Order Received!\nID: ${change.doc.id}\nAmount: ₹${order.totalAmount || 0}` })
-                 .catch(e => console.error('Failed to send admin notification', e))
-            }
+
+            const id = change.doc.id
+            if (!id || notifiedRef.current.has(id)) return
+            notifiedRef.current.add(id)
+
+            // Notifications are intentionally handled at their source:
+            // - Order messenger: sent by customer app when order is created
+            // - Cash manager OTP: sent by admin biller when dine-in COD bill is created
           }
         }
       })
-
-      console.log('[Orders] onSnapshot fired, orders count:', newOrders.length, 'first order status:', newOrders[0]?.status)
       setOrders(newOrders)
     }, (err) => {
       console.error('[Orders] onSnapshot error:', err)
     })
     return () => unsub()
-  }, [liveEnabled, roleLoading, user, isStaffMember, adminPhone])
+  }, [liveEnabled, roleLoading, user, isStaffMember, cashManagerPhones, orderMessengerPhones, buildOrderMessengerData])
 
   async function loadOrders() {
     setLoadingOrders(true)

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { MdHome, MdRestaurantMenu, MdSearch, MdSentimentDissatisfied } from 'react-icons/md'
+import { MdHome, MdRestaurantMenu, MdSentimentDissatisfied } from 'react-icons/md'
 
 export default function NotFound() {
   return (

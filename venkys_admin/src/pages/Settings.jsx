@@ -12,12 +12,38 @@ export default function Settings() {
   const { pushToast } = useUI()
   const { user, isAdmin, refreshRole } = useAuth()
   const [appSettings, setAppSettings] = useState({ adminMobile: '', shopAddress: '', shopPhone: '', cashManagerPhone: '', chefName: '', centerLat: '', centerLng: '', radiusKm: 8, locationLink: '', googlePlaceId: '' })
+  const [cashManagerPhones, setCashManagerPhones] = useState([''])
+  const [orderMessengerPhones, setOrderMessengerPhones] = useState([''])
   const [appSettingsLoading, setAppSettingsLoading] = useState(false)
   const [appSettingsSaving, setAppSettingsSaving] = useState(false)
   const [info, setInfo] = useState('')
   const [error, setError] = useState('')
   const [businessProfile, setBusinessProfile] = useState(null)
   const [syncing, setSyncing] = useState(false)
+
+  const addCashManagerPhoneField = () => setCashManagerPhones(prev => [...prev, ''])
+  const removeCashManagerPhoneField = (index) => setCashManagerPhones(prev => prev.filter((_, i) => i !== index))
+  const updateCashManagerPhoneField = (index, value) => {
+    const digits = value.replace(/\D/g, '')
+    if (digits.length <= 10) {
+      setCashManagerPhones(prev => prev.map((p, i) => i === index ? digits : p))
+    }
+  }
+
+  const addPhoneField = () => {
+    setOrderMessengerPhones(prev => [...prev, ''])
+  }
+
+  const removePhoneField = (index) => {
+    setOrderMessengerPhones(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const updatePhoneField = (index, value) => {
+    const digits = value.replace(/\D/g, '')
+    if (digits.length <= 10) {
+      setOrderMessengerPhones(prev => prev.map((p, i) => i === index ? digits : p))
+    }
+  }
 
   useEffect(() => {
     if (error) {
@@ -93,6 +119,27 @@ export default function Settings() {
       if (!active) return
       if (settingsRes.status === 'fulfilled' && settingsRes.value) {
         setAppSettings((prev) => ({ ...prev, ...settingsRes.value }))
+
+        const cmList = Array.isArray(settingsRes.value.cashManagerPhones) ? settingsRes.value.cashManagerPhones : []
+        const cmDisplay = cmList
+          .map(p => {
+            const digits = String(p || '').replace(/\D/g, '')
+            return digits.startsWith('91') && digits.length === 12 ? digits.slice(2) : digits
+          })
+          .filter(Boolean)
+        if (cmDisplay.length > 0) {
+          setCashManagerPhones(cmDisplay)
+        } else {
+          const legacy = String(settingsRes.value.cashManagerPhone || '').replace(/\D/g, '')
+          setCashManagerPhones(legacy ? [legacy] : [''])
+        }
+
+        const list = Array.isArray(settingsRes.value.orderMessengerPhones) ? settingsRes.value.orderMessengerPhones : []
+        const display = list.map(p => {
+          const digits = String(p || '').replace(/\D/g, '')
+          return digits.startsWith('91') && digits.length === 12 ? digits.slice(2) : digits
+        }).filter(Boolean)
+        setOrderMessengerPhones(display.length > 0 ? display : [''])
       }
       if (deliveryRes.status === 'fulfilled' && deliveryRes.value) {
         const d = deliveryRes.value
@@ -170,7 +217,7 @@ export default function Settings() {
                 <td>
                   <div className="flex items-center gap-2">
                     <span className="btn btn-ghost opacity-70">☎</span>
-                    <input type="tel" className="input input-bordered validator tabular-nums" required placeholder="+91XXXXXXXXXX" 
+                    <input type="tel" className="input input-bordered validator tabular-nums" required placeholder="10-digit mobile" 
                       pattern="[0-9]{10}" minLength={10} maxLength={10} title="Must be 10 digits" value={appSettings.shopPhone} onChange={(e)=> setAppSettings(s => ({ ...s, shopPhone: e.target.value.replace(/\D/g, '') }))} />
                     <p className="validator-hint">Must be 10 digits</p>
                     <span className="text-xs opacity-60 ml-2">Shown on WhatsApp e-bill.</span>
@@ -180,12 +227,98 @@ export default function Settings() {
               <tr>
                 <td className="font-medium">Cash Manager Phone</td>
                 <td>
-                  <div className="flex items-center gap-2">
-                    <span className="btn btn-ghost opacity-70">☎</span>
-                    <input type="tel" className="input input-bordered validator tabular-nums" required placeholder="+91XXXXXXXXXX" 
-                      pattern="[0-9]{10}" minLength={10} maxLength={10} title="Must be 10 digits" value={appSettings.cashManagerPhone || ''} onChange={(e)=> setAppSettings(s => ({ ...s, cashManagerPhone: e.target.value.replace(/\D/g, '') }))} />
-                    <p className="validator-hint">Must be 10 digits</p>
-                    <span className="text-xs opacity-60 ml-2">Receives OTPs for cash orders.</span>
+                  <div className="space-y-2">
+                    {cashManagerPhones.map((phone, idx) => {
+                      const isValid = phone.length === 10
+                      return (
+                        <div key={idx} className="flex items-center gap-2">
+                          <input
+                            type="tel"
+                            className={`input input-bordered w-48 tabular-nums ${!isValid && phone.length > 0 ? 'input-error' : ''}`}
+                            placeholder="10-digit number"
+                            value={phone}
+                            onChange={(e) => updateCashManagerPhoneField(idx, e.target.value)}
+                            pattern="[0-9]{10}"
+                            maxLength={10}
+                            title="Must be exactly 10 digits"
+                          />
+                          {!isValid && phone.length > 0 && (
+                            <span className="text-xs text-error">10 digits required</span>
+                          )}
+                          {cashManagerPhones.length > 1 && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm btn-circle text-error"
+                              onClick={() => removeCashManagerPhoneField(idx)}
+                              title="Remove this number"
+                            >
+                              −
+                            </button>
+                          )}
+                          {idx === cashManagerPhones.length - 1 && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm btn-circle text-success"
+                              onClick={addCashManagerPhoneField}
+                              title="Add another number"
+                            >
+                              +
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                    <div className="text-xs opacity-60">Receives dine-in COD OTP. The same OTP is sent to all numbers above.</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td className="font-medium">Order messenger (WhatsApp)</td>
+                <td>
+                  <div className="space-y-2">
+                    {orderMessengerPhones.map((phone, idx) => {
+                      const isValid = phone.length === 10
+                      return (
+                        <div key={idx} className="flex items-center gap-2">
+                          <input
+                            type="tel"
+                            className={`input input-bordered w-48 tabular-nums ${!isValid && phone.length > 0 ? 'input-error' : ''}`}
+                            placeholder="10-digit number"
+                            value={phone}
+                            onChange={(e) => updatePhoneField(idx, e.target.value)}
+                            pattern="[0-9]{10}"
+                            maxLength={10}
+                            title="Must be exactly 10 digits"
+                          />
+                          {!isValid && phone.length > 0 && (
+                            <span className="text-xs text-error">10 digits required</span>
+                          )}
+                          {orderMessengerPhones.length > 1 && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm btn-circle text-error"
+                              onClick={() => removePhoneField(idx)}
+                              title="Remove this number"
+                            >
+                              −
+                            </button>
+                          )}
+                          {idx === orderMessengerPhones.length - 1 && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm btn-circle text-success"
+                              onClick={addPhoneField}
+                              title="Add another number"
+                            >
+                              +
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                    <div className="text-xs opacity-60">
+                      These numbers will be notified when a new <span className="font-medium">online</span> order is received.
+                    </div>
                   </div>
                 </td>
               </tr>
@@ -271,6 +404,7 @@ export default function Settings() {
                       <span className="text-xs text-warning ml-2">Paste a valid Google Maps link and click Update to set coordinates.</span>
                     )}
                   </div>
+                  <div className="text-xs text-base-content/60 mt-1">Note: An extra 2 km shadow range is automatically added.</div>
                 </td>
               </tr>
               <tr>
@@ -326,13 +460,27 @@ export default function Settings() {
           <button className="btn btn-primary" disabled={appSettingsSaving} onClick={async ()=>{
             setAppSettingsSaving(true)
             try {
+              const validatePhoneList = (list, label) => {
+                const digitsOnly = (Array.isArray(list) ? list : [])
+                  .map((p) => String(p || '').replace(/\D/g, ''))
+                  .filter(Boolean)
+                const invalid = digitsOnly.filter((d) => d.length !== 10)
+                if (invalid.length) {
+                  throw new Error(`${label} must be exactly 10 digits (do not include 91).`)
+                }
+                return digitsOnly
+              }
+
+              const validPhones = validatePhoneList(orderMessengerPhones, 'Order messenger numbers')
+              const validCashManagers = validatePhoneList(cashManagerPhones, 'Cash manager numbers')
               await saveAppSettings({
                 shopAddress: appSettings.shopAddress,
                 shopPhone: appSettings.shopPhone,
-                cashManagerPhone: appSettings.cashManagerPhone,
+                cashManagerPhones: validCashManagers,
                 chefName: appSettings.chefName,
                 locationLink: appSettings.locationLink || '',
-                googlePlaceId: appSettings.googlePlaceId || ''
+                googlePlaceId: appSettings.googlePlaceId || '',
+                orderMessengerPhones: validPhones,
               })
               const lat = Number(appSettings.centerLat)
               const lng = Number(appSettings.centerLng)
@@ -361,6 +509,25 @@ export default function Settings() {
                   radiusKm: delivery.radiusKm ?? prev.radiusKm,
                 } : {}),
               }))
+
+              const cmList = Array.isArray(settings?.cashManagerPhones) ? settings.cashManagerPhones : []
+              const cmDisplay = cmList.map(p => {
+                const digits = String(p || '').replace(/\D/g, '')
+                return digits.startsWith('91') && digits.length === 12 ? digits.slice(2) : digits
+              }).filter(Boolean)
+              if (cmDisplay.length > 0) {
+                setCashManagerPhones(cmDisplay)
+              } else {
+                const legacy = String(settings?.cashManagerPhone || '').replace(/\D/g, '')
+                setCashManagerPhones(legacy ? [legacy] : [''])
+              }
+
+              const list = Array.isArray(settings?.orderMessengerPhones) ? settings.orderMessengerPhones : []
+              const display = list.map(p => {
+                const digits = String(p || '').replace(/\D/g, '')
+                return digits.startsWith('91') && digits.length === 12 ? digits.slice(2) : digits
+              }).filter(Boolean)
+              setOrderMessengerPhones(display.length > 0 ? display : [''])
             } catch { /* noop */ } finally { setAppSettingsLoading(false) }
           }}>{appSettingsLoading ? 'Loading…' : 'Reload'}</button>
         </div>

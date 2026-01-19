@@ -178,7 +178,7 @@ export default function Inventory() {
         if (denominator <= 0) {
           return { ...form, discountPercent: formatPercent(discountNormalized) }
         }
-        const nextMrp = Math.max(rateNumber, Math.round((rateNumber / denominator) * 100) / 100)
+        const nextMrp = Math.max(rateNumber, Math.round(rateNumber / denominator))
         return {
           ...form,
           discountPercent: formatPercent(discountNormalized),
@@ -196,7 +196,7 @@ export default function Inventory() {
         if (discountNormalized !== null && discountNormalized > 0) {
           const denominator = 1 - discountNormalized / 100
           if (denominator > 0) {
-            const calcMrp = Math.max(rateNumber, Math.round((rateNumber / denominator) * 100) / 100)
+            const calcMrp = Math.max(rateNumber, Math.round(rateNumber / denominator))
             nextMrp = formatAmount(calcMrp)
             nextDiscount = formatPercent(discountNormalized)
           }

@@ -158,9 +158,15 @@ export function CartProvider({ children }) {
       },
       remove: (id) => dispatch({ type: 'REMOVE', id }),
       setQty: (id, qty) => dispatch({ type: 'SET_QTY', id, qty }),
-      clear: () => dispatch({ type: 'CLEAR' }),
+      clear: () => {
+        dispatch({ type: 'CLEAR' })
+        try { if (typeof localStorage !== 'undefined') localStorage.removeItem(GUEST_CART_KEY) } catch {}
+        if (user) {
+          saveCart(user.uid, {}).catch(() => {})
+        }
+      },
     }
-  }, [state])
+  }, [state, user])
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
 }

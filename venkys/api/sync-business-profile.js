@@ -2,6 +2,9 @@
 // and cache it in Firestore. Can be called manually or scheduled.
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
+import { createRateLimiter } from './lib/rateLimiter.js'
+
+const rateLimiter = createRateLimiter({ routeName: 'sync-business-profile' })
 
 // Initialize Firebase Admin
 if (!getApps().length) {
@@ -94,6 +97,10 @@ function transformPlaceData(data) {
 }
 
 export default async function handler(req, res) {
+  // Apply rate limiting
+  await rateLimiter(req, res, () => {})
+  if (res.headersSent) return // Rate limit exceeded
+
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')

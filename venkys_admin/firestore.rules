@@ -1,178 +1,339 @@
 rules_version = '2';
+
+// =====================================================================
+// UNIFIED FIRESTORE RULES - Venky's Chicken Xperience
+// =====================================================================
+// This single rules file is used by BOTH customer app and admin app.
+// 
+// ROLE HIERARCHY:
+//   1. Super Admin (hardcoded) - swastiksaha1204@gmail.com - ALWAYS has full access
+//   2. Admin (dynamic) - role: 'admin' in roles collection - Full access
+//   3. Staff (dynamic) - role: 'staff' with page-specific permissions
+//   4. Delivery (dynamic) - role: 'delivery' - Can view/update assigned deliveries
+//   5. Customer - Regular signed-in users - Can manage own profile & orders
+//   6. Guest - Unauthenticated - Can read public data only
+//
+// ROLE DOCUMENT STRUCTURE (roles/{email}):
+//   {
+//     role: 'admin' | 'staff' | 'delivery',
+//     name: 'Display Name',
+//     email: 'user@example.com',
+//     pages: {
+//       biller: true/false,      // POS billing
+//       orders: true/false,      // Order management
+//       inventory: true/false,   // Menu & stock management
+//       analytics: true/false,   // Sales analytics
+//       settings: true/false,    // App settings (admin only typically)
+//       appearance: true/false,  // Theme customization
+//       delivery: true/false,    // Delivery management
+//     },
+//     createdAt: timestamp,
+//     updatedAt: timestamp,
+//     createdBy: 'admin@email.com'
+//   }
+// =====================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===== Centralized role helpers =====
-    function adminEmails() {
-      return [
-        'swastiksaha1204@gmail.com',
-        'sarmistharoysaha@gmail.com',
-        'adwitiyasaha8@gmail.com'
-      ];
+
+    // =========================================
+    // HELPER FUNCTIONS
+    // =========================================
+
+    // Super admin email - HARDCODED, always has full access
+    function superAdminEmail() {
+      return 'swastiksaha1204@gmail.com';
     }
 
-    function billerEmails() {
-      // Add biller-only emails here. Admins are already in adminEmails().
-      return [
-        'swastiksaha1204@gmail.com',
-        'gourabmallick756@gmail.com'
-      ];
-    }
-
+    // Check if user is signed in
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Admins are identified by either a claim or being in the email allow list
+    // Email is required for role-based access (roles are keyed by email)
+    function hasEmail() {
+      return isSignedIn() && request.auth.token.email is string && request.auth.token.email.size() > 0;
+    }
+
+    // Check if current user is the super admin
+    function isSuperAdmin() {
+      return hasEmail() && request.auth.token.email == superAdminEmail();
+    }
+
+    // Get role document for current user
+    function getRoleDoc() {
+      return get(/databases/$(database)/documents/roles/$(request.auth.token.email)).data;
+    }
+
+    // Check if user has a role document
+    function hasRoleDoc() {
+      return hasEmail() && exists(/databases/$(database)/documents/roles/$(request.auth.token.email));
+    }
+
+    // Role helpers
+    function isStaffUser() {
+      return hasRoleDoc() && getRoleDoc().role == 'staff';
+    }
+
+    function isDeliveryUser() {
+      return hasRoleDoc() && getRoleDoc().role == 'delivery';
+    }
+
+    // Check if user is an admin (super admin OR role == 'admin')
     function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.admin == true ||
-        request.auth.token.email in adminEmails()
+      return isSuperAdmin() || (hasRoleDoc() && getRoleDoc().role == 'admin');
+    }
+
+    // Check if user has a specific page permission
+    function hasPageAccess(pageName) {
+      // IMPORTANT: Only 'staff' role uses page-level permissions.
+      // Delivery users are restricted by role (delivery-only), not by pages.
+      return isAdmin() || (
+        isStaffUser() &&
+        getRoleDoc().pages != null &&
+        getRoleDoc().pages[pageName] == true
       );
     }
 
-    // Billers are identified by either a claim or being in the biller email allow list
-    // Admins implicitly pass biller checks too.
-    function isBiller() {
-      return isSignedIn() && (
-        request.auth.token.biller == true ||
-        request.auth.token.isBiller == true ||
-        request.auth.token.email in billerEmails() ||
-        isAdmin()
-      );
+    // Check if user can manage orders (includes biller page access)
+    function canManageOrders() {
+      return hasPageAccess('orders') || hasPageAccess('biller');
     }
 
-    // ===== Delivery geofence helpers (bounding box) =====
+    // Check if user can manage inventory
+    function canManageInventory() {
+      return hasPageAccess('inventory');
+    }
+
+    // Check if user is any type of staff member
+    function isStaff() {
+      return hasRoleDoc();
+    }
+
+    function isDeliveryOrder(data) {
+      return data != null && data.orderType == 'delivery';
+    }
+
+    function deliveryCanUpdateOrder() {
+      // Delivery user can only update delivery orders, and only specific fields.
+      return isDeliveryUser()
+        && isDeliveryOrder(resource.data)
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status',
+          'statusHistory',
+          'updatedAt',
+          'deliveredAt'
+        ]);
+    }
+
+    // =========================================
+    // DELIVERY GEOFENCE HELPERS
+    // =========================================
+
     function deliveryConfig() {
-      // Delivery/geofence settings are stored in miscellaneous/settings
       return get(/databases/$(database)/documents/miscellaneous/settings).data;
     }
+
     function hasGeo(addr) {
       return addr.lat is number && addr.lng is number;
     }
+
     function withinBounds(lat, lng) {
-      // Config doc should define minLat, maxLat, minLng, maxLng. If missing, allow by default.
       let cfg = deliveryConfig();
       return !(cfg.minLat is number && cfg.maxLat is number && cfg.minLng is number && cfg.maxLng is number)
         || (lat >= cfg.minLat && lat <= cfg.maxLat && lng >= cfg.minLng && lng <= cfg.maxLng);
     }
+
     function allowDeliveryFor(data) {
-      // Only enforce for delivery orders
       return (data.orderType != 'delivery') || (
         data.customer is map && data.customer.address is map && hasGeo(data.customer.address)
         && withinBounds(data.customer.address.lat, data.customer.address.lng)
       );
     }
 
+    // =========================================
+    // ORDER COUNTER HELPERS
+    // =========================================
+
     function isOrderCounterDoc(orderId) {
-      return orderId.matches('^__counter__\\d{8}$')
+      return orderId.matches('^__counter__\\d{8}$');
     }
 
     function allowCounterWrite(data) {
       return data.__meta == 'orderCounter'
         && data.dateKey.matches('^\\d{8}$')
         && data.total is number
-        && data.updatedAt is timestamp
+        && data.updatedAt is timestamp;
     }
 
-    // ===== Raw Materials / Stock =====
-    match /raw_materials/{doc} {
-      allow read, write: if isAdmin() || isBiller();
+    // =========================================
+    // COLLECTION RULES
+    // =========================================
+
+    // -----------------------------------------
+    // ROLES COLLECTION (Staff Management)
+    // -----------------------------------------
+    match /roles/{email} {
+      // Users can read their own role (needed for frontend to check permissions)
+      // Admins can read all roles
+      allow read: if isAdmin() || (isSignedIn() && request.auth.token.email == email);
+      
+      // Only super admin and admins can create/update/delete roles
+      // Super admin can manage all roles, admins cannot modify super admin's role
+      allow create: if isAdmin();
+      allow update: if isAdmin() && (isSuperAdmin() || email != superAdminEmail());
+      allow delete: if isAdmin() && email != superAdminEmail(); // Cannot delete super admin
     }
 
-    // ===== Menu (category docs with items array) =====
-    match /menu/{doc} {
-      allow read: if true;
-      allow write: if isAdmin() || isBiller();
+    // -----------------------------------------
+    // USERS COLLECTION (Customer Profiles)
+    // -----------------------------------------
+    match /users/{uid} {
+      // Users can read/write their own document
+      // Admins can read/write all user documents
+      // Billers can write to 'guest' user for POS orders
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if isAdmin() || (isSignedIn() && request.auth.uid == uid) || (hasPageAccess('biller') && uid == 'guest');
+
+      // User's nested orders (legacy - prefer top-level orders collection)
+      match /orders/{orderId} {
+        allow create: if isAdmin() || ((isSignedIn() && request.auth.uid == uid) && allowDeliveryFor(request.resource.data));
+        allow read: if isAdmin() || canManageOrders() || (isSignedIn() && request.auth.uid == uid);
+        allow update: if isAdmin() || canManageOrders() || (isSignedIn() && request.auth.uid == uid);
+        allow delete: if false; // Never delete orders
+      }
+
+      // All other user subcollections (cart, addresses, meta, etc.)
+      match /{subcollection}/{docId} {
+        allow read, write: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      }
     }
 
-    // Legacy public collections (optional)
-    // NOTE: These are admin-only by default to avoid leaks. If your app still reads these
-    // from the client, switch `allow read` to `true` for the needed collections.
+    // -----------------------------------------
+    // ORDERS COLLECTION (Main Orders)
+    // -----------------------------------------
+    match /orders/{orderId} {
+      // CREATE: Counter docs need special validation, regular orders need auth check
+      allow create: if (
+        isOrderCounterDoc(orderId)
+          ? (allowCounterWrite(request.resource.data) && (isAdmin() || hasPageAccess('biller')))
+          : (
+            isAdmin() || hasPageAccess('biller') ||
+            (
+              (
+                (isSignedIn() && request.auth.uid == request.resource.data.userId) ||
+                (!isSignedIn() && request.resource.data.userId == null)
+              ) && allowDeliveryFor(request.resource.data)
+            )
+          )
+      );
+
+      // READ: Allow staff members to list/query all orders (needed for admin dashboard)
+      // Individual document reads still check specific permissions
+      allow list: if isStaff();
+      allow get: if (
+        isOrderCounterDoc(orderId)
+          ? (isAdmin() || hasPageAccess('biller'))
+          : (
+            isAdmin() || canManageOrders() || (isDeliveryUser() && isDeliveryOrder(resource.data)) ||
+            (isSignedIn() && resource.data.userId == request.auth.uid)
+          )
+      );
+
+      // UPDATE: Staff can update orders, users cannot update their own orders
+      allow update: if (
+        isOrderCounterDoc(orderId)
+          ? (allowCounterWrite(request.resource.data) && (isAdmin() || hasPageAccess('biller')))
+          : (isAdmin() || canManageOrders() || deliveryCanUpdateOrder())
+      );
+
+      // DELETE: Only admins can delete non-counter orders
+      allow delete: if !isOrderCounterDoc(orderId) && isAdmin();
+    }
+
+    // -----------------------------------------
+    // MENU COLLECTION (Categories with Items)
+    // -----------------------------------------
+    match /menu/{categoryId} {
+      allow read: if true; // Public - anyone can view menu
+      allow write: if isAdmin() || canManageInventory();
+    }
+
+    // -----------------------------------------
+    // LEGACY MENU COLLECTIONS
+    // -----------------------------------------
     match /categories/{doc} {
-      allow read: if isAdmin();
+      allow read: if true;
       allow write: if isAdmin();
     }
     match /menuItems/{doc} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || canManageInventory();
     }
     match /items/{doc} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || canManageInventory();
     }
 
-    // Base64 images (menu item images)
+    // -----------------------------------------
+    // IMAGES COLLECTION (Menu Item Images)
+    // -----------------------------------------
     match /images/{imageId} {
-      allow read: if true;
+      allow read: if true; // Public - needed to display menu
+      allow write: if isAdmin() || canManageInventory();
+    }
+
+    // -----------------------------------------
+    // RAW MATERIALS / STOCK
+    // -----------------------------------------
+    match /raw_materials/{doc} {
+      allow read: if isAdmin() || canManageInventory() || hasPageAccess('biller');
+      allow write: if isAdmin() || canManageInventory();
+    }
+
+    // -----------------------------------------
+    // OTPs (Cash Manager Verification)
+    // -----------------------------------------
+    match /otps/{otpId} {
+      allow read: if isAdmin() || hasPageAccess('biller') || canManageOrders();
       allow write: if isAdmin();
     }
 
-    // Health check
+    // -----------------------------------------
+    // MISCELLANEOUS CONFIG
+    // -----------------------------------------
+    match /miscellaneous/{docId} {
+      // Public read - needed for app settings, appearance, store status
+      allow read: if true;
+      
+      // Write permissions vary by document
+      allow write: if (
+        // Settings - admin only (includes delivery geofence, payment config)
+        (docId == 'settings' && isAdmin()) ||
+        // Store status - admin only
+        (docId == 'store' && isAdmin()) ||
+        // Appearance - admin or staff with appearance access
+        (docId == 'appearance' && (isAdmin() || hasPageAccess('appearance'))) ||
+        // Daily counter - any authenticated user can write (for order number generation)
+        (docId == 'dailyCounter' && request.auth != null)
+      );
+    }
+
+    // -----------------------------------------
+    // AUDIT LOGS
+    // -----------------------------------------
+    match /logs/{logId} {
+      // Any staff member can create audit logs
+      allow create: if isStaff();
+      // Only admins can read/update/delete logs
+      allow read, update, delete: if isAdmin();
+    }
+
+    // -----------------------------------------
+    // HEALTH CHECK (Testing)
+    // -----------------------------------------
     match /_health/{doc} {
       allow read, write: if true;
-    }
-
-    // ===== Users root doc and ANY nested data =====
-    match /users/{uid} {
-      // User document
-      allow read, write: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
-
-      // Specific nested orders collection: enforce delivery bounds on create
-      match /orders/{orderId} {
-        allow create: if ((isSignedIn() && request.auth.uid == uid) || isAdmin()) && allowDeliveryFor(request.resource.data);
-        allow read, update: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
-        allow delete: if false;
-      }
-
-      // All other descendants (profile meta, cart, addresses, etc.)
-      match /{subPath=**} {
-        allow read, write: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
-      }
-    }
-
-    // ===== Top-level orders =====
-    match /orders/{orderId} {
-      allow create: if (
-        isOrderCounterDoc(orderId)
-          ? allowCounterWrite(request.resource.data)
-          : (
-            (
-              isAdmin() ||
-              isBiller() ||
-              (isSignedIn() && request.auth.uid == request.resource.data.userId) ||
-              (!isSignedIn() && request.resource.data.userId == null)
-            ) && allowDeliveryFor(request.resource.data)
-          )
-      );
-
-      allow read: if (
-        isOrderCounterDoc(orderId)
-          ? true
-          : (
-            isAdmin() ||
-            isBiller() ||
-            (isSignedIn() && request.auth.uid == resource.data.userId)
-          )
-      );
-
-      allow update: if (
-        isOrderCounterDoc(orderId)
-          ? allowCounterWrite(request.resource.data)
-          : (
-            isAdmin() ||
-            isBiller() ||
-            (isSignedIn() && request.auth.uid == resource.data.userId)
-          )
-      );
-
-      allow delete: if !isOrderCounterDoc(orderId) && isAdmin();
-    }
-
-    // ===== Miscellaneous config (appearance, store status, settings) =====
-    match /miscellaneous/{docId} {
-      allow read: if true;
-      // Only admins can write specific config docs (includes delivery/geofence settings inside 'settings')
-      allow write: if (isAdmin() && docId in ['appearance', 'store', 'settings']) || (isBiller() && docId == 'appearance');
     }
   }
 }

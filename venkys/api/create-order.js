@@ -7,6 +7,9 @@
 // NOTE: Never trust amount from client – recompute from items or lookup server-side.
 
 import Razorpay from 'razorpay'
+import { createRateLimiter } from './lib/rateLimiter.js'
+
+const rateLimiter = createRateLimiter({ routeName: 'create-order' })
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -14,6 +17,9 @@ const razorpay = new Razorpay({
 })
 
 export default async function handler(req, res) {
+  // Apply rate limiting
+  await rateLimiter(req, res, () => {})
+  if (res.headersSent) return // Rate limit exceeded
   // CORS: Allow origins from CORS_ORIGIN env (comma-separated), or reflect the request origin if not set
   const allow = process.env.CORS_ORIGIN || ''
   const origin = req.headers?.origin || ''

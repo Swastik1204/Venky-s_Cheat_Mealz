@@ -28,7 +28,11 @@ export default function ItemModal() {
       })()}% off`
     : null
   const onAdd = () => {
-    if (!selectedItem) return
+    if (!selectedItem) {
+      console.warn('ItemModal: Cannot add - no item selected')
+      return
+    }
+    
     // Ensure we always have a stable id key (some callers may pass items without `id`).
     const resolvedId =
       selectedItem.id ||
@@ -37,11 +41,16 @@ export default function ItemModal() {
       selectedItem.docId ||
       selectedItem.sku ||
       `${selectedItem.categoryId || ''}:${selectedItem.name || ''}`
+    
     const itemToAdd = resolvedId && selectedItem.id !== resolvedId
       ? { ...selectedItem, id: resolvedId }
       : selectedItem
+    
+    console.log('ItemModal: Adding item to cart', { itemId: itemToAdd.id, itemName: itemToAdd.name })
+    
     // Add the full item object so the cart has all fields
     add(itemToAdd)
+    
     // Mark this item's info as seen so future adds skip the modal
     try {
       const key = itemToAdd.id || `${itemToAdd.categoryId || ''}:${itemToAdd.name}`
@@ -53,7 +62,10 @@ export default function ItemModal() {
       } else {
         localStorage.setItem('itemInfoSeen', JSON.stringify([key]))
       }
-    } catch { /* noop */ }
+    } catch (err) {
+      console.error('ItemModal: Failed to mark item as seen', err)
+    }
+    
     closeItem()
   }
 

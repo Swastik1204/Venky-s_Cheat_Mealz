@@ -1,0 +1,119 @@
+/* eslint-env node */
+// Dedicated WhatsApp template sender for new online-order notifications (order messenger)
+// POST body: { phone: "XXXXXXXXXX", customerName: string, totalAmount: string|number, address: string }
+// IMPORTANT: `phone` must be exactly 10 digits (no 91 in DB). Country code is applied at send-time.
+// Requires env: WA_TOKEN, WA_PHONE_NUMBER_ID
+
+import { createRateLimiter } from './lib/rateLimiter.js'
+
+const rateLimiter = createRateLimiter({ routeName: 'send-order-messenger' })
+
+export default async function handler(req, res) {
+  const allow = process.env.CORS_ORIGIN || ''
+  const origin = req.headers?.origin || ''
+  let allowOrigin = origin || '*'
+
+  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+    allowOrigin = origin
+  } else if (allow && allow !== '*') {
+    const list = allow.split(',').map(s => s.trim()).filter(Boolean)
+    allowOrigin = list.includes(origin) ? origin : (list[0] || '*')
+  }
+
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin)
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Credentials', 'true')
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end()
+    return
+  }
+
+  await rateLimiter(req, res, () => {})
+  if (res.headersSent) return
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'method_not_allowed' })
+    return
+  }
+
+  try {
+    const token = (process.env.WA_TOKEN || '').trim()
+    const phoneNumberId = (process.env.WA_PHONE_NUMBER_ID || '').trim()
+    if (!token || !phoneNumberId) {
+      res.status(200).json({
+        __skipped: 'missing_server_config',
+        missing: { WA_TOKEN: !token, WA_PHONE_NUMBER_ID: !phoneNumberId },
+      })
+      return
+    }
+
+    const { phone, customerName, totalAmount, address } = req.body || {}
+
+    const digits = String(phone || '').replace(/\D/g, '')
+    if (digits.length !== 10) {
+      res.status(400).json({ error: 'invalid_phone', expected: '10_digits', receivedLength: digits.length })
+      return
+    }
+
+    const to = `91${digits}`
+
+    const name = String(customerName || 'Customer').trim() || 'Customer'
+    const totalNum = Number(totalAmount)
+    const totalText = Number.isFinite(totalNum)
+      ? `₹${totalNum.toFixed(0)}`
+      : `₹${String(totalAmount || '').trim() || '0'}`
+    const addr = String(address || '-').trim() || '-'
+
+    const templateName = (process.env.WA_TEMPLATE_ORDER_MESSENGER_NAME || 'venkys_order_messenger').trim()
+    const templateLang = (process.env.WA_TEMPLATE_ORDER_MESSENGER_LANG || 'en').trim()
+
+    const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`
+    const body = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: templateLang },
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: name },
+              { type: 'text', text: totalText },
+              { type: 'text', text: addr },
+            ],
+          },
+        ],
+      },
+    }
+
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    })
+
+    const data = await r.json().catch(() => ({}))
+
+    if (!r.ok) {
+      res.status(r.status || 400).json({
+        __error: 'wa_http_error',
+        status: r.status,
+        data,
+        request: { to, template: { name: templateName, language: templateLang } },
+      })
+      return
+    }
+
+    res.status(200).json({ ok: true, data })
+  } catch (e) {
+    console.error('[send-order-messenger] Error:', e)
+    res.status(500).json({ __error: 'server_error', message: String(e?.message || e) })
+  }
+}

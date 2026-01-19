@@ -97,6 +97,7 @@ export default function Checkout() {
   const [gettingLocation, setGettingLocation] = useState(false)
   const [currentStep, setCurrentStep] = useState(1) // 1=contact, 2=address, 3=payment
   const [confirmedSteps, setConfirmedSteps] = useState({ contact: false, address: false })
+  const [highlightGPSButton, setHighlightGPSButton] = useState(false)
 
   useEffect(() => {
     if (!orderId) return
@@ -206,6 +207,8 @@ export default function Checkout() {
     if (typeof parts.lng === 'number') update('lng', parts.lng)
     if (parts.placeId) update('placeId', parts.placeId)
     if (parts.mapUrl) update('mapUrl', parts.mapUrl)
+    // Clear GPS button highlight since location is now set
+    setHighlightGPSButton(false)
   }, [update])
   // Attach autocomplete to Address line 2 (auto-filled), not line 1
   usePlacesAutocomplete(addressLine2Ref, handleAutocompleteSelect)
@@ -329,10 +332,8 @@ export default function Checkout() {
   useEffect(() => {
     if (!orderId) return;
     
-    // Listen to user's nested order document for real-time updates
-    const orderDocRef = user?.uid 
-      ? doc(db, 'users', user.uid, 'orders', orderId)
-      : doc(db, 'orders', orderId);
+    // Orders are stored in the top-level `orders/{orderId}` collection.
+    const orderDocRef = doc(db, 'orders', orderId)
     
     const unsub = onSnapshot(orderDocRef, (snap) => {
       if (!snap.exists()) return;
@@ -501,6 +502,7 @@ export default function Checkout() {
         update('lat', latitude)
         update('lng', longitude)
         setGeoError('')
+        setHighlightGPSButton(false)
         
         // Check if within delivery region
         const withinCheck = deliveryLocation.checkWithin(latitude, longitude)
@@ -582,6 +584,7 @@ export default function Checkout() {
         const { latitude, longitude } = pos.coords
         update('lat', latitude)
         update('lng', longitude)
+        setHighlightGPSButton(false)
         
         // Check if within delivery region
         const withinCheck = deliveryLocation.checkWithin(latitude, longitude)
@@ -1273,13 +1276,20 @@ export default function Checkout() {
                                 </div>
 
                                 {/* Confirm Location Only Button */}
-                                <button
-                                  type="button"
-                                  className={`btn btn-block rounded-xl min-h-[3.25rem] text-base font-semibold border-error/20 bg-error/10 text-error hover:bg-error/15 transition-opacity duration-300 ease-in-out ${gettingLocation ? 'loading opacity-70' : 'opacity-100'}`}
-                                  onClick={handleGPSOnly}
-                                >
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    className={`btn btn-block rounded-xl min-h-[3.25rem] text-base font-semibold border-error/20 bg-error/10 text-error hover:bg-error/15 transition-all duration-300 ease-in-out ${gettingLocation ? 'loading opacity-70' : 'opacity-100'} ${highlightGPSButton ? 'ring-4 ring-error/50 animate-pulse' : ''}`}
+                                    onClick={handleGPSOnly}
+                                  >
                                     <MdGpsFixed /> Press to share location for faster delivery
-                                </button>
+                                  </button>
+                                  {highlightGPSButton && (
+                                    <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-error text-error-content px-4 py-2 rounded-xl text-xs font-bold shadow-xl z-50 whitespace-nowrap animate-in fade-in slide-in-from-bottom-4 duration-300 after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-transparent after:border-t-error">
+                                      👆 Click here to share your location!
+                                    </div>
+                                  )}
+                                </div>
                                 
                                 {hasSavedAddresses && (
                                     <button type="button" className="btn btn-xs btn-link text-base-content no-underline opacity-60 hover:opacity-100 mx-auto block" onClick={() => setShowAddressForm(false)}>

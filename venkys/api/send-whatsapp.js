@@ -3,12 +3,20 @@
 // POST body: { phone: "+9198xxxxxx", payload?: { text?: string, ...any } | { text: string } }
 // Requires env: WA_TOKEN, WA_PHONE_NUMBER_ID
 
+import { createRateLimiter } from './lib/rateLimiter.js'
+
+const rateLimiter = createRateLimiter({ routeName: 'send-whatsapp' })
+
 export default async function handler(req, res) {
   // CORS: Allow origins from CORS_ORIGIN env (comma-separated), or reflect the request origin if not set
   const allow = process.env.CORS_ORIGIN || ''
   const origin = req.headers?.origin || ''
   let allowOrigin = origin || '*'
-  if (allow && allow !== '*') {
+  
+  // Always allow localhost for development
+  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+    allowOrigin = origin
+  } else if (allow && allow !== '*') {
     const list = allow.split(',').map(s => s.trim()).filter(Boolean)
     allowOrigin = list.includes(origin) ? origin : list[0] || '*'
   }
@@ -17,9 +25,12 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   res.setHeader('Access-Control-Allow-Credentials', 'true')
   if (req.method === 'OPTIONS') {
-    res.status(204).end()
+    res.status(200).end()
     return
   }
+  // Apply rate limiting
+  await rateLimiter(req, res, () => {})
+  if (res.headersSent) return // Rate limit exceeded
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'method_not_allowed' })
     return

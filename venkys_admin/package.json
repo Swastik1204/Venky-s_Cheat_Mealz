@@ -13,6 +13,7 @@
   "dependencies": {
     "daisyui": "^5.1.24",
     "firebase": "^12.3.0",
+    "nodemailer": "^7.0.12",
     "razorpay": "^2.9.6",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

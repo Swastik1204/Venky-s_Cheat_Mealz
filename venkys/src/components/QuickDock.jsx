@@ -25,10 +25,15 @@ export default function QuickDock() {
 
   function goMenu() {
     if (location.pathname === '/') {
+      // If already on home, check if we have active filters/search
+      // If so, trigger a reset via navigation state hack
+      const event = new CustomEvent('reset-home-view')
+      window.dispatchEvent(event)
+      
       const el = document.getElementById('menu')
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } else {
-      navigate('/', { state: { scrollTo: 'menu' } })
+      navigate('/', { state: { scrollTo: 'menu', reset: true } })
     }
   }
 

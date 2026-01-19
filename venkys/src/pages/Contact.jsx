@@ -5,7 +5,6 @@ import { fetchBusinessProfile, fetchAppSettings } from '../lib/data'
 
 export default function Contact() {
   const [formData, setFormData] = useState({ name: '', email: '', message: '' })
-  const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [profile, setProfile] = useState(null)
   const [settings, setSettings] = useState(null)
@@ -282,7 +281,7 @@ export default function Contact() {
                       required
                     ></textarea>
                   </div>
-                  <button type="submit" className="btn btn-primary w-full gap-2" disabled={sending}>
+                  <button type="submit" className="btn btn-primary w-full gap-2">
                     <MdSend className="w-5 h-5" /> Send via WhatsApp
                   </button>
                   <p className="text-xs text-center opacity-60">Your message will be sent via WhatsApp for a faster response.</p>

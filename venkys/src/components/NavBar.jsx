@@ -299,7 +299,7 @@ export default function NavBar() {
               </div>
             </div>
 
-            {/* Right: Theme toggle (cart button removed; cart available via QuickDock) */}
+            {/* Right: Theme toggle */}
             <div className="shrink-0 flex items-center gap-2">
             <label aria-label="Toggle theme" className="btn btn-ghost btn-square swap swap-rotate">
               <input
@@ -335,7 +335,6 @@ export default function NavBar() {
               </Link>
             )}
 
-            {/* Cart button intentionally removed – handled by QuickDock */}
             </div>
           </div>
         </nav>

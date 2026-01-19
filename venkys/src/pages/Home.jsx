@@ -51,13 +51,13 @@ export default function Home() {
     if (typeof value !== 'number' || Number.isNaN(value)) return null
     return currencyFormatter.format(value)
   }, [currencyFormatter])
-  // Load profile and addresses for completion calculation
+  // Load profile and addresses for completion calculation - with fallback to auth user data
   useEffect(() => {
     if (!user) { setProfileForm({ displayName: '', phone: '', gender: '' }); setAddrState({ list: [], defaultId: null }); return }
     fetchUserProfile(user.uid).then(p => {
       setProfileForm({
-        displayName: p?.displayName || '',
-        phone: p?.phone || '',
+        displayName: p?.displayName || user.displayName || '',
+        phone: p?.phone || user.phoneNumber || '',
         gender: p?.gender || ''
       })
     })
@@ -202,33 +202,47 @@ export default function Home() {
     return () => { active = false; clearInterval(id) }
   }, [user])
 
-  // Respond to navigation state for scrolling (Home / Menu shortcuts)
+  // Respond to navigation state and custom events for scrolling/resetting
   useEffect(() => {
+    // Custom event listener for "soft" resets when already on page
+    const handleReset = () => {
+      setQ('')
+      setVegFilter('all')
+      setSortBy('default')
+      setSearchVisibleCount(24)
+    }
+    window.addEventListener('reset-home-view', handleReset)
+
     if (location.state?.reset) {
       setQ('')
       setVegFilter('all')
       setSortBy('default')
       setSearchVisibleCount(24)
-      navigate(location.pathname, { replace: true })
+      // If we only wanted to reset filters without scrolling to top:
+      // if (!location.state?.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+    
+    if (location.state?.scrollToTop) {
       window.scrollTo({ top: 0, behavior: 'smooth' })
-    } else if (location.state?.scrollToTop) {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-      navigate(location.pathname, { replace: true })
+      navigate(location.pathname, { replace: true, state: {} })
     } else if (location.state?.scrollTo === 'menu') {
       const el = document.getElementById('menu')
-      if (el) el.scrollIntoView({ behavior: 'smooth' })
-      navigate(location.pathname, { replace: true })
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      navigate(location.pathname, { replace: true, state: {} })
     } else if (location.hash === '#menu') {
       const el = document.getElementById('menu')
-      if (el) el.scrollIntoView({ behavior: 'smooth' })
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } else if (location.hash) {
       const id = decodeURIComponent(location.hash.slice(1))
       const el = document.getElementById(id)
       if (el) {
         el.style.scrollMarginTop = '84px'
+        // Use smooth scrolling for a subtle transition
         el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
     }
+    
+    return () => window.removeEventListener('reset-home-view', handleReset)
   }, [location, navigate])
 
   // Map Firestore categories to CategoriesBar items (id, label, optional href)
@@ -648,17 +662,15 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {user && showProfilePrompt ? (
-                <ProfileCompletionAlert
-                  user={user}
-                  profileForm={profileForm}
-                  addrState={addrState}
-                  onEdit={() => navigate('/profile', { state: { completeNow: true } })}
-                  className="bg-base-100/95 border-primary/30 rounded-2xl"
-                />
-              ) : null}
-            </div>
+            {user && showProfilePrompt ? (
+              <ProfileCompletionAlert
+                user={user}
+                profileForm={profileForm}
+                addrState={addrState}
+                onEdit={() => navigate('/profile', { state: { completeNow: true } })}
+                className="bg-base-100/95 border-primary/30 rounded-2xl"
+              />
+            ) : null}
           </section>
 
           <section aria-label="Browse categories" className="space-y-4">

@@ -1,7 +1,7 @@
 // Firebase app initialization for admin portal
 import { initializeApp } from 'firebase/app'
-import { getFirestore } from 'firebase/firestore'
-import { getAuth } from 'firebase/auth'
+import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
+import { getAuth, connectAuthEmulator } from 'firebase/auth'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -19,5 +19,19 @@ if (import.meta.env.DEV) {
 }
 
 export const app = initializeApp(firebaseConfig)
+
+// Initialize Firestore with explicit settings
 export const db = getFirestore(app)
+
+// Initialize Auth
 export const auth = getAuth(app)
+
+// Uncomment below to use emulators in development
+// if (import.meta.env.DEV && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+//   try {
+//     connectFirestoreEmulator(db, 'localhost', 8080)
+//     connectAuthEmulator(auth, 'http://localhost:9099')
+//   } catch (e) {
+//     console.warn('[firebase] Emulator connection failed:', e)
+//   }
+// }

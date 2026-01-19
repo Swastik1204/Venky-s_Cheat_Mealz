@@ -90,7 +90,21 @@ function MenuItemCardInner({ item }) {
 
   function handleAddClick(e) {
     if (item.storeClosed) return
-    add(item)
+
+    // Ensure we always have a stable id key (some callers may pass items without `id`).
+    const resolvedId =
+      item.id ||
+      item.itemId ||
+      item._id ||
+      item.docId ||
+      item.sku ||
+      `${item.categoryId || ''}:${item.name || ''}`
+    
+    const itemToAdd = resolvedId && item.id !== resolvedId
+      ? { ...item, id: resolvedId }
+      : item
+
+    add(itemToAdd)
     
     // Jump animation
     const btn = e.currentTarget
