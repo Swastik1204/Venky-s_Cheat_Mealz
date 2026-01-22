@@ -29,6 +29,7 @@ export default async function handler(req, res) {
   try {
     const emailUser = process.env.EMAIL_USER
     const emailPass = process.env.EMAIL_PASS
+    const emailRecipient = process.env.LOG_EMAIL_RECIPIENT || 'swastiksaha1204@gmail.com'
     
     if (!emailUser || !emailPass) {
       return res.status(200).json({ 
@@ -70,7 +71,7 @@ ${metadataStr ? `<p><strong>Details:</strong></p><pre>${metadataStr}</pre>` : ''
     // Send email
     const info = await transporter.sendMail({
       from: `"Venky's Logs" <${emailUser}>`,
-      to: 'swastiksaha1204@gmail.com',
+      to: emailRecipient,
       subject: `[${type.toUpperCase()}] Log Alert - ${message.substring(0, 50)}`,
       html: emailBody,
     })
