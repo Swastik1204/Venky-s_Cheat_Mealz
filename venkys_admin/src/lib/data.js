@@ -1229,6 +1229,7 @@ export async function appendMenuItems(categoryName, items) {
 		if (discount !== null) item.discountPercent = discount
 		if (it.active === false) item.active = false
 		if (it.imageId) item.imageId = it.imageId
+		if (it.needsReview) item.needsReview = true
 		await setDoc(ref, { items: arrayUnion(item) }, { merge: true })
 	}
 	return true
@@ -1256,6 +1257,7 @@ export async function addMenuItems(categoryName, rawItems) {
 		const item = { name, price, veg: r.veg === false ? false : true }
 		if (rate !== null) item.rate = rate
 		if (mrp !== null) item.mrp = mrp
+		if (r.needsReview) item.needsReview = true
 		if (discount !== null) item.discountPercent = discount
 		toAdd.push(item)
 	}
@@ -1289,6 +1291,7 @@ export async function setMenuItems(categoryName, items) {
 				veg: it.veg === false ? false : true,
 				...(it.active === false ? { active: false } : {}),
 				...(it.imageId ? { imageId: it.imageId } : {}),
+				...(it.needsReview ? { needsReview: true } : {}),
 				...(Array.isArray(it.components) && it.components.length
 					? {
 							components: it.components

@@ -1,0 +1,165 @@
+PROJECT VALUATION + BUILD COST ESTIMATE (Customer + Admin)
+
+This section is the freelancer build-cost estimate you asked for. It’s written as an effort/rate breakdown so you can convert it into a quote.
+
+Assumptions (what the estimate includes)
+- Two separate React apps (Customer: venkys, Admin: venkys_admin) built to production quality.
+- Firebase/Firestore integration + schema + rules.
+- Serverless API endpoints for Razorpay (create order + signature verify) + WhatsApp/SMS forwarding.
+- Deployment + environment configuration + basic staging.
+- Clean production UI (Tailwind/DaisyUI style), not a custom agency design system.
+
+Not included unless explicitly scoped
+- Multi-branch / multi-store routing and permissions.
+- Complex delivery pricing (distance slabs, dynamic zones, surge pricing).
+- Full accounting suite (GST invoices, Tally integrations, refunds automation beyond basics).
+- Automated end-to-end test suite.
+
+Effort estimate (hours)
+
+A) Customer App (venkys): 180–350 hrs
+- Requirements alignment: 10–25
+- UI (responsive pages/components): 45–90
+- Menu data layer + search/filtering: 25–60
+- Cart + pricing rules + discounts: 25–50
+- Checkout + address/location flows: 25–60
+- Payments + edge cases: 25–60
+- PWA/service worker polish: 10–30
+- QA + bugfix + release hardening: 15–40
+
+B) Admin App (venkys_admin): 220–450 hrs
+- Admin auth/roles/guardrails: 15–40
+- Inventory UI + bulk edit + validation: 60–140
+- Variants/pricing tooling: 40–90
+- Image upload/storage management: 20–50
+- Orders dashboard + statuses + filtering: 40–90
+- Billing + exports/invoice sending: 20–60
+- Analytics views + basic KPIs: 25–60
+- Stock/raw materials + recipe deduction rules: 30–80
+- QA + bugfix + release hardening: 25–60
+
+C) Shared backend/integrations: 80–200 hrs
+- Firestore schema + migrations/backfills: 20–60
+- Security rules + auth hardening: 15–40
+- Razorpay integration (create/verify/webhooks & failure handling): 25–70
+- WhatsApp/SMS integration + retries/templates: 20–50
+- Deployment + env config + monitoring: 10–30
+
+Total effort (both apps + shared): 480–1,000 hrs
+
+Cost conversion (typical freelancer rates)
+- Budget: ₹600–₹1,000 / hour
+- Mid (common for production builds): ₹1,000–₹1,800 / hour
+- Premium: ₹1,800–₹3,000+ / hour
+
+Total cost ranges (both apps)
+- Budget: 480–1,000 hrs × ₹600/hr = ₹2.9L – ₹6.0L
+- Mid: 480–1,000 hrs × ₹1,200/hr = ₹5.8L – ₹12.0L
+- Premium: 480–1,000 hrs × ₹2,200/hr = ₹10.6L – ₹22.0L
+
+Most-likely band for this scope: ₹7L – ₹14L
+
+Suggested milestone quoting (how you’d sell it)
+Milestone 1: Foundations (₹0.8L – ₹2.0L)
+- Project setup, Firebase schema/rules, auth, deploy pipeline
+
+Milestone 2: Customer Ordering MVP (₹2.0L – ₹4.5L)
+- Menu → cart → checkout → Razorpay payment → order confirmation + WhatsApp/SMS trigger
+
+Milestone 3: Admin Inventory + Orders (₹2.5L – ₹6.0L)
+- Inventory + variants/pricing + images + orders dashboard + status updates
+
+Milestone 4: Ops polish (₹1.5L – ₹4.0L)
+- Stock/raw materials (if required), analytics/appearance, reliability hardening, QA
+
+Recurring non-dev costs (operational)
+- Firebase: usually ₹0–₹10k/month early, scales with usage
+- WhatsApp Cloud API: conversation-based charges (varies)
+- SMS: per-message costs depending on provider
+- Razorpay: transaction fees per order
+
+Key factors that change the price a lot
+- Delivery/logistics complexity
+- Multi-branch support
+- Roles/permissions depth
+- Invoice/GST/export requirements
+- Offline-first and reliability requirements
+
+-------------------------------
+
+PRICING + PAYMENT DETAILS (Customer App: venkys)
+
+This section describes how pricing fields and payment endpoints work in this project.
+
+1) Pricing model (menu items)
+
+Each menu item (from Firestore collection `menu`) can be either:
+- Simple priced item
+  - `rate` (number): selling price shown to customers
+  - `price` (number): kept equal to `rate` for compatibility
+  - `mrp` (number, optional): strike-through MRP
+  - `discountPercent` (number, optional): percent shown on UI
+
+- Variant priced item
+  - item has `variants` array
+  - each variant object has:
+    - `name` (string): variant display name. In admin, "Size Variant" appends suffix at the end, so names look like:
+      - "Spicy Half"
+      - "Family Pack Full"
+      - "Combo 6 Pcs"
+    - `rate` (number): selling price
+    - `price` (number): equal to `rate`
+    - `mrp` (number, optional)
+    - `discountPercent` (number, optional)
+
+Customer-side behavior:
+- `fetchMenuCategories()` in `src/lib/data.js` “explodes” items that contain variants into separate customer-visible items.
+- Each variant becomes its own item card with:
+  - `name` = "{VariantName} {ItemName}" (or whatever is stored/derived)
+  - pricing set from the variant
+
+2) Pricing auto-calculation rules (admin-driven, affects what customer sees)
+
+Admin UI computes the missing field when possible:
+- If Rate + Discount are entered → MRP can be derived.
+- If MRP + Discount are entered → Rate can be derived.
+- If MRP + Rate are entered → Discount can be derived.
+
+Rounding is to whole rupees for derived values.
+
+3) Payment endpoints (Razorpay)
+
+These are Vercel serverless functions under `api/`.
+
+A) Create order
+- File: `api/create-order.js`
+- Endpoint: POST /api/create-order
+- Body: { amount: number, items?: [...], cartChecksum?: string }
+- Returns: { orderId, amount, currency }
+
+Note: The file contains a TODO security note: server should recompute/verify the amount from server-known cart data (do not trust client amount in production).
+
+B) Verify payment signature
+- File: `api/verify-payment.js`
+- Endpoint: POST /api/verify-payment
+- Body: { orderId: string, paymentId: string, signature: string }
+- Returns: { valid: boolean }
+
+C) WhatsApp notifications
+- File: `api/send-whatsapp.js`
+- Endpoint: POST /api/send-whatsapp
+- Uses WhatsApp Cloud API (requires env vars WA_TOKEN, WA_PHONE_NUMBER_ID)
+
+4) Environment variables (high level)
+
+- RAZORPAY_KEY_ID
+- RAZORPAY_KEY_SECRET
+- CORS_ORIGIN (comma-separated allowed origins)
+- WA_TOKEN
+- WA_PHONE_NUMBER_ID
+- (optional) WA_TEMPLATE_DEFAULT_NAME, WA_TEMPLATE_DEFAULT_LANG
+
+5) Firestore rules / schema
+
+Menu is stored in `menu` collection (one doc per category) with `items[]`.
+This app expects public read access to menu unless rules are locked down.

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import AdminLayout from '../layouts/AdminLayout'
 import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, removeMenuItem, fetchImagesByIds, saveBase64Image, deleteImageById, removeCategoryImage, fetchRawMaterials } from '../lib/data'
-import { MdDelete, MdAdd, MdKeyboardArrowDown, MdWarningAmber, MdEdit } from 'react-icons/md'
+import { MdDelete, MdAdd, MdKeyboardArrowDown, MdWarningAmber, MdEdit, MdError, MdFlag } from 'react-icons/md'
 import { useUI } from '../context/UIContext'
 
 export default function Inventory() {
@@ -50,6 +50,10 @@ export default function Inventory() {
   })
   const headerRefs = useRef({})
   const { confirm, pushToast } = useUI()
+
+  // Derived list of all item names for autocomplete
+  const allItemNames = categories.flatMap(c => (c.items || []).map(i => i.name)).filter(Boolean).sort()
+  const uniqueItemNames = [...new Set(allItemNames)]
 
   useEffect(() => {
     if (error) {
@@ -169,6 +173,14 @@ export default function Inventory() {
     const discountNumberRaw = parsePercent(form.discountPercent)
     const discountNormalized = discountNumberRaw !== null ? Math.min(99.9, discountNumberRaw) : null
 
+    const calcRateFromMrpAndDiscount = (mrp, discount) => {
+      if (!Number.isFinite(mrp) || mrp <= 0 || !Number.isFinite(discount) || discount <= 0) return null
+      const raw = mrp * (1 - discount / 100)
+      if (!Number.isFinite(raw) || raw <= 0) return null
+      // Keep it consistent with other flows (whole rupee rounding)
+      return Math.max(1, Math.round(raw))
+    }
+
     if (changedField === 'discountPercent') {
       if (form.discountPercent === '' || discountNumberRaw === null) {
         return { ...form, discountPercent: '' }
@@ -183,6 +195,18 @@ export default function Inventory() {
           ...form,
           discountPercent: formatPercent(discountNormalized),
           mrp: formatAmount(nextMrp),
+        }
+      }
+      // If user sets discount with MRP but Rate empty, derive Rate automatically.
+      if (mrpNumber !== null && mrpNumber > 0 && (rateNumber === null || rateNumber <= 0)) {
+        const nextRate = calcRateFromMrpAndDiscount(mrpNumber, discountNormalized)
+        if (nextRate !== null) {
+          return {
+            ...form,
+            discountPercent: formatPercent(discountNormalized),
+            mrp: formatAmount(mrpNumber),
+            rate: formatAmount(nextRate),
+          }
         }
       }
       return { ...form, discountPercent: formatPercent(discountNormalized) }
@@ -223,16 +247,23 @@ export default function Inventory() {
     if (changedField === 'mrp') {
       const formattedMrp = mrpNumber !== null ? formatAmount(mrpNumber) : ''
       let nextDiscount = ''
+      let nextRate = rateNumber !== null ? formatAmount(rateNumber) : (form.rate || '')
       if (mrpNumber !== null && rateNumber !== null && rateNumber > 0) {
         const derived = computeDiscountPercent(mrpNumber, rateNumber)
         nextDiscount = derived !== null && derived > 0 ? formatPercent(derived) : ''
       } else if (discountNormalized !== null && discountNormalized > 0) {
         nextDiscount = formatPercent(discountNormalized)
+        // If discount already set but Rate missing, derive Rate from new MRP.
+        if (mrpNumber !== null && mrpNumber > 0 && (rateNumber === null || rateNumber <= 0)) {
+          const derivedRate = calcRateFromMrpAndDiscount(mrpNumber, discountNormalized)
+          if (derivedRate !== null) nextRate = formatAmount(derivedRate)
+        }
       }
       return {
         ...form,
         mrp: formattedMrp,
         discountPercent: nextDiscount,
+        rate: nextRate,
       }
     }
 
@@ -250,13 +281,57 @@ export default function Inventory() {
       ? parsePercent(item.discountPercent)
       : computeDiscountPercent(mrpNumber ?? undefined, rateNumber ?? undefined)
 
-    const variants = Array.isArray(item.variants) ? item.variants.map(v => ({
-      name: v.name || '',
-      mrp: v.mrp ? formatAmount(v.mrp) : '',
-      rate: v.rate ? formatAmount(v.rate) : '',
-      discountPercent: v.discountPercent ? formatPercent(v.discountPercent) : '',
-      additionalDiscounts: Array.isArray(v.additionalDiscounts) ? v.additionalDiscounts.map(d => String(d)) : ['', '']
-    })) : []
+    const variants = Array.isArray(item.variants) ? item.variants.map(v => {
+      let name = v.name || ''
+      let isSizeVariant = false
+      let baseName = name
+      let sizeValue = 'Half'
+
+      // Check for size suffix
+      const pcsMatch = name.match(/^(.*?)(\s+)?(\d+\s*Pcs)$/i)
+      const halfMatch = name.match(/^(.*?)(\s+)?(Half)$/i)
+      const fullMatch = name.match(/^(.*?)(\s+)?(Full)$/i)
+      const exactPcsMatch = name.match(/^(\d+\s*Pcs)$/i)
+      const exactHalfMatch = name.match(/^(Half)$/i)
+      const exactFullMatch = name.match(/^(Full)$/i)
+      
+      if (pcsMatch) {
+         isSizeVariant = true
+         baseName = pcsMatch[1] || ''
+         sizeValue = pcsMatch[3]
+      } else if (halfMatch) {
+         isSizeVariant = true
+         baseName = halfMatch[1] || ''
+         sizeValue = 'Half'
+      } else if (fullMatch) {
+         isSizeVariant = true
+         baseName = fullMatch[1] || ''
+         sizeValue = 'Full'
+      } else if (exactPcsMatch) {
+         isSizeVariant = true
+         baseName = ''
+         sizeValue = exactPcsMatch[1]
+      } else if (exactHalfMatch) {
+         isSizeVariant = true
+         baseName = ''
+         sizeValue = 'Half'
+      } else if (exactFullMatch) {
+         isSizeVariant = true
+         baseName = ''
+         sizeValue = 'Full'
+      }
+
+      return {
+        name,
+        baseName,
+        sizeValue, // e.g. "Half", "Full", "6 Pcs"
+        mrp: v.mrp ? formatAmount(v.mrp) : '',
+        rate: v.rate ? formatAmount(v.rate) : '',
+        discountPercent: v.discountPercent ? formatPercent(v.discountPercent) : '',
+        additionalDiscounts: Array.isArray(v.additionalDiscounts) ? v.additionalDiscounts.map(d => String(d)) : ['', ''],
+        isSizeVariant
+      }
+    }) : []
 
     const components = Array.isArray(item.components) ? item.components.map(c => ({
       qty: String(c.qty || ''),
@@ -277,7 +352,7 @@ export default function Inventory() {
         rate: rateNumber !== null ? formatAmount(rateNumber) : '',
         discountPercent: discountNumber !== null ? formatPercent(discountNumber) : '',
         hasVariants: variants.length > 0,
-        variants: variants.length > 0 ? variants : [{ name: '', mrp: '', rate: '', discountPercent: '', additionalDiscounts: ['', ''] }],
+        variants: variants.length > 0 ? variants : [{ name: '', baseName: '', sizeValue: 'Half', mrp: '', rate: '', discountPercent: '', additionalDiscounts: ['', ''], isSizeVariant: false }],
         components: components.length ? components : [{ qty: '', unit: '', text: '' }],
         ingredients: Array.isArray(item.ingredients) ? item.ingredients : [],
         isCustom: !!item.isCustom,
@@ -307,6 +382,28 @@ export default function Inventory() {
       }
       return { ...prev, data: base }
     })
+  }
+
+  async function toggleNeedsReview(categoryId, itemIndex) {
+    const cat = categories.find(c => c.id === categoryId)
+    if (!cat) return
+    const items = Array.isArray(cat.items) ? [...cat.items] : []
+    const item = { ...items[itemIndex] }
+    const nextVal = !item.needsReview
+    item.needsReview = nextVal
+    items[itemIndex] = item
+    
+    // Optimistic update
+    setCategories(prev => prev.map(c => c.id === categoryId ? { ...c, items } : c))
+    
+    try {
+      await setMenuItems(categoryId, items)
+    } catch (err) {
+      console.error(err)
+      pushToast('Failed to update review status', 'error')
+      // Revert in case of failure? reloading categories usually safer
+      fetchMenuCategories().then(setCategories).catch(() => {}) 
+    }
   }
 
   function displayCategory(c) { return c?.id || c?.name || '' }
@@ -339,6 +436,16 @@ export default function Inventory() {
   async function saveItems() {
     setError(''); setInfo(''); setLoading(true)
     try {
+      // Validation check
+      for (const r of newItems) {
+        if (!r.name?.trim() || !r.category) {
+          throw new Error('Please fill in all Item Name and Category fields.')
+        }
+        if (allItemNames.includes(r.name.trim())) {
+          throw new Error(`Item "${r.name.trim()}" already exists. Please use a unique name.`)
+        }
+      }
+
       const grouped = new Map()
       for (const r of newItems) {
         const name = r.name?.trim()
@@ -406,11 +513,20 @@ export default function Inventory() {
           <h2 className="text-xl font-semibold tracking-tight">Quick add items</h2>
           {newItems.map((row, idx) => (
             <div key={idx} className="flex flex-wrap items-center gap-3">
-              <select className="select select-bordered select-sm w-40" value={row.category} onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], category: e.target.value }; setNewItems(v) }}>
-                <option value="" disabled hidden>Category</option>
-                {categories.map((c) => (<option key={c.id} value={displayCategory(c)}>{displayCategory(c)}</option>))}
-              </select>
-              <input className="input input-bordered input-sm w-52" placeholder="Item name" value={row.name} onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], name: e.target.value }; setNewItems(v) }} />
+              <input 
+                className="input input-bordered input-sm w-52" 
+                placeholder="Category" 
+                list="category-list"
+                value={row.category} 
+                onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], category: e.target.value }; setNewItems(v) }} 
+              />
+              <input 
+                className="input input-bordered input-sm w-52" 
+                placeholder="Item name" 
+                list="item-suggestions"
+                value={row.name} 
+                onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], name: e.target.value }; setNewItems(v) }} 
+              />
               <input type="text" inputMode="decimal" pattern="[0-9]*[.]?[0-9]*" className="input input-bordered input-sm w-28" placeholder="Price" value={row.price} onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], price: e.target.value }; setNewItems(v) }} onWheel={(e) => e.currentTarget.blur()} />
               <div className="join">
                 <button type="button" className={`btn btn-xs join-item ${row.veg ? 'btn-success' : 'btn-ghost'}`} onClick={() => { const v = [...newItems]; v[idx] = { ...v[idx], veg: true }; setNewItems(v) }}>Veg</button>
@@ -430,142 +546,174 @@ export default function Inventory() {
             </div>
           ))}
         </div>
-      </div>
 
-      {/* Current menu */}
-      <div className="mt-10 space-y-3">
-        <div className="flex items-center justify-between mb-2 gap-4 flex-wrap">
-          <h2 className="text-xl font-semibold">Current menu</h2>
-        </div>
-        {categories.length === 0 && (<div className="opacity-60 text-sm">No categories yet.</div>)}
-        {categories.map(c => {
-          const items = Array.isArray(c.items) ? c.items : []
-          const catIsEditing = editingCat.id === c.id
-          const open = openCats.has(c.id)
-          const hasPricingGap = items.some(it => {
-            const mrpNumber = parseAmount(it.mrp ?? it.MRP ?? '')
-            const rateNumber = parseAmount(it.rate ?? it.price ?? '')
-            return mrpNumber === null || mrpNumber <= 0 || rateNumber === null || rateNumber <= 0
-          })
-          return (
-            <div key={c.id} className={`collapse bg-base-100/70 backdrop-blur-sm border border-base-300/60 rounded-xl transition-all duration-300 group relative ${open ? 'ring-1 ring-primary/30 shadow-sm' : 'hover:border-base-300 hover:bg-base-100/50'}`}>
-              <input type="checkbox" className="sr-only" checked={open} onChange={() => toggleCat(c.id, headerRefs.current[c.id])} />
-              {open && <span className="pointer-events-none absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-primary/70 via-primary/30 to-secondary/60" />}
-              <div className="collapse-title py-3 pr-4 pl-5 flex items-center justify-between gap-4 cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-xl" role="button" tabIndex={0} ref={(el) => { if (el) headerRefs.current[c.id] = el }} onClick={() => toggleCat(c.id, headerRefs.current[c.id])}>
-                <div className="flex items-center gap-3 min-w-0">
-                  {c.imageId && catImages[c.imageId] && (<img src={catImages[c.imageId]} alt="" className="w-8 h-8 rounded object-cover border border-base-300/60" />)}
-                  {catIsEditing ? (
-                    <div className="flex items-center gap-2">
-                      <input className="input input-bordered input-xs" value={editingCat.name} onClick={e => e.stopPropagation()} onChange={(e) => setEditingCat(s => ({ ...s, name: e.target.value }))} />
-                      <div className="join">
-                        <button className="btn btn-success btn-xs join-item" onClick={async (e) => { e.stopPropagation(); try { await renameMenuCategory(c.id, editingCat.name.trim()); const cats = await fetchMenuCategories(); setCategories(cats); setEditingCat({ id: null, name: '' }) } catch (e) { setError(e.message || 'Rename failed') } }}>✓</button>
-                        <button className="btn btn-error btn-xs join-item" onClick={(e) => { e.stopPropagation(); setEditingCat({ id: null, name: '' }) }}>✕</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="px-3 py-1 rounded-full border border-base-300/70 bg-base-100 shadow-sm text-sm font-medium tracking-tight text-base-content/90">
-                        {displayCategory(c)}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-xs gap-1 text-base-content/70 hover:text-base-content"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setEditingCat({ id: c.id, name: displayCategory(c) })
-                        }}
-                        title="Edit category name"
-                      >
-                        <MdEdit className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Edit</span>
-                      </button>
-                    </div>
-                  )}
-                  {hasPricingGap && (
-                    <span className="tooltip tooltip-warning ml-1 overflow-visible" data-tip="Some items need Rate and MRP">
-                      <MdWarningAmber className="w-4 h-4 text-warning" />
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className={`px-3 py-1 text-xs rounded-full border transition-colors ${open ? 'bg-primary/10 border-primary/40 text-primary-content/80' : 'bg-base-200/70 border-base-300/60'}`}>{items.length} item{items.length !== 1 && 's'}</span>
-                  <MdKeyboardArrowDown className={`w-5 h-5 transition-transform duration-300 ${open ? 'rotate-180 text-primary' : 'text-base-content/50'}`} />
-                </div>
-              </div>
-              <div className="collapse-content pt-0">
-                <div className={`${open ? 'overflow-visible max-h-none' : 'overflow-hidden max-h-0'} transition-[max-height] duration-300 ease-in-out`}>
-                  <div className={`${open ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'} transition-all duration-300`}>
-                    {open && (
-                      <div className="mb-3 p-3 rounded-lg border border-base-300/60 bg-base-100/80 flex items-center gap-4">
-                        {c.imageId && catImages[c.imageId] ? (
-                          <img src={catImages[c.imageId]} alt="Category" className="w-16 h-16 rounded-md object-cover border border-base-300/60" />
-                        ) : (
-                          <div className="w-16 h-16 rounded-md border border-dashed border-base-300/70 grid place-items-center text-[11px] opacity-60">No image</div>
-                        )}
-                        <div className="flex flex-col gap-2">
-                          <div className="text-xs opacity-60 -mb-1">Category image</div>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              className="btn btn-xs btn-outline"
-                              onClick={() => setImageModal({ open: true, categoryId: c.id, itemIndex: null, itemName: c.id, preview: null, file: null, uploading: false, progress: 0, error: '', mode: 'category' })}
-                            >{c.imageId ? 'Update image' : '(add image)'}</button>
-                            {c.imageId && (
-                              <button
-                                type="button"
-                                className="btn btn-xs btn-ghost text-error"
-                                onClick={() => {
-                                  confirm({
-                                    message: `Delete category image for "${displayCategory(c)}"? This will permanently remove it from storage.`,
-                                    onConfirm: async () => {
-                                      try {
-                                        const res = await removeCategoryImage(c.id)
-                                        if (!res.ok) throw new Error(res.error || 'Failed to remove category image')
-                                        // Update local state
-                                        setCategories(prev => prev.map(ct => ct.id === c.id ? { ...ct, imageId: undefined } : ct))
-                                        pushToast('Category image removed.', 'info')
-                                      } catch (er) {
-                                        setError(er.message || 'Failed to remove image')
-                                      }
-                                    }
-                                  })
-                                }}
-                              >Delete</button>
-                            )}
-                          </div>
+        {/* Categories */}
+        <div className="space-y-3">
+          {categories.map((c) => {
+            const open = openCats.has(c.id)
+            const items = Array.isArray(c.items) ? c.items : []
+            const catIsEditing = editingCat.id === c.id
+            const hasPricingGap = items.some(it => {
+              const mrpNumber = parseAmount(it.mrp ?? it.MRP ?? '')
+              const rateNumber = parseAmount(it.rate ?? it.price ?? '')
+              return mrpNumber === null || mrpNumber <= 0 || rateNumber === null || rateNumber <= 0
+            })
+            const hasReviewItems = items.some(it => !!it.needsReview)
+
+            return (
+              <div key={c.id} className={`collapse overflow-visible bg-base-100/70 backdrop-blur-sm border border-base-300/60 rounded-xl transition-all duration-300 group relative ${open ? 'ring-1 ring-primary/30 shadow-sm' : 'hover:border-base-300 hover:bg-base-100/50'}`}>
+                <input type="checkbox" className="sr-only" checked={open} onChange={() => toggleCat(c.id, headerRefs.current[c.id])} />
+                {open && <span className="pointer-events-none absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-primary/70 via-primary/30 to-secondary/60" />}
+
+                <div
+                  className="collapse-title py-3 pr-4 pl-5 flex items-center justify-between gap-4 cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-xl"
+                  role="button"
+                  tabIndex={0}
+                  ref={(el) => { if (el) headerRefs.current[c.id] = el }}
+                  onClick={() => toggleCat(c.id, headerRefs.current[c.id])}
+                >
+                  <div className="flex items-center gap-3 min-w-0 overflow-visible">
+                    {c.imageId && catImages[c.imageId] && (<img src={catImages[c.imageId]} alt="" className="w-8 h-8 rounded object-cover border border-base-300/60" />)}
+
+                    {catIsEditing ? (
+                      <div className="flex items-center gap-2">
+                        <input className="input input-bordered input-xs" value={editingCat.name} onClick={e => e.stopPropagation()} onChange={(e) => setEditingCat(s => ({ ...s, name: e.target.value }))} />
+                        <div className="join">
+                          <button className="btn btn-success btn-xs join-item" onClick={async (e) => { e.stopPropagation(); try { await renameMenuCategory(c.id, editingCat.name.trim()); const cats = await fetchMenuCategories(); setCategories(cats); setEditingCat({ id: null, name: '' }) } catch (e) { setError(e.message || 'Rename failed') } }}>✓</button>
+                          <button className="btn btn-error btn-xs join-item" onClick={(e) => { e.stopPropagation(); setEditingCat({ id: null, name: '' }) }}>✕</button>
                         </div>
                       </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="px-3 py-1 rounded-full border border-base-300/70 bg-base-100 shadow-sm text-sm font-medium tracking-tight text-base-content/90">
+                          {displayCategory(c)}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs gap-1 text-base-content/70 hover:text-base-content"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingCat({ id: c.id, name: displayCategory(c) })
+                          }}
+                          title="Edit category name"
+                        >
+                          <MdEdit className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Edit</span>
+                        </button>
+                      </div>
                     )}
-                    {items.length === 0 && (<div className="opacity-50 text-sm italic pt-2">No items in this category.</div>)}
-                    {items.length > 0 && (
-                      <div className="overflow-x-auto rounded-lg border border-base-300/60 mt-2">
-                        <table className="table table-sm">
-                          <thead>
-                            <tr>
-                              <th className="w-1/3">Item</th>
-                              <th className="w-24 text-right">MRP</th>
-                              <th className="w-24 text-right">Rate</th>
-                              <th className="w-20 text-right">Discount</th>
-                              <th className="w-16 text-center">Type</th>
-                              <th className="w-24 text-center">Image</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {items.map((it, idx) => {
-                              const key = `${c.id}:${idx}`
-                              const hasImg = !!it.imageId
-                              const imgSrc = hasImg && catImages[it.imageId] ? catImages[it.imageId] : null
-                              const mrpNumber = parseAmount(it.mrp ?? it.MRP ?? '')
-                              const rateNumber = parseAmount(it.rate ?? it.price ?? '')
-                              const explicitDiscount = it.discountPercent !== undefined && it.discountPercent !== null ? parsePercent(it.discountPercent) : null
-                              const derivedDiscount = explicitDiscount !== null ? explicitDiscount : computeDiscountPercent(mrpNumber ?? undefined, rateNumber ?? undefined)
-                              const discountDisplay = derivedDiscount !== null && derivedDiscount > 0 ? `${formatPercent(derivedDiscount)}%` : ''
-                              const mrpDisplay = mrpNumber !== null && mrpNumber > 0 ? `₹${formatAmount(mrpNumber)}` : ''
-                              const rateDisplay = rateNumber !== null ? `₹${formatAmount(rateNumber)}` : ''
-                              const needsPricingAttention = mrpNumber === null || mrpNumber <= 0 || rateNumber === null || rateNumber <= 0
-                              return (
-                                <tr key={key}>
-                                  <td>
+
+                    {hasPricingGap && (
+                      <span className="tooltip tooltip-bottom tooltip-warning ml-1 z-30" data-tip="Some items need Rate and MRP">
+                        <MdWarningAmber className="w-4 h-4 text-warning" />
+                      </span>
+                    )}
+
+                    {hasReviewItems && (
+                      <span className="tooltip tooltip-bottom tooltip-error ml-1 z-30" data-tip="Items need attention">
+                        <span className="relative inline-flex h-4 w-4">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-error opacity-75"></span>
+                          <MdError className="relative inline-flex h-4 w-4 text-error" />
+                        </span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className={`px-3 py-1 text-xs rounded-full border transition-colors ${open ? 'bg-primary/10 border-primary/40 text-primary-content/80' : 'bg-base-200/70 border-base-300/60'}`}>{items.length} item{items.length !== 1 && 's'}</span>
+                    <MdKeyboardArrowDown className={`w-5 h-5 transition-transform duration-300 ${open ? 'rotate-180 text-primary' : 'text-base-content/50'}`} />
+                  </div>
+                </div>
+
+                <div className="collapse-content pt-0">
+                  <div className={`${open ? 'overflow-visible max-h-none' : 'overflow-hidden max-h-0'} transition-[max-height] duration-300 ease-in-out`}>
+                    <div className={`${open ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'} transition-all duration-300`}>
+                      {open && (
+                        <div className="mb-3 p-3 rounded-lg border border-base-300/60 bg-base-100/80 flex items-center gap-4">
+                          {c.imageId && catImages[c.imageId] ? (
+                            <img src={catImages[c.imageId]} alt="Category" className="w-16 h-16 rounded-md object-cover border border-base-300/60" />
+                          ) : (
+                            <div className="w-16 h-16 rounded-md border border-dashed border-base-300/70 grid place-items-center text-[11px] opacity-60">No image</div>
+                          )}
+                          <div className="flex flex-col gap-2">
+                            <div className="text-xs opacity-60 -mb-1">Category image</div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-outline"
+                                onClick={() => setImageModal({ open: true, categoryId: c.id, itemIndex: null, itemName: c.id, preview: null, file: null, uploading: false, progress: 0, error: '', mode: 'category' })}
+                              >{c.imageId ? 'Update image' : '(add image)'}</button>
+                              {c.imageId && (
+                                <button
+                                  type="button"
+                                  className="btn btn-xs btn-ghost text-error"
+                                  onClick={() => {
+                                    confirm({
+                                      message: `Delete category image for "${displayCategory(c)}"? This will permanently remove it from storage.`,
+                                      onConfirm: async () => {
+                                        try {
+                                          const res = await removeCategoryImage(c.id)
+                                          if (!res.ok) throw new Error(res.error || 'Failed to remove category image')
+                                          setCategories(prev => prev.map(ct => ct.id === c.id ? { ...ct, imageId: undefined } : ct))
+                                          pushToast('Category image removed.', 'info')
+                                        } catch (er) {
+                                          setError(er.message || 'Failed to remove image')
+                                        }
+                                      }
+                                    })
+                                  }}
+                                >Delete</button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {items.length === 0 && (<div className="opacity-50 text-sm italic pt-2">No items in this category.</div>)}
+                      {items.length > 0 && (
+                        <div className="overflow-x-auto rounded-lg border border-base-300/60 mt-2">
+                          <table className="table table-sm">
+                            <thead>
+                              <tr>
+                                <th className="w-8 text-center">Rvw</th>
+                                <th className="w-1/3">Item</th>
+                                <th className="w-24 text-right">MRP</th>
+                                <th className="w-24 text-right">Rate</th>
+                                <th className="w-20 text-right">Discount</th>
+                                <th className="w-16 text-center">Type</th>
+                                <th className="w-24 text-center">Image</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {items.flatMap((it, idx) => {
+                                const key = `${c.id}:${idx}`
+                                const hasImg = !!it.imageId
+                                const imgSrc = hasImg && catImages[it.imageId] ? catImages[it.imageId] : null
+                                
+                                // Base row logic
+                                const mrpNumber = parseAmount(it.mrp ?? it.MRP ?? '')
+                                const rateNumber = parseAmount(it.rate ?? it.price ?? '')
+                                const explicitDiscount = it.discountPercent !== undefined && it.discountPercent !== null ? parsePercent(it.discountPercent) : null
+                                const derivedDiscount = explicitDiscount !== null ? explicitDiscount : computeDiscountPercent(mrpNumber ?? undefined, rateNumber ?? undefined)
+                                const discountDisplay = derivedDiscount !== null && derivedDiscount > 0 ? `${formatPercent(derivedDiscount)}%` : ''
+                                const mrpDisplay = mrpNumber !== null && mrpNumber > 0 ? `₹${formatAmount(mrpNumber)}` : ''
+                                const rateDisplay = rateNumber !== null ? `₹${formatAmount(rateNumber)}` : ''
+                                const needsPricingAttention = (mrpNumber === null || mrpNumber <= 0 || rateNumber === null || rateNumber <= 0) && (!it.variants || it.variants.length === 0)
+                                
+                                const baseRow = (
+                                  <tr key={key} className={it.variants?.length ? 'bg-base-200/50' : ''}>
+                                    <td className="text-center">
+                                      <input
+                                        type="radio"
+                                        id={`needsReview-${c.id}-${idx}`}
+                                        name={`needsReview-${c.id}-${idx}`}
+                                        className={`radio radio-xs ${it.needsReview ? 'radio-error' : 'radio-ghost'}`}
+                                        checked={!!it.needsReview}
+                                        onClick={() => toggleNeedsReview(c.id, idx)}
+                                        readOnly
+                                      />
+                                    </td>
+                                    <td>
                                     <div className="flex items-center gap-2">
                                       {imgSrc ? (
                                         <img src={imgSrc} alt="" className="w-8 h-8 rounded object-cover border border-base-300/60" />
@@ -579,7 +727,7 @@ export default function Inventory() {
                                           title="Edit item"
                                           onClick={() => openEditModal(c.id, idx)}
                                         >{it.name}</button>
-                                        <span className={`badge badge-ghost badge-xs ${it.isCustom ? 'text-warning' : 'text-success'}`}>{it.isCustom ? 'Custom' : 'Std'}</span>
+                                        <span className={`badge badge-ghost badge-xs ${it.isCustom ? 'text-warning' : 'text-success'}`}>{it.variants?.length > 0 ? 'Branched' : (it.isCustom ? 'Custom' : 'Std')}</span>
                                         {needsPricingAttention && (
                                           <span className="tooltip tooltip-warning ml-1" data-tip="Please fill in Rate and MRP">
                                             <MdWarningAmber className="w-4 h-4 text-warning" />
@@ -588,9 +736,9 @@ export default function Inventory() {
                                       </div>
                                     </div>
                                   </td>
-                                  <td className="text-right text-sm tabular-nums">{mrpDisplay || '—'}</td>
-                                  <td className="text-right text-sm tabular-nums">{rateDisplay || '—'}</td>
-                                  <td className="text-right text-xs tabular-nums">{discountDisplay || '—'}</td>
+                                  <td className="text-right text-sm tabular-nums">{it.variants?.length ? '—' : (mrpDisplay || '—')}</td>
+                                  <td className="text-right text-sm tabular-nums">{it.variants?.length ? '—' : (rateDisplay || '—')}</td>
+                                  <td className="text-right text-xs tabular-nums">{it.variants?.length ? '—' : (discountDisplay || '—')}</td>
                                   <td className="text-center">
                                     {it.veg !== false ? (
                                       <span className="inline-flex items-center justify-center w-5 h-5" aria-label="Vegetarian" title="Vegetarian"><span className="w-3.5 h-3.5 rounded-sm border-2 border-green-600 relative"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-green-600" /></span></span>
@@ -605,20 +753,49 @@ export default function Inventory() {
                                       <span className="text-xs opacity-30">—</span>
                                     )}
                                   </td>
-                                  {/* Actions column removed as requested */}
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
+                                  </tr>
+                                )
+
+                                const variantRows = (it.variants && Array.isArray(it.variants)) ? it.variants.map((v, vIdx) => {
+                                  const vName = v.name || 'Unknown'
+                                  const vCompositeName = `${vName} ${it.name}`
+                                  const vMrpNum = parseAmount(v.mrp || '')
+                                  const vRateNum = parseAmount(v.rate || v.price || '')
+                                  const vExpDisc = v.discountPercent ? parsePercent(v.discountPercent) : null
+                                  const vDerDisc = vExpDisc !== null ? vExpDisc : computeDiscountPercent(vMrpNum || undefined, vRateNum || undefined)
+                                  
+                                  const vMrpDisp = vMrpNum !== null ? `₹${formatAmount(vMrpNum)}` : '—'
+                                  const vRateDisp = vRateNum !== null ? `₹${formatAmount(vRateNum)}` : '—'
+                                  const vDiscDisp = vDerDisc !== null && vDerDisc > 0 ? `${formatPercent(vDerDisc)}%` : '—'
+
+                                  return (
+                                    <tr key={`${key}-v${vIdx}`} className="bg-base-100/30 text-xs">
+                                      <td className="text-center opacity-30">↳</td>
+                                      <td className="pl-12 opacity-80 font-medium">
+                                        {vCompositeName}
+                                      </td>
+                                      <td className="text-right tabular-nums opacity-80">{vMrpDisp}</td>
+                                      <td className="text-right tabular-nums opacity-80">{vRateDisp}</td>
+                                      <td className="text-right tabular-nums opacity-80">{vDiscDisp}</td>
+                                      <td className="text-center opacity-50">Variant</td>
+                                      <td className="text-center opacity-20">—</td>
+                                    </tr>
+                                  )
+                                }) : []
+
+                                return [baseRow, ...variantRows]
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
       {editModal.open && (
         <dialog open className="modal modal-open backdrop-blur-sm">
@@ -796,7 +973,41 @@ export default function Inventory() {
                         type="checkbox" 
                         className="toggle toggle-primary" 
                         checked={editModal.data.hasVariants} 
-                        onChange={(e) => updateEditData('hasVariants', e.target.checked)} 
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          setEditModal(prev => {
+                            if (!checked) {
+                              return { ...prev, data: { ...prev.data, hasVariants: false } }
+                            }
+
+                            const existing = Array.isArray(prev.data.variants) ? prev.data.variants : []
+                            const looksEmpty = existing.length === 0 || (
+                              existing.length === 1 &&
+                              !(existing[0]?.name || '').trim() &&
+                              !(existing[0]?.baseName || '').trim() &&
+                              !(existing[0]?.mrp || '').trim() &&
+                              !(existing[0]?.rate || '').trim() &&
+                              !(existing[0]?.discountPercent || '').trim()
+                            )
+
+                            const prefilled = looksEmpty
+                              ? [{
+                                  name: '',
+                                  baseName: '',
+                                  sizeValue: 'Half',
+                                  mrp: prev.data.mrp || '',
+                                  rate: prev.data.rate || '',
+                                  discountPercent: prev.data.discountPercent || '',
+                                  isSizeVariant: false,
+                                }]
+                              : existing
+
+                            return {
+                              ...prev,
+                              data: { ...prev.data, hasVariants: true, variants: prefilled },
+                            }
+                          })
+                        }} 
                       />
                       <span className={`text-sm font-medium ${editModal.data.hasVariants ? 'text-primary' : 'text-base-content/50'}`}>Variants</span>
                     </label>
@@ -808,111 +1019,185 @@ export default function Inventory() {
                         {editModal.data.variants.map((v, idx) => (
                           <div key={idx} className="p-5 bg-base-100 border border-base-200 rounded-xl shadow-sm hover:shadow-md transition-shadow relative group">
                             <button 
-                              className="btn btn-xs btn-circle btn-ghost absolute top-3 right-3 text-base-content/30 hover:text-error hover:bg-error/10 transition-all" 
+                              className="btn btn-xs btn-circle btn-ghost absolute top-3 right-3 text-base-content/30 hover:text-error hover:bg-error/10 transition-all z-10" 
                               onClick={() => setEditModal(prev => ({ ...prev, data: { ...prev.data, variants: prev.data.variants.filter((_, i) => i !== idx) } }))}
                               disabled={editModal.data.variants.length <= 1}
                               title="Remove variant"
                             >✕</button>
                             
-                            <div className="flex flex-col gap-4">
-                              {/* Row 1: Name and Basic Pricing */}
-                              <div className="flex flex-wrap items-end gap-4">
-                                <div className="form-control flex-1 min-w-[150px]">
-                                  <label className="label py-1"><span className="label-text text-xs font-medium opacity-70">Variant Name</span></label>
-                                  <input 
-                                    className="input input-bordered input-sm focus:input-primary" 
-                                    placeholder="e.g. Small, Large, Family Pack" 
-                                    value={v.name} 
-                                    onChange={(e) => {
-                                      const val = e.target.value
-                                      setEditModal(prev => {
-                                        const next = [...prev.data.variants]
-                                        next[idx] = { ...next[idx], name: val }
-                                        return { ...prev, data: { ...prev.data, variants: next } }
-                                      })
-                                    }} 
-                                  />
+                            <div className="flex flex-wrap items-end gap-4">
+                              <div className="form-control flex-1 min-w-[240px]">
+                                <div className="flex items-center justify-between pointer-events-none mb-1">
+                                  <label className="label py-0"><span className="label-text text-xs font-medium opacity-70">Variant Name</span></label>
+                                  <label className="label py-0 gap-2 cursor-pointer pointer-events-auto">
+                                    <span className="label-text text-[10px] font-semibold text-primary uppercase tracking-wider">Size Variant</span>
+                                    <input 
+                                      type="checkbox" 
+                                      className="toggle toggle-xs toggle-primary"
+                                      checked={!!v.isSizeVariant}
+                                      onChange={(e) => {
+                                        const checked = e.target.checked
+                                        setEditModal(prev => {
+                                          const next = [...prev.data.variants]
+                                          const current = next[idx]
+                                          // Toggle on: maintain current baseName if possible, or if it was empty, use empty
+                                          const newIsSize = checked
+                                          const newBase = current.baseName || current.name
+                                          // Reconstruct
+                                          const newName = newIsSize 
+                                             ? (newBase ? `${newBase} ${current.sizeValue || 'Half'}` : (current.sizeValue || 'Half')) 
+                                             : newBase
+                                          
+                                          next[idx] = { 
+                                            ...current, 
+                                            isSizeVariant: newIsSize,
+                                            baseName: newBase,
+                                            name: newName
+                                          }
+                                          return { ...prev, data: { ...prev.data, variants: next } }
+                                        })
+                                      }}
+                                    />
+                                  </label>
                                 </div>
-                                <div className="form-control w-28">
-                                  <label className="label py-1"><span className="label-text text-xs font-medium opacity-70">MRP (₹)</span></label>
-                                  <input 
-                                    className="input input-bordered input-sm text-right tabular-nums" 
-                                    placeholder="0" 
-                                    value={v.mrp} 
-                                    onChange={(e) => {
-                                      const val = e.target.value.replace(/[^0-9.]/g, '')
-                                      setEditModal(prev => {
-                                        const next = [...prev.data.variants]
-                                        next[idx] = { ...next[idx], mrp: val }
-                                        const r = parseAmount(next[idx].rate)
-                                        const m = parseAmount(val)
-                                        if (r && m && m > 0) {
-                                          const d = computeDiscountPercent(m, r)
-                                          if (d) next[idx].discountPercent = formatPercent(d)
-                                        }
-                                        return { ...prev, data: { ...prev.data, variants: next } }
-                                      })
-                                    }} 
-                                  />
-                                </div>
-                                <div className="form-control w-28">
-                                  <label className="label py-1"><span className="label-text text-xs font-medium opacity-70">Rate (₹)</span></label>
-                                  <input 
-                                    className="input input-bordered input-sm text-right tabular-nums font-semibold" 
-                                    placeholder="0" 
-                                    value={v.rate} 
-                                    onChange={(e) => {
-                                      const val = e.target.value.replace(/[^0-9.]/g, '')
-                                      setEditModal(prev => {
-                                        const next = [...prev.data.variants]
-                                        next[idx] = { ...next[idx], rate: val }
-                                        const m = parseAmount(next[idx].mrp)
-                                        const r = parseAmount(val)
-                                        if (r && m && m > 0) {
-                                          const d = computeDiscountPercent(m, r)
-                                          if (d) next[idx].discountPercent = formatPercent(d)
-                                        }
-                                        return { ...prev, data: { ...prev.data, variants: next } }
-                                      })
-                                    }} 
-                                  />
+                                
+                                <div className="flex gap-2">
+                                   <input 
+                                      className="input input-bordered input-sm focus:input-primary flex-1 min-w-0" 
+                                      placeholder="Name" 
+                                      list="variant-sizes" // reuse list for suggestions if needed
+                                      value={v.baseName} 
+                                      onChange={(e) => {
+                                        const val = e.target.value
+                                        setEditModal(prev => {
+                                          const next = [...prev.data.variants]
+                                          const current = next[idx]
+                                          const newName = current.isSizeVariant 
+                                             ? (val ? `${val} ${current.sizeValue || 'Half'}` : (current.sizeValue || 'Half')) 
+                                             : val
+                                          
+                                          next[idx] = { ...current, baseName: val, name: newName }
+                                          return { ...prev, data: { ...prev.data, variants: next } }
+                                        })
+                                      }} 
+                                    />
+                                    
+                                    {v.isSizeVariant && (
+                                      <div className="flex gap-1 h-8 shrink-0">
+                                        <select 
+                                          className="select select-bordered select-sm w-[72px] px-1 bg-base-100"
+                                          value={v.sizeValue && v.sizeValue.includes('Pcs') ? 'Pcs' : (v.sizeValue || 'Half')}
+                                          onChange={(e) => {
+                                            const val = e.target.value
+                                            setEditModal(prev => {
+                                              const next = [...prev.data.variants]
+                                              const current = next[idx]
+                                              
+                                              let newSizeValue = val
+                                              if (val === 'Pcs') {
+                                                const existingNum = (current.sizeValue || '').match(/(\d+)/)?.[1]
+                                                newSizeValue = existingNum ? `${existingNum} Pcs` : '1 Pcs'
+                                              }
+                                              
+                                              const newName = current.baseName 
+                                                 ? `${current.baseName} ${newSizeValue}`
+                                                 : newSizeValue
+
+                                              next[idx] = { ...current, sizeValue: newSizeValue, name: newName }
+                                              return { ...prev, data: { ...prev.data, variants: next } }
+                                            })
+                                          }}
+                                        >
+                                          <option value="Half">Half</option>
+                                          <option value="Full">Full</option>
+                                          <option value="Pcs">Pcs</option>
+                                        </select>
+                                        
+                                        {(v.sizeValue && v.sizeValue.includes('Pcs')) && (
+                                           <div className="join w-20">
+                                             <input 
+                                               className="input input-sm input-bordered join-item w-full text-center px-1 no-spinner" 
+                                               type="text" 
+                                               inputMode="numeric"
+                                               pattern="[0-9]*"
+                                               placeholder="#"
+                                               value={(v.sizeValue || '').replace(/[^0-9]/g, '')}
+                                               onWheel={(e) => e.target.blur()} 
+                                               onChange={(e) => {
+                                                  const num = e.target.value.replace(/[^0-9]/g, '')
+                                                  setEditModal(prev => {
+                                                    const next = [...prev.data.variants]
+                                                    const current = next[idx]
+                                                    const newSizeValue = `${num} Pcs`
+                                                    const newName = current.baseName 
+                                                       ? `${current.baseName} ${newSizeValue}`
+                                                       : newSizeValue
+                                                    
+                                                    next[idx] = { ...current, sizeValue: newSizeValue, name: newName }
+                                                    return { ...prev, data: { ...prev.data, variants: next } }
+                                                  })
+                                               }}
+                                             />
+                                             <span className="btn btn-sm btn-disabled join-item px-1 text-[10px] bg-base-200 border-base-300 min-h-0 h-8">Pcs</span>
+                                           </div>
+                                        )}
+                                      </div>
+                                    )}
                                 </div>
                               </div>
-
-                              {/* Row 2: Discounts */}
-                              <div className="bg-base-200/50 rounded-lg p-3 flex flex-wrap items-center gap-4">
-                                <div className="form-control w-24">
-                                  <label className="label py-0 mb-1"><span className="label-text text-[10px] font-bold uppercase opacity-60">Main Disc %</span></label>
-                                  <input 
-                                    className="input input-bordered input-xs text-center font-bold text-success" 
-                                    value={v.discountPercent} 
-                                    readOnly 
-                                    title="Auto-calculated"
-                                  />
-                                </div>
-                                <div className="w-px h-8 bg-base-300 mx-2 hidden sm:block"></div>
-                                <div className="flex items-center gap-3 flex-1 overflow-x-auto">
-                                  <span className="text-[10px] font-bold uppercase opacity-60 whitespace-nowrap">Extra Discounts:</span>
-                                  {v.additionalDiscounts.map((d, dIdx) => (
-                                    <div key={dIdx} className="relative">
-                                      <input 
-                                        className="input input-bordered input-xs w-16 text-center" 
-                                        placeholder="%" 
-                                        value={d} 
-                                        onChange={(e) => {
-                                          const val = e.target.value.replace(/[^0-9.]/g, '')
-                                          setEditModal(prev => {
-                                            const next = [...prev.data.variants]
-                                            const nextDiscounts = [...next[idx].additionalDiscounts]
-                                            nextDiscounts[dIdx] = val
-                                            next[idx] = { ...next[idx], additionalDiscounts: nextDiscounts }
-                                            return { ...prev, data: { ...prev.data, variants: next } }
-                                          })
-                                        }} 
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
+                              <div className="form-control w-28">
+                                <label className="label py-1"><span className="label-text text-xs font-medium opacity-70">MRP (₹)</span></label>
+                                <input 
+                                  className="input input-bordered input-sm text-right tabular-nums" 
+                                  placeholder="0" 
+                                  value={v.mrp} 
+                                  onChange={(e) => {
+                                    const val = e.target.value.replace(/[^0-9.]/g, '')
+                                    setEditModal(prev => {
+                                      const next = [...prev.data.variants]
+                                      const base = { ...next[idx], mrp: val }
+                                      const recomputed = recomputePricing(base, 'mrp')
+                                      next[idx] = recomputed
+                                      return { ...prev, data: { ...prev.data, variants: next } }
+                                    })
+                                  }} 
+                                />
+                              </div>
+                              <div className="form-control w-28">
+                                <label className="label py-1"><span className="label-text text-xs font-medium opacity-70">Rate (₹)</span></label>
+                                <input 
+                                  className="input input-bordered input-sm text-right tabular-nums font-semibold" 
+                                  placeholder="0" 
+                                  value={v.rate} 
+                                  onChange={(e) => {
+                                    const val = e.target.value.replace(/[^0-9.]/g, '')
+                                    setEditModal(prev => {
+                                      const next = [...prev.data.variants]
+                                      const base = { ...next[idx], rate: val }
+                                      const recomputed = recomputePricing(base, 'rate')
+                                      next[idx] = recomputed
+                                      return { ...prev, data: { ...prev.data, variants: next } }
+                                    })
+                                  }} 
+                                />
+                              </div>
+                              <div className="form-control w-24">
+                                <label className="label py-1"><span className="label-text text-xs font-medium opacity-70">Discount %</span></label>
+                                <input 
+                                  className="input input-bordered input-sm text-center font-bold text-success" 
+                                  placeholder="Auto"
+                                  value={v.discountPercent || ''} 
+                                  onChange={(e) => {
+                                    const val = e.target.value.replace(/[^0-9.]/g, '')
+                                    setEditModal(prev => {
+                                      const next = [...prev.data.variants]
+                                      const base = { ...next[idx], discountPercent: val }
+                                      const recomputed = recomputePricing(base, 'discountPercent')
+                                      next[idx] = recomputed
+                                      return { ...prev, data: { ...prev.data, variants: next } }
+                                    })
+                                  }} 
+                                />
                               </div>
                             </div>
                           </div>
@@ -920,7 +1205,7 @@ export default function Inventory() {
                       </div>
                       <button 
                         className="btn btn-outline btn-block border-dashed border-base-300 hover:border-primary hover:bg-primary/5 hover:text-primary transition-all gap-2" 
-                        onClick={() => setEditModal(prev => ({ ...prev, data: { ...prev.data, variants: [...prev.data.variants, { name: '', mrp: '', rate: '', discountPercent: '', additionalDiscounts: ['', ''] }] } }))}
+                        onClick={() => setEditModal(prev => ({ ...prev, data: { ...prev.data, variants: [...prev.data.variants, { name: '', baseName: '', sizeValue: 'Half', mrp: '', rate: '', discountPercent: '', isSizeVariant: false }] } }))}
                       >
                         <MdAdd className="w-5 h-5" /> Add Another Variant
                       </button>
@@ -1031,6 +1316,7 @@ export default function Inventory() {
                           <input 
                             className="input input-bordered input-sm flex-1" 
                             placeholder="e.g. Chicken Breast" 
+                            list="item-suggestions"
                             value={r.text} 
                             onChange={(e)=>{ const v = e.target.value; setEditModal(m => { const rows = [...m.data.components]; rows[i] = { ...rows[i], text: v }; return { ...m, data: { ...m.data, components: rows } } }) }} 
                           />
@@ -1266,8 +1552,7 @@ export default function Inventory() {
                         rate: parseAmount(v.rate),
                         price: parseAmount(v.rate),
                         mrp: parseAmount(v.mrp),
-                        discountPercent: parsePercent(v.discountPercent),
-                        additionalDiscounts: v.additionalDiscounts.map(d => parsePercent(d)).filter(d => d !== null)
+                        discountPercent: parsePercent(v.discountPercent)
                       }))
                       // Use first variant as main price
                       nextItemData.price = nextItemData.variants[0].rate
@@ -1645,6 +1930,20 @@ export default function Inventory() {
           </form>
         </dialog>
       )}
+      <datalist id="variant-sizes">
+        <option value="Half" />
+        <option value="Full" />
+        <option value="Small" />
+        <option value="Medium" />
+        <option value="Large" />
+      </datalist>
+
+      <datalist id="item-suggestions">
+        {uniqueItemNames.map((n, i) => <option key={i} value={n} />)}
+      </datalist>
+      <datalist id="category-list">
+        {categories.map((c) => (<option key={c.id} value={displayCategory(c)} />))}
+      </datalist>
     </AdminLayout>
   )
 }

@@ -1,0 +1,158 @@
+PROJECT VALUATION + BUILD COST ESTIMATE (Customer + Admin)
+
+This section is the freelancer build-cost estimate you asked for. It’s written as an effort/rate breakdown so you can convert it into a quote.
+
+Assumptions (what the estimate includes)
+- Two separate React apps (Customer: venkys, Admin: venkys_admin) built to production quality.
+- Firebase/Firestore integration + schema + rules.
+- Serverless API endpoints for Razorpay (create order + signature verify) + WhatsApp/SMS forwarding.
+- Deployment + environment configuration + basic staging.
+- Clean production UI (Tailwind/DaisyUI style), not a custom agency design system.
+
+Not included unless explicitly scoped
+- Multi-branch / multi-store routing and permissions.
+- Complex delivery pricing (distance slabs, dynamic zones, surge pricing).
+- Full accounting suite (GST invoices, Tally integrations, refunds automation beyond basics).
+- Automated end-to-end test suite.
+
+Effort estimate (hours)
+
+A) Customer App (venkys): 180–350 hrs
+- Requirements alignment: 10–25
+- UI (responsive pages/components): 45–90
+- Menu data layer + search/filtering: 25–60
+- Cart + pricing rules + discounts: 25–50
+- Checkout + address/location flows: 25–60
+- Payments + edge cases: 25–60
+- PWA/service worker polish: 10–30
+- QA + bugfix + release hardening: 15–40
+
+B) Admin App (venkys_admin): 220–450 hrs
+- Admin auth/roles/guardrails: 15–40
+- Inventory UI + bulk edit + validation: 60–140
+- Variants/pricing tooling: 40–90
+- Image upload/storage management: 20–50
+- Orders dashboard + statuses + filtering: 40–90
+- Billing + exports/invoice sending: 20–60
+- Analytics views + basic KPIs: 25–60
+- Stock/raw materials + recipe deduction rules: 30–80
+- QA + bugfix + release hardening: 25–60
+
+C) Shared backend/integrations: 80–200 hrs
+- Firestore schema + migrations/backfills: 20–60
+- Security rules + auth hardening: 15–40
+- Razorpay integration (create/verify/webhooks & failure handling): 25–70
+- WhatsApp/SMS integration + retries/templates: 20–50
+- Deployment + env config + monitoring: 10–30
+
+Total effort (both apps + shared): 480–1,000 hrs
+
+Cost conversion (typical freelancer rates)
+- Budget: ₹600–₹1,000 / hour
+- Mid (common for production builds): ₹1,000–₹1,800 / hour
+- Premium: ₹1,800–₹3,000+ / hour
+
+Total cost ranges (both apps)
+- Budget: 480–1,000 hrs × ₹600/hr = ₹2.9L – ₹6.0L
+- Mid: 480–1,000 hrs × ₹1,200/hr = ₹5.8L – ₹12.0L
+- Premium: 480–1,000 hrs × ₹2,200/hr = ₹10.6L – ₹22.0L
+
+Most-likely band for this scope: ₹7L – ₹14L
+
+Suggested milestone quoting (how you’d sell it)
+Milestone 1: Foundations (₹0.8L – ₹2.0L)
+- Project setup, Firebase schema/rules, auth, deploy pipeline
+
+Milestone 2: Customer Ordering MVP (₹2.0L – ₹4.5L)
+- Menu → cart → checkout → Razorpay payment → order confirmation + WhatsApp/SMS trigger
+
+Milestone 3: Admin Inventory + Orders (₹2.5L – ₹6.0L)
+- Inventory + variants/pricing + images + orders dashboard + status updates
+
+Milestone 4: Ops polish (₹1.5L – ₹4.0L)
+- Stock/raw materials (if required), analytics/appearance, reliability hardening, QA
+
+Recurring non-dev costs (operational)
+- Firebase: usually ₹0–₹10k/month early, scales with usage
+- WhatsApp Cloud API: conversation-based charges (varies)
+- SMS: per-message costs depending on provider
+- Razorpay: transaction fees per order
+
+Key factors that change the price a lot
+- Delivery/logistics complexity
+- Multi-branch support
+- Roles/permissions depth
+- Invoice/GST/export requirements
+- Offline-first and reliability requirements
+
+-------------------------------
+
+PRICING + PAYMENT DETAILS (Admin App: venkys_admin)
+
+This section describes how pricing is entered/derived in Admin and how it relates to customer-side ordering.
+
+1) Pricing fields
+
+Simple pricing (no variants)
+- `rate` (₹): selling price (required)
+- `price`: stored equal to `rate`
+- `mrp` (₹): optional
+- `discountPercent` (%): optional
+
+Variant pricing
+- Enable "Variants" in the Edit Item modal.
+- Each variant requires a name AND a valid Rate.
+- Variant object stored to Firestore contains:
+  - `name` (string)
+  - `rate` (number)
+  - `price` (number) = `rate`
+  - `mrp` (number, optional)
+  - `discountPercent` (number, optional)
+
+2) Auto-calculation behavior (important)
+
+Admin will auto-calculate missing values when possible:
+- If Rate + Discount are set → MRP can be derived.
+- If MRP + Discount are set → Rate can be derived (this is the common flow requested for variants).
+- If MRP + Rate are set → Discount can be derived.
+
+Derived values are rounded to whole rupees.
+
+3) Variant mode: Rate not manual anymore
+
+In Variant mode, you can enter MRP and Discount and the Rate field will populate automatically.
+Also, when switching from Simple → Variants, the first variant row is prefilled with the Simple pricing values to reduce manual entry.
+
+4) "Size Variant" (suffix builder)
+
+In the variant editor row:
+- You always type the base variant name in the text box.
+- If you toggle "Size Variant" ON:
+  - you pick one of: Half / Full / Pcs
+  - if Pcs is selected, you enter a number
+  - the final stored variant name becomes:
+    - "{BaseName} Half"
+    - "{BaseName} Full"
+    - "{BaseName} 6 Pcs"
+  - (if BaseName is empty, the name is just the size, e.g. "Half" or "6 Pcs")
+
+Note: "Pcs" is intentionally NOT offered in the generic variant-name suggestions list to avoid accidental naming; it remains available only through the Size Variant controls.
+
+5) Customer visibility
+
+Customer app reads the same `menu` data and explodes variants into separate visible items, so customers see each variant as a separate product with the variant pricing.
+
+6) Payment endpoints
+
+Payments and WhatsApp/SMS endpoints live in each app’s `api/` folder as Vercel serverless functions.
+For Razorpay, see:
+- create order: /api/create-order
+- verify signature: /api/verify-payment
+
+7) Key environment variables
+
+- RAZORPAY_KEY_ID
+- RAZORPAY_KEY_SECRET
+- CORS_ORIGIN
+- WA_TOKEN
+- WA_PHONE_NUMBER_ID

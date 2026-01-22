@@ -660,6 +660,43 @@ export async function fetchMenuCategories() {
   try {
     const snap = await getDocs(collection(db, 'menu'))
     let cats = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    
+    // Process variants: Explode items with variants into separate items for the customer view
+    cats.forEach(cat => {
+      if (Array.isArray(cat.items)) {
+        const explodedItems = []
+        cat.items.forEach(item => {
+          if (item.variants && Array.isArray(item.variants) && item.variants.length > 0) {
+            item.variants.forEach(variant => {
+              if (!variant.name) return
+              const variantItem = { ...item }
+              // Construct composite name: "Variant Name Item Name"
+              variantItem.name = `${variant.name} ${item.name}`
+              
+              // Apply variant pricing
+              variantItem.price = variant.rate || variant.price || 0
+              variantItem.rate = variant.rate || variant.price || 0
+              variantItem.mrp = variant.mrp || 0
+              variantItem.discountPercent = variant.discountPercent || 0
+              
+              // Generate a derived ID to ensure uniqueness in lists/cart
+              const baseId = item.id || item.itemId || item.name
+              variantItem.id = `${baseId}_${variant.name}`.replace(/\s+/g, '_')
+              
+              // Remove variant info from the clone so it behaves like a standard item
+              delete variantItem.variants
+              delete variantItem.hasVariants
+              
+              explodedItems.push(variantItem)
+            })
+          } else {
+            explodedItems.push(item)
+          }
+        })
+        cat.items = explodedItems
+      }
+    })
+
     // Attempt to apply appearance ordering if present
     try {
       const appearanceRef = doc(db, 'miscellaneous', 'appearance')

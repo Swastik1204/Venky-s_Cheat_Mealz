@@ -16,29 +16,44 @@ export default function FloatingCartBar() {
 
   const subtotalLabel = currencyFormatter.format(subtotal || 0)
 
+  const handleBarClick = () => {
+    const drawer = document.getElementById('cart-drawer')
+    if (drawer) drawer.checked = true
+  }
+
   return (
     <div className="fixed inset-x-0 bottom-16 sm:bottom-20 lg:bottom-6 z-40 pointer-events-none">
       <div className="px-4 pointer-events-auto">
-        <div className="mx-auto max-w-4xl rounded-2xl border border-base-300/70 bg-base-100 shadow-[0_10px_40px_-15px_rgba(15,23,42,0.65)] px-4 py-2 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <span className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-inner">
+        <div 
+          onClick={handleBarClick}
+          className="mx-auto max-w-4xl rounded-2xl bg-secondary text-secondary-content shadow-[0_8px_30px_rgba(239,68,68,0.5)] px-4 py-3 flex items-center justify-between gap-3 cursor-pointer transition-transform active:scale-95 border border-secondary-content/10"
+        >
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            <span className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl bg-secondary-content/20 text-secondary-content shadow-sm backdrop-blur-sm">
               <MdShoppingCart className="w-5 h-5" />
               {totalQty > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 h-4 min-w-[1rem] rounded-full bg-primary text-primary-content text-[10px] font-semibold grid place-items-center px-1">
+                <span className="absolute -top-1.5 -right-1.5 h-4 min-w-[1rem] rounded-full bg-white text-secondary text-[10px] font-bold grid place-items-center px-1 shadow-sm">
                   {totalQty > 99 ? '99+' : totalQty}
                 </span>
               )}
             </span>
-            <div className="space-y-0">
-              <div className="text-xs font-semibold text-base-content/70 uppercase tracking-wide">Cart</div>
-              <div className="text-sm font-bold text-base-content leading-tight">{totalQty} item{totalQty === 1 ? '' : 's'} • {subtotalLabel}</div>
+            <div className="space-y-0.5">
+              <div className="text-xs font-bold uppercase tracking-wider opacity-90">Cart</div>
+              <div className="text-sm font-bold leading-tight flex items-center gap-1.5">
+                <span>{totalQty} item{totalQty === 1 ? '' : 's'}</span>
+                <span className="w-1 h-1 rounded-full bg-current opacity-50"></span>
+                <span>{subtotalLabel}</span>
+              </div>
             </div>
           </div>
           <div className="flex justify-end">
             <button
               type="button"
-              className="btn btn-primary btn-sm h-10 min-h-0 rounded-xl shadow-md shadow-primary/30 px-6"
-              onClick={() => navigate('/checkout')}
+              className="btn btn-warning btn-sm h-10 min-h-0 rounded-xl shadow-md border-none animate-none hover:brightness-110 px-6 font-extrabold tracking-wide text-warning-content"
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate('/checkout')
+              }}
             >
               Checkout
             </button>
