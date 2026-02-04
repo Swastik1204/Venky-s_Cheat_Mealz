@@ -71,7 +71,7 @@ export default function AdminBiller() {
       const flat = cats.flatMap((c) => (Array.isArray(c.items) ? c.items : []).map((it, idx) => ({
         id: `${c.id}-${idx}-${(it.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
         name: it.name,
-        price: Number(it.price) || 0,
+        rate: Number(it.rate ?? it.price) || 0,
         veg: it.veg === false ? false : true,
         categoryId: c.id,
         imageId: it.imageId || null,
@@ -173,7 +173,7 @@ export default function AdminBiller() {
   }
 
   const lines = Object.values(bill)
-  const subtotal = lines.reduce((s, l) => s + (l.item.price || 0) * (l.qty || 0), 0)
+  const subtotal = lines.reduce((s, l) => s + (Number(l.item?.rate) || 0) * (l.qty || 0), 0)
   const gstRate = typeof appSettings.gstRate === 'number' ? appSettings.gstRate : 0.05
   const gstAmount = Math.round(subtotal * gstRate)
   const grandTotal = subtotal + gstAmount
@@ -192,7 +192,7 @@ export default function AdminBiller() {
     }
     try {
       setSubmitting(true)
-      const orderItems = lines.map(({ item, qty }) => ({ name: item.name, price: Number(item.price) || 0, qty }))
+      const orderItems = lines.map(({ item, qty }) => ({ name: item.name, rate: Number(item.rate) || 0, qty }))
       const customer = {
         dineIn: true,
         servedBy: user?.email || user?.uid || 'biller',
@@ -217,12 +217,12 @@ export default function AdminBiller() {
         if (reviewMode === 'share' && phoneRaw && phoneRaw.length === 10) {
           const store = appSettings || {}
           const header = `*${BRAND_LONG}*\n${store.shopAddress ? store.shopAddress + "\n" : ''}${store.shopPhone ? '📞 ' + store.shopPhone + "\n" : ''}${store.chefName ? '👨‍🍳 ' + store.chefName + "\n" : ''}`
-          const linesText = orderItems.map(it => `• ${it.name} × ${it.qty} — ₹${(it.price||0)* (it.qty||0)}`).join('\n')
+          const linesText = orderItems.map(it => `• ${it.name} × ${it.qty} — ₹${(it.rate||0)* (it.qty||0)}`).join('\n')
           const totals = `Subtotal: ₹${subtotal}\nGST (${Math.round(gstRate*100)}%): ₹${gstAmount}\n*Total: ₹${grandTotal}*`
           const thank = '\n\nThank you for dining with us!'
           const finalOrderNo = (editOrder?.orderNo) || createdOrderNo || ''
           const fullMsg = `${header}\nOrder #${finalOrderNo}\n\n${linesText}\n\n${totals}${thank}`
-          const logoUrl = `${location.origin}/icons/logo.png`
+          const logoUrl = `${location.origin}${import.meta.env.BASE_URL}icons/Logo.png`
           // WhatsApp (rich content through your backend template); we pass payload as before
           try { await sendWhatsAppInvoice(`91${phoneRaw}`, { orderNo: finalOrderNo, text: fullMsg, logoUrl, items: orderItems, subtotal, taxRate: gstRate, taxAmount: gstAmount, total: grandTotal, store: { name: BRAND_LONG, address: store.shopAddress||'', phone: store.shopPhone||'', chef: store.chefName||'' } }) } catch { /* noop */ }
           // SMS fallback (short) - call backend directly to avoid import issues
@@ -388,7 +388,7 @@ export default function AdminBiller() {
                                 )}
                               </div>
                                <div className="mt-1.5 text-[11px] font-medium leading-tight line-clamp-2 min-h-[2.1em]">{it.name}</div>
-                               <div className="text-[10px] opacity-70 mt-0.5">₹{it.price}</div>
+                               <div className="text-[10px] opacity-70 mt-0.5">₹{it.rate}</div>
                             </button>
                           )
                         })}
@@ -411,14 +411,14 @@ export default function AdminBiller() {
                 <div key={key} className="flex items-center gap-2 border border-primary/30 rounded p-2 shadow-sm">
                   <div className="flex-1">
                     <div className="font-medium leading-tight">{line.item.name}</div>
-                    <div className="text-xs opacity-70">₹{line.item.price} each</div>
+                    <div className="text-xs opacity-70">₹{line.item.rate} each</div>
                   </div>
                   <div className="join">
                     <button className="btn btn-xs join-item" onClick={() => decLine(key)}>-</button>
                     <span className="px-3 text-sm join-item grid place-items-center">{line.qty}</span>
                     <button className="btn btn-xs join-item" onClick={() => incLine(key)}>+</button>
                   </div>
-                  <div className="w-16 text-right font-medium">₹{(line.item.price || 0) * (line.qty || 0)}</div>
+                  <div className="w-16 text-right font-medium">₹{(line.item.rate || 0) * (line.qty || 0)}</div>
                 </div>
               ))}
               <div className="pt-2 border-t flex items-center justify-between">
@@ -470,9 +470,9 @@ export default function AdminBiller() {
                         // Load into editor
                         const b = {}
                         for (const it of (o.items||[])) {
-                          const refItem = items.find(x => x.name === it.name && Number(x.price) === Number(it.price))
-                          const key = refItem ? refItem.id : `${it.name}-${it.price}`
-                          b[key] = { item: refItem || { id: key, name: it.name, price: Number(it.price)||0 }, qty: Number(it.qty)||1 }
+                          const refItem = items.find(x => x.name === it.name && Number(x.rate) === Number(it.rate ?? it.price))
+                          const key = refItem ? refItem.id : `${it.name}-${it.rate ?? it.price}`
+                          b[key] = { item: refItem || { id: key, name: it.name, rate: Number(it.rate ?? it.price)||0 }, qty: Number(it.qty)||1 }
                         }
                         setBill(b)
                         setEditOrder(o)
@@ -544,7 +544,7 @@ export default function AdminBiller() {
                 {(viewOrder.items||[]).map((it, idx) => (
                   <div key={idx} className="flex items-center justify-between text-sm">
                     <div className="truncate mr-2">{it.name} <span className="opacity-60">× {it.qty}</span></div>
-                    <div>₹{Number(it.price||0) * Number(it.qty||0)}</div>
+                    <div>₹{Number(it.rate ?? it.price || 0) * Number(it.qty||0)}</div>
                   </div>
                 ))}
               </div>
@@ -558,9 +558,9 @@ export default function AdminBiller() {
                   const o = viewOrder
                   const b = {}
                   for (const it of (o.items||[])) {
-                    const refItem = items.find(x => x.name === it.name && Number(x.price) === Number(it.price))
-                    const key = refItem ? refItem.id : `${it.name}-${it.price}`
-                    b[key] = { item: refItem || { id: key, name: it.name, price: Number(it.price)||0 }, qty: Number(it.qty)||1 }
+                    const refItem = items.find(x => x.name === it.name && Number(x.rate) === Number(it.rate ?? it.price))
+                    const key = refItem ? refItem.id : `${it.name}-${it.rate ?? it.price}`
+                    b[key] = { item: refItem || { id: key, name: it.name, rate: Number(it.rate ?? it.price)||0 }, qty: Number(it.qty)||1 }
                   }
                   setBill(b)
                   setEditOrder(o)
@@ -619,7 +619,7 @@ export default function AdminBiller() {
                   {(success.items && success.items.length > 0) ? success.items.map((it, idx) => (
                     <div key={idx} className="flex items-center justify-between text-sm">
                       <div className="truncate mr-2">{it.name} <span className="opacity-60">× {it.qty}</span></div>
-                      <div>₹{Number(it.price||0) * Number(it.qty||0)}</div>
+                      <div>₹{Number(it.rate ?? it.price || 0) * Number(it.qty||0)}</div>
                     </div>
                   )) : (
                     <div className="text-xs opacity-70">Items saved with order.</div>
@@ -694,7 +694,7 @@ export default function AdminBiller() {
                   {Object.values(bill).map((l, idx) => (
                     <div key={idx} className="flex items-center justify-between text-sm">
                       <div className="truncate mr-2">{l.item.name} <span className="opacity-60">× {l.qty}</span></div>
-                      <div>₹{(l.item.price||0) * (l.qty||0)}</div>
+                      <div>₹{(l.item.rate||0) * (l.qty||0)}</div>
                     </div>
                   ))}
                 </div>

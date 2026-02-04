@@ -143,7 +143,10 @@ export function CartProvider({ children }) {
 
   const value = useMemo(() => {
     const entries = Object.values(state.items)
-    const subtotal = entries.reduce((sum, { item, qty }) => sum + item.price * qty, 0)
+    const subtotal = entries.reduce((sum, { item, qty }) => {
+      const unit = Number(item?.rate ?? item?.price ?? 0)
+      return sum + unit * qty
+    }, 0)
     const totalQty = entries.reduce((sum, { qty }) => sum + qty, 0)
 
     return {

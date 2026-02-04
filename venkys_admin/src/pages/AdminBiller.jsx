@@ -172,7 +172,7 @@ export default function AdminBiller() {
       const flat = cats.flatMap((c) => (Array.isArray(c.items) ? c.items : []).map((it, idx) => ({
         id: `${c.id}-${idx}-${(it.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
         name: it.name,
-        price: Number(it.price) || 0,
+        rate: Number(it.rate ?? it.price) || 0,
         veg: it.veg === false ? false : true,
         categoryId: c.id,
         imageId: it.imageId || null,
@@ -418,7 +418,7 @@ export default function AdminBiller() {
   function clearBill() { setBill({}) }
 
   const lines = Object.values(bill)
-  const subtotal = lines.reduce((s, l) => s + (l.item.price || 0) * (l.qty || 0), 0)
+  const subtotal = lines.reduce((s, l) => s + (Number(l.item?.rate ?? l.item?.price) || 0) * (l.qty || 0), 0)
   const grandTotal = subtotal
 
   const buildPaymentPayload = (method) => {
@@ -543,7 +543,7 @@ export default function AdminBiller() {
       setSubmitting(true)
 
       const userIdForOrder = guestMode ? await ensureGuestUser() : null
-      const orderItems = lines.map(({ item, qty }) => ({ name: item.name, price: Number(item.price) || 0, qty }))
+      const orderItems = lines.map(({ item, qty }) => ({ name: item.name, rate: Number(item.rate ?? item.price) || 0, qty }))
       const payment = paymentOverride || buildPaymentPayload(payMethod)
       const customer = { 
         dineIn: true, 
@@ -821,7 +821,7 @@ export default function AdminBiller() {
                         )}
                       </div>
                       <div className="mt-1.5 text-[11px] font-medium leading-tight line-clamp-2 min-h-[2.1em]">{it.name}</div>
-                      <div className="text-[10px] opacity-70 mt-0.5">₹{it.price}</div>
+                      <div className="text-[10px] opacity-70 mt-0.5">₹{Number(it.rate ?? it.price) || 0}</div>
                       {qty > 0 && (
                          <div className="mt-2 flex items-center justify-between bg-base-200 rounded p-1" onClick={e => e.stopPropagation()}>
                             <div className="btn btn-xs btn-ghost px-1 h-6 min-h-0" onClick={() => decLine(it.id)}>-</div>
@@ -1059,7 +1059,7 @@ export default function AdminBiller() {
                   {(success.items && success.items.length > 0) ? success.items.map((it, idx) => (
                     <div key={idx} className="flex items-center justify-between text-sm">
                       <div className="truncate mr-2">{it.name} <span className="opacity-60">× {it.qty}</span></div>
-                      <div>₹{Number(it.price||0) * Number(it.qty||0)}</div>
+                      <div>₹{(Number(it.rate ?? it.price) || 0) * Number(it.qty||0)}</div>
                     </div>
                   )) : (
                     <div className="text-xs opacity-70">Items saved with order.</div>

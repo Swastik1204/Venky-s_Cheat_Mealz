@@ -119,7 +119,7 @@ export default function ActiveOrders() {
     const explicit = order?.totalAmount ?? order?.total ?? order?.grandTotal
     if (explicit != null && Number.isFinite(Number(explicit))) return Number(explicit)
     const items = Array.isArray(order?.items) ? order.items : []
-    return items.reduce((sum, it) => sum + (Number(it?.price) || 0) * (Number(it?.qty) || 0), 0)
+    return items.reduce((sum, it) => sum + (Number(it?.rate ?? it?.price) || 0) * (Number(it?.qty) || 0), 0)
   }
 
   const refreshActiveOrders = async () => {
@@ -386,7 +386,7 @@ export default function ActiveOrders() {
                       </thead>
                       <tbody>
                         {selectedOrder.items.map((it) => {
-                          const lineTotal = (Number(it?.price) || 0) * (Number(it?.qty) || 0)
+                          const lineTotal = (Number(it?.rate ?? it?.price) || 0) * (Number(it?.qty) || 0)
                           return (
                             <tr key={`${selectedOrder.id}-${it.id || it.name}`} className="text-sm">
                               <td>{it.name}</td>

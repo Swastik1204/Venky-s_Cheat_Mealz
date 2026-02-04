@@ -16,7 +16,7 @@ export default function Inventory() {
   const [bulkSaving, setBulkSaving] = useState(false)
   const [rawMaterials, setRawMaterials] = useState([])
   const [newCats, setNewCats] = useState([{ name: '' }])
-  const [newItems, setNewItems] = useState([{ category: '', name: '', price: '', veg: true }])
+  const [newItems, setNewItems] = useState([{ category: '', name: '', rate: '', veg: true, isVariant: false }])
   const [editingCat, setEditingCat] = useState({ id: null, name: '' })
   const [openCats, setOpenCats] = useState(() => new Set())
   const [catImages, setCatImages] = useState({})
@@ -183,7 +183,8 @@ export default function Inventory() {
 
     if (changedField === 'discountPercent') {
       if (form.discountPercent === '' || discountNumberRaw === null) {
-        return { ...form, discountPercent: '' }
+        // If discount is cleared, remove MRP as well per requirement
+        return { ...form, discountPercent: '', mrp: '' }
       }
       if (rateNumber !== null && rateNumber > 0) {
         const denominator = 1 - discountNormalized / 100
@@ -281,57 +282,46 @@ export default function Inventory() {
       ? parsePercent(item.discountPercent)
       : computeDiscountPercent(mrpNumber ?? undefined, rateNumber ?? undefined)
 
-    const variants = Array.isArray(item.variants) ? item.variants.map(v => {
-      let name = v.name || ''
-      let isSizeVariant = false
-      let baseName = name
-      let sizeValue = 'Half'
+    let variantGroups = []
+    if (Array.isArray(item.variants) && item.variants.length > 0) {
+       // Check for nested structure strategy:
+       // 1. If 'sizes' array exists inside elements, it's already nested.
+       // 2. If no 'sizes' array, it's a flat list of variants.
+       const isNested = item.variants.some(v => Array.isArray(v.sizes))
+       
+       if (isNested) {
+          variantGroups = item.variants.map((v, idx) => ({
+             id: Date.now() + idx,
+             name: v.name || '',
+             sizes: Array.isArray(v.sizes) ? v.sizes.map(s => ({
+                name: s.name || '',
+                mrp: s.mrp ? formatAmount(s.mrp) : '',
+                rate: s.rate ? formatAmount(s.rate) : (s.price ? formatAmount(s.price) : ''),
+                discountPercent: s.discountPercent ? formatPercent(s.discountPercent) : ''
+             })) : []
+          }))
+       } else {
+          // Flattened structure detected (e.g. from previous save where variants were saved as top-level objects)
+          // Since the user reported "nothing of the variant is being stored... after saving", 
+          // it's possible the SAVE logic created a flat structure but with "name" = Group Name and empty sizes, 
+          // or just completely messed up. 
 
-      // Check for size suffix
-      const pcsMatch = name.match(/^(.*?)(\s+)?(\d+\s*Pcs)$/i)
-      const halfMatch = name.match(/^(.*?)(\s+)?(Half)$/i)
-      const fullMatch = name.match(/^(.*?)(\s+)?(Full)$/i)
-      const exactPcsMatch = name.match(/^(\d+\s*Pcs)$/i)
-      const exactHalfMatch = name.match(/^(Half)$/i)
-      const exactFullMatch = name.match(/^(Full)$/i)
-      
-      if (pcsMatch) {
-         isSizeVariant = true
-         baseName = pcsMatch[1] || ''
-         sizeValue = pcsMatch[3]
-      } else if (halfMatch) {
-         isSizeVariant = true
-         baseName = halfMatch[1] || ''
-         sizeValue = 'Half'
-      } else if (fullMatch) {
-         isSizeVariant = true
-         baseName = fullMatch[1] || ''
-         sizeValue = 'Full'
-      } else if (exactPcsMatch) {
-         isSizeVariant = true
-         baseName = ''
-         sizeValue = exactPcsMatch[1]
-      } else if (exactHalfMatch) {
-         isSizeVariant = true
-         baseName = ''
-         sizeValue = 'Half'
-      } else if (exactFullMatch) {
-         isSizeVariant = true
-         baseName = ''
-         sizeValue = 'Full'
-      }
-
-      return {
-        name,
-        baseName,
-        sizeValue, // e.g. "Half", "Full", "6 Pcs"
-        mrp: v.mrp ? formatAmount(v.mrp) : '',
-        rate: v.rate ? formatAmount(v.rate) : '',
-        discountPercent: v.discountPercent ? formatPercent(v.discountPercent) : '',
-        additionalDiscounts: Array.isArray(v.additionalDiscounts) ? v.additionalDiscounts.map(d => String(d)) : ['', ''],
-        isSizeVariant
-      }
-    }) : []
+          // If we see items that look like GROUPS (have a name but no price/rate and no sizes), 
+          // we might be looking at a corrupted state or incomplete save.
+          
+          // However, if we assume these are just "Variants" (e.g. Half, Full) that were saved flat:
+          variantGroups = [{
+             id: Date.now(),
+             name: 'Variants',
+             sizes: item.variants.map(v => ({
+                name: v.name || '',
+                mrp: v.mrp ? formatAmount(v.mrp) : '',
+                rate: v.rate ? formatAmount(v.rate) : (v.price ? formatAmount(v.price) : ''),
+                discountPercent: v.discountPercent ? formatPercent(v.discountPercent) : ''
+             }))
+          }]
+       }
+    }
 
     const components = Array.isArray(item.components) ? item.components.map(c => ({
       qty: String(c.qty || ''),
@@ -351,8 +341,9 @@ export default function Inventory() {
         mrp: mrpNumber !== null ? formatAmount(mrpNumber) : '',
         rate: rateNumber !== null ? formatAmount(rateNumber) : '',
         discountPercent: discountNumber !== null ? formatPercent(discountNumber) : '',
-        hasVariants: variants.length > 0,
-        variants: variants.length > 0 ? variants : [{ name: '', baseName: '', sizeValue: 'Half', mrp: '', rate: '', discountPercent: '', additionalDiscounts: ['', ''], isSizeVariant: false }],
+        hasVariants: variantGroups.length > 0,
+        // Use the new nested structure for state
+        variantGroups: variantGroups.length > 0 ? variantGroups : [{ id: Date.now(), name: 'Regular', sizes: [{ name: 'Half', mrp: '', rate: '', discountPercent: '' }, { name: 'Full', mrp: '', rate: '', discountPercent: '' }] }],
         components: components.length ? components : [{ qty: '', unit: '', text: '' }],
         ingredients: Array.isArray(item.ingredients) ? item.ingredients : [],
         isCustom: !!item.isCustom,
@@ -452,12 +443,24 @@ export default function Inventory() {
         const catName = r.category?.trim()
         if (!name || !catName) continue
         const arr = grouped.get(catName) || []
-        const rate = Number(r.price) || 0
-        arr.push({ name, price: rate, rate, veg: r.veg !== false })
+        
+        let newItem = { name, veg: r.veg !== false }
+
+        if (r.isVariant) {
+           // Create item structure ready for variants but empty for now
+           // NeedsReview flag so user knows to edit it
+           newItem.variants = [] 
+           newItem.needsReview = true
+        } else {
+            const rate = Number(r.rate) || 0
+            newItem.rate = rate
+        }
+        
+        arr.push(newItem)
         grouped.set(catName, arr)
       }
       for (const [catName, items] of grouped.entries()) { await upsertMenuCategory(catName); await addMenuItems(catName, items) }
-      setNewItems([{ category: '', name: '', price: '', veg: true }])
+      setNewItems([{ category: '', name: '', rate: '', veg: true, isVariant: false }])
       const cats = await fetchMenuCategories(); setCategories(cats); setInfo('Items saved.')
     } catch (e) { setError(e.message || 'Save failed') } finally { setLoading(false) }
   }
@@ -509,42 +512,76 @@ export default function Inventory() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-base-300/60 bg-base-100/70 backdrop-blur-sm p-5 flex flex-col gap-4 shadow-sm">
+        <div className="rounded-2xl border border-base-300/60 bg-base-100/70 backdrop-blur-sm p-4 md:p-5 flex flex-col gap-4 shadow-sm">
           <h2 className="text-xl font-semibold tracking-tight">Quick add items</h2>
+          <div className="flex flex-col gap-4">
           {newItems.map((row, idx) => (
-            <div key={idx} className="flex flex-wrap items-center gap-3">
-              <input 
-                className="input input-bordered input-sm w-52" 
-                placeholder="Category" 
-                list="category-list"
-                value={row.category} 
-                onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], category: e.target.value }; setNewItems(v) }} 
-              />
-              <input 
-                className="input input-bordered input-sm w-52" 
-                placeholder="Item name" 
-                list="item-suggestions"
-                value={row.name} 
-                onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], name: e.target.value }; setNewItems(v) }} 
-              />
-              <input type="text" inputMode="decimal" pattern="[0-9]*[.]?[0-9]*" className="input input-bordered input-sm w-28" placeholder="Price" value={row.price} onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], price: e.target.value }; setNewItems(v) }} onWheel={(e) => e.currentTarget.blur()} />
-              <div className="join">
-                <button type="button" className={`btn btn-xs join-item ${row.veg ? 'btn-success' : 'btn-ghost'}`} onClick={() => { const v = [...newItems]; v[idx] = { ...v[idx], veg: true }; setNewItems(v) }}>Veg</button>
-                <button type="button" className={`btn btn-xs join-item ${!row.veg ? 'btn-error' : 'btn-ghost'}`} onClick={() => { const v = [...newItems]; v[idx] = { ...v[idx], veg: false }; setNewItems(v) }}>Non-Veg</button>
+            <div key={idx} className="relative p-4 rounded-xl border border-base-200 bg-base-100/50 flex flex-wrap items-end gap-3 transition-shadow hover:shadow-sm">
+              <div className="form-control w-40">
+                <label className="label py-1 text-xs opacity-60">Category</label>
+                <input 
+                  className="input input-bordered input-sm w-full" 
+                  placeholder="Category" 
+                  list="category-list"
+                  value={row.category} 
+                  onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], category: e.target.value }; setNewItems(v) }} 
+                />
               </div>
-              {idx === newItems.length - 1 && (
-                <button className="btn btn-ghost btn-sm px-1 min-h-0 h-auto hover:bg-base-200/70 transition" title="Add item" onClick={() => setNewItems((v) => [...v, { category: '', name: '', price: '', veg: true }])}>
-                  <MdAdd className="w-8 h-8 text-black" />
-                </button>
-              )}
-              {newItems.length > 1 && (<button className="btn btn-xs btn-ghost text-lg" title="Remove" onClick={() => setNewItems((v) => v.filter((_, i) => i !== idx))}>×</button>)}
-              {idx === newItems.length - 1 && (
-                <div className="ml-auto">
-                  <button className="btn btn-primary btn-sm" onClick={saveItems} disabled={loading || newItems.some(r => r.veg === undefined)} title={newItems.some(r => r.veg === undefined) ? 'Select Veg / Non-Veg for all rows' : 'Save items'}>Save items</button>
+              
+              <div className="form-control flex-1 min-w-[200px]">
+                <label className="label py-1 text-xs opacity-60">Item Name</label>
+                <input 
+                  className="input input-bordered input-sm w-full" 
+                  placeholder="Item name" 
+                  list="item-suggestions"
+                  value={row.name} 
+                  onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], name: e.target.value }; setNewItems(v) }} 
+                />
+              </div>
+
+              {!row.isVariant ? (
+                <div className="form-control w-24">
+                  <label className="label py-1 text-xs opacity-60">Rate</label>
+                  <input type="text" inputMode="decimal" pattern="[0-9]*[.]?[0-9]*" className="input input-bordered input-sm w-full" placeholder="Rate" value={row.rate} onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], rate: e.target.value }; setNewItems(v) }} onWheel={(e) => e.currentTarget.blur()} />
+                </div>
+              ) : (
+                <div className="form-control w-24">
+                   <label className="label py-1 text-xs opacity-60">Rate</label>
+                   <div className="h-8 flex items-center justify-center text-xs opacity-50 italic select-none border border-transparent">Config later</div>
                 </div>
               )}
+
+              <div className="form-control pb-1">
+                 <div className="join">
+                    <button type="button" className={`btn btn-sm join-item ${row.veg ? 'btn-success text-white' : 'btn-ghost bg-base-200'}`} onClick={() => { const v = [...newItems]; v[idx] = { ...v[idx], veg: true }; setNewItems(v) }}>Veg</button>
+                    <button type="button" className={`btn btn-sm join-item ${!row.veg ? 'btn-error text-white' : 'btn-ghost bg-base-200'}`} onClick={() => { const v = [...newItems]; v[idx] = { ...v[idx], veg: false }; setNewItems(v) }}>Non-Veg</button>
+                 </div>
+              </div>
+
+              {idx === newItems.length - 1 && (
+                <button className="btn btn-primary btn-sm ml-auto" onClick={saveItems} disabled={loading || newItems.some(r => r.veg === undefined)} title={newItems.some(r => r.veg === undefined) ? 'Select Veg / Non-Veg for all rows' : 'Save items'}>Save</button>
+              )}
+              
+               {/* Controls */}
+              <div className="absolute top-2 right-2 flex items-center gap-2">
+                 <label className="cursor-pointer label p-0 gap-1.5 bg-base-200/50 px-2 py-1 rounded-full border border-base-200 hover:bg-base-200 transition-colors">
+                    <span className="label-text text-[10px] uppercase font-bold tracking-wider opacity-60">{row.isVariant ? 'Variant' : 'Standard'}</span>
+                    <input 
+                       type="checkbox" 
+                       className="toggle toggle-xs toggle-primary" 
+                       checked={row.isVariant} 
+                       onChange={(e) => { const v = [...newItems]; v[idx] = { ...v[idx], isVariant: e.target.checked }; setNewItems(v) }} 
+                    />
+                 </label>
+                 {newItems.length > 1 && (<button className="btn btn-xs btn-circle btn-ghost text-error" title="Remove" onClick={() => setNewItems((v) => v.filter((_, i) => i !== idx))}>✕</button>)}
+              </div>
             </div>
           ))}
+          </div>
+          
+          <button className="btn btn-ghost btn-sm btn-block border-dashed border-base-300" onClick={() => setNewItems((v) => [...v, { category: '', name: '', rate: '', veg: true, isVariant: false }])}>
+            <MdAdd className="w-4 h-4" /> Add Another Item
+          </button>
         </div>
 
         {/* Categories */}
@@ -977,35 +1014,14 @@ export default function Inventory() {
                           const checked = e.target.checked
                           setEditModal(prev => {
                             if (!checked) {
-                              return { ...prev, data: { ...prev.data, hasVariants: false } }
+                               return { ...prev, data: { ...prev.data, hasVariants: false } }
                             }
-
-                            const existing = Array.isArray(prev.data.variants) ? prev.data.variants : []
-                            const looksEmpty = existing.length === 0 || (
-                              existing.length === 1 &&
-                              !(existing[0]?.name || '').trim() &&
-                              !(existing[0]?.baseName || '').trim() &&
-                              !(existing[0]?.mrp || '').trim() &&
-                              !(existing[0]?.rate || '').trim() &&
-                              !(existing[0]?.discountPercent || '').trim()
-                            )
-
-                            const prefilled = looksEmpty
-                              ? [{
-                                  name: '',
-                                  baseName: '',
-                                  sizeValue: 'Half',
-                                  mrp: prev.data.mrp || '',
-                                  rate: prev.data.rate || '',
-                                  discountPercent: prev.data.discountPercent || '',
-                                  isSizeVariant: false,
-                                }]
-                              : existing
-
-                            return {
-                              ...prev,
-                              data: { ...prev.data, hasVariants: true, variants: prefilled },
-                            }
+                            // Init defaults if empty
+                            const groups = prev.data.variantGroups && prev.data.variantGroups.length 
+                               ? prev.data.variantGroups 
+                               : [{ id: Date.now(), name: 'Regular', sizes: [{ name: 'Half', mrp: '', rate: '', discountPercent: '' }, { name: 'Full', mrp: '', rate: '', discountPercent: '' }] }]
+                            
+                            return { ...prev, data: { ...prev.data, hasVariants: true, variantGroups: groups } }
                           })
                         }} 
                       />
@@ -1014,201 +1030,220 @@ export default function Inventory() {
                   </div>
 
                   {editModal.data.hasVariants ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 gap-4">
-                        {editModal.data.variants.map((v, idx) => (
-                          <div key={idx} className="p-5 bg-base-100 border border-base-200 rounded-xl shadow-sm hover:shadow-md transition-shadow relative group">
-                            <button 
-                              className="btn btn-xs btn-circle btn-ghost absolute top-3 right-3 text-base-content/30 hover:text-error hover:bg-error/10 transition-all z-10" 
-                              onClick={() => setEditModal(prev => ({ ...prev, data: { ...prev.data, variants: prev.data.variants.filter((_, i) => i !== idx) } }))}
-                              disabled={editModal.data.variants.length <= 1}
-                              title="Remove variant"
-                            >✕</button>
-                            
-                            <div className="flex flex-wrap items-end gap-4">
-                              <div className="form-control flex-1 min-w-[240px]">
-                                <div className="flex items-center justify-between pointer-events-none mb-1">
-                                  <label className="label py-0"><span className="label-text text-xs font-medium opacity-70">Variant Name</span></label>
-                                  <label className="label py-0 gap-2 cursor-pointer pointer-events-auto">
-                                    <span className="label-text text-[10px] font-semibold text-primary uppercase tracking-wider">Size Variant</span>
-                                    <input 
-                                      type="checkbox" 
-                                      className="toggle toggle-xs toggle-primary"
-                                      checked={!!v.isSizeVariant}
-                                      onChange={(e) => {
-                                        const checked = e.target.checked
-                                        setEditModal(prev => {
-                                          const next = [...prev.data.variants]
-                                          const current = next[idx]
-                                          // Toggle on: maintain current baseName if possible, or if it was empty, use empty
-                                          const newIsSize = checked
-                                          const newBase = current.baseName || current.name
-                                          // Reconstruct
-                                          const newName = newIsSize 
-                                             ? (newBase ? `${newBase} ${current.sizeValue || 'Half'}` : (current.sizeValue || 'Half')) 
-                                             : newBase
-                                          
-                                          next[idx] = { 
-                                            ...current, 
-                                            isSizeVariant: newIsSize,
-                                            baseName: newBase,
-                                            name: newName
+                    <div className="space-y-8">
+                       {(editModal.data.variantGroups || []).map((group, gIdx) => (
+                          <div key={group.id} className="collapse collapse-arrow bg-base-100 border border-base-200 shadow-sm overflow-visible">
+                             <input type="checkbox" defaultChecked={true} /> 
+                             <div className="collapse-title text-xl font-medium flex items-center gap-4 pr-12">
+                                <span className="opacity-50 text-sm font-normal">Variant Name:</span>
+                                <input 
+                                   className="input input-bordered input-sm font-bold flex-1 max-w-xs relative z-10" 
+                                   placeholder="e.g. Tandoori"
+                                   value={group.name}
+                                   onClick={e => e.stopPropagation()}
+                                   onMouseDown={e => e.stopPropagation()}
+                                   onChange={e => {
+                                      const val = e.target.value
+                                      setEditModal(prev => {
+                                         const nextGroups = [...prev.data.variantGroups]
+                                         nextGroups[gIdx] = { ...nextGroups[gIdx], name: val }
+                                         return { ...prev, data: { ...prev.data, variantGroups: nextGroups } }
+                                      })
+                                   }}
+                                />
+                                {/* Variant Image */}
+                                <div className="z-10 relative flex items-center" onClick={e => e.stopPropagation()}>
+                                  {group.imageId ? (
+                                    <div className="tooltip" data-tip="Change image">
+                                      <img 
+                                        src={catImages[group.imageId] || ''} 
+                                        alt="" 
+                                        className="w-8 h-8 rounded border border-base-300 object-cover cursor-pointer hover:opacity-80"
+                                        onClick={() => document.getElementById(`var-file-${group.id}`).click()}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <button 
+                                      className="btn btn-xs btn-outline btn-square" 
+                                      title="Add Variant Image"
+                                      onClick={() => document.getElementById(`var-file-${group.id}`).click()}
+                                    >📷</button>
+                                  )}
+                                  <input 
+                                    type="file" 
+                                    id={`var-file-${group.id}`} 
+                                    className="hidden" 
+                                    accept="image/*"
+                                    onChange={async (e) => {
+                                       const file = e.target.files?.[0]
+                                       if (!file) return
+                                       if (!file.type.startsWith('image/')) return pushToast('Not an image', 'error')
+                                       if (file.size > 1024 * 1024) return pushToast('Max 1MB', 'error')
+                                       
+                                       try {
+                                          pushToast('Uploading variant image...', 'info')
+                                          const reader = new FileReader()
+                                          reader.onload = async (ev) => {
+                                             const dataUrl = ev.target?.result
+                                             if (!dataUrl) return
+                                             const match = /^data:(.*?);base64,(.*)$/.exec(dataUrl)
+                                             const mime = match ? match[1] : file.type
+                                             const b64 = match ? match[2] : null
+                                             
+                                             const imageId = await saveBase64Image(b64, mime, { ownerType: 'variant', itemId: editModal.categoryId + ':' + editModal.itemIndex, variantName: group.name })
+                                             
+                                             setEditModal(prev => {
+                                                const nextGroups = [...prev.data.variantGroups]
+                                                nextGroups[gIdx] = { ...nextGroups[gIdx], imageId }
+                                                return { ...prev, data: { ...prev.data, variantGroups: nextGroups } }
+                                             })
+                                             pushToast('Variant image set', 'success')
                                           }
-                                          return { ...prev, data: { ...prev.data, variants: next } }
-                                        })
-                                      }}
-                                    />
-                                  </label>
+                                          reader.readAsDataURL(file)
+                                       } catch (err) {
+                                          pushToast('Failed to upload: ' + err.message, 'error')
+                                       }
+                                    }}
+                                  />
                                 </div>
-                                
-                                <div className="flex gap-2">
-                                   <input 
-                                      className="input input-bordered input-sm focus:input-primary flex-1 min-w-0" 
-                                      placeholder="Name" 
-                                      list="variant-sizes" // reuse list for suggestions if needed
-                                      value={v.baseName} 
-                                      onChange={(e) => {
-                                        const val = e.target.value
-                                        setEditModal(prev => {
-                                          const next = [...prev.data.variants]
-                                          const current = next[idx]
-                                          const newName = current.isSizeVariant 
-                                             ? (val ? `${val} ${current.sizeValue || 'Half'}` : (current.sizeValue || 'Half')) 
-                                             : val
-                                          
-                                          next[idx] = { ...current, baseName: val, name: newName }
-                                          return { ...prev, data: { ...prev.data, variants: next } }
-                                        })
-                                      }} 
-                                    />
-                                    
-                                    {v.isSizeVariant && (
-                                      <div className="flex gap-1 h-8 shrink-0">
-                                        <select 
-                                          className="select select-bordered select-sm w-[72px] px-1 bg-base-100"
-                                          value={v.sizeValue && v.sizeValue.includes('Pcs') ? 'Pcs' : (v.sizeValue || 'Half')}
-                                          onChange={(e) => {
-                                            const val = e.target.value
-                                            setEditModal(prev => {
-                                              const next = [...prev.data.variants]
-                                              const current = next[idx]
-                                              
-                                              let newSizeValue = val
-                                              if (val === 'Pcs') {
-                                                const existingNum = (current.sizeValue || '').match(/(\d+)/)?.[1]
-                                                newSizeValue = existingNum ? `${existingNum} Pcs` : '1 Pcs'
-                                              }
-                                              
-                                              const newName = current.baseName 
-                                                 ? `${current.baseName} ${newSizeValue}`
-                                                 : newSizeValue
 
-                                              next[idx] = { ...current, sizeValue: newSizeValue, name: newName }
-                                              return { ...prev, data: { ...prev.data, variants: next } }
-                                            })
-                                          }}
-                                        >
-                                          <option value="Half">Half</option>
-                                          <option value="Full">Full</option>
-                                          <option value="Pcs">Pcs</option>
-                                        </select>
-                                        
-                                        {(v.sizeValue && v.sizeValue.includes('Pcs')) && (
-                                           <div className="join w-20">
-                                             <input 
-                                               className="input input-sm input-bordered join-item w-full text-center px-1 no-spinner" 
-                                               type="text" 
-                                               inputMode="numeric"
-                                               pattern="[0-9]*"
-                                               placeholder="#"
-                                               value={(v.sizeValue || '').replace(/[^0-9]/g, '')}
-                                               onWheel={(e) => e.target.blur()} 
-                                               onChange={(e) => {
-                                                  const num = e.target.value.replace(/[^0-9]/g, '')
-                                                  setEditModal(prev => {
-                                                    const next = [...prev.data.variants]
-                                                    const current = next[idx]
-                                                    const newSizeValue = `${num} Pcs`
-                                                    const newName = current.baseName 
-                                                       ? `${current.baseName} ${newSizeValue}`
-                                                       : newSizeValue
-                                                    
-                                                    next[idx] = { ...current, sizeValue: newSizeValue, name: newName }
-                                                    return { ...prev, data: { ...prev.data, variants: next } }
-                                                  })
-                                               }}
-                                             />
-                                             <span className="btn btn-sm btn-disabled join-item px-1 text-[10px] bg-base-200 border-base-300 min-h-0 h-8">Pcs</span>
-                                           </div>
-                                        )}
+                                <button 
+                                   className="btn btn-sm btn-ghost btn-circle text-error z-10 ml-auto"
+                                   onClick={(e) => {
+                                      e.stopPropagation() // prevent collapse toggle
+                                      setEditModal(prev => ({ 
+                                         ...prev, 
+                                         data: { ...prev.data, variantGroups: prev.data.variantGroups.filter((_, i) => i !== gIdx) }
+                                      }))
+                                   }}
+                                   title="Remove Group"
+                                >✕</button>
+                             </div>
+                             <div className="collapse-content overflow-visible">
+                                <div className="pl-4 border-l-2 border-base-200 mt-2 space-y-3">
+                                   <div className="grid grid-cols-[1fr_80px_80px_60px_40px] gap-2 text-xs font-bold opacity-50 uppercase tracking-wider mb-1 px-1">
+                                      <div>Size Name</div>
+                                      <div className="text-right">MRP</div>
+                                      <div className="text-right">Rate</div>
+                                      <div className="text-center">Disc%</div>
+                                      <div></div>
+                                   </div>
+
+                                   {(group.sizes || []).map((size, sIdx) => {
+                                      const processFieldChange = (field, val) => {
+                                         setEditModal(prev => {
+                                            const nextGroups = [...prev.data.variantGroups]
+                                            const nextSizes = [...nextGroups[gIdx].sizes]
+                                            const currentSize = { ...nextSizes[sIdx], [field]: val }
+                                            
+                                            // Auto-calc logic reuse
+                                            const recomputed = recomputePricing(currentSize, field)
+
+                                            nextSizes[sIdx] = recomputed
+                                            nextGroups[gIdx] = { ...nextGroups[gIdx], sizes: nextSizes }
+                                            return { ...prev, data: { ...prev.data, variantGroups: nextGroups } }
+                                         })
+                                      }
+
+                                      return (
+                                      <div key={sIdx} className="flex items-center gap-2">
+                                         <input 
+                                            className="input input-bordered input-sm flex-1 min-w-0" 
+                                            placeholder="e.g. Half, Full" 
+                                            list="variant-sizes"
+                                            value={size.name}
+                                            onChange={e => {
+                                               const val = e.target.value
+                                               setEditModal(prev => {
+                                                  const nextGroups = [...prev.data.variantGroups]
+                                                  const nextSizes = [...nextGroups[gIdx].sizes]
+                                                  nextSizes[sIdx] = { ...nextSizes[sIdx], name: val }
+                                                  nextGroups[gIdx] = { ...nextGroups[gIdx], sizes: nextSizes }
+                                                  return { ...prev, data: { ...prev.data, variantGroups: nextGroups } }
+                                               })
+                                            }}
+                                         />
+                                         <input 
+                                            className="input input-bordered input-sm w-20 text-right" 
+                                            placeholder="MRP"
+                                            value={size.mrp}
+                                            onChange={e => processFieldChange('mrp', e.target.value.replace(/[^0-9.]/g, ''))}
+                                         />
+                                         <input 
+                                            className="input input-bordered input-sm w-20 text-right font-bold" 
+                                            placeholder="Rate"
+                                            value={size.rate}
+                                            onChange={e => processFieldChange('rate', e.target.value.replace(/[^0-9.]/g, ''))}
+                                         />
+                                         <input 
+                                            className="input input-bordered input-sm w-16 text-center text-success font-bold" 
+                                            placeholder="%"
+                                            value={size.discountPercent}
+                                            onChange={e => processFieldChange('discountPercent', e.target.value.replace(/[^0-9.]/g, ''))}
+                                         />
+                                         <button 
+                                            className="btn btn-ghost btn-xs btn-square text-base-content/30 hover:text-error"
+                                            onClick={() => {
+                                               setEditModal(prev => {
+                                                  const nextGroups = [...prev.data.variantGroups]
+                                                  const nextSizes = nextGroups[gIdx].sizes.filter((_, i) => i !== sIdx)
+                                                  nextGroups[gIdx] = { ...nextGroups[gIdx], sizes: nextSizes }
+                                                  return { ...prev, data: { ...prev.data, variantGroups: nextGroups } }
+                                               })
+                                            }}
+                                         >✕</button>
                                       </div>
-                                    )}
+                                   )})}
+
+                                   <button 
+                                      className="btn btn-xs btn-ghost gap-1 text-primary"
+                                      onClick={() => {
+                                         setEditModal(prev => {
+                                            const nextGroups = [...prev.data.variantGroups]
+                                            const template = nextGroups[gIdx].sizes.length > 0 
+                                                ? { name: '', mrp: '', rate: '', discountPercent: '' } // clean new row
+                                                : { name: 'Half', mrp: '', rate: '', discountPercent: '' } // suggestion if empty
+
+                                            nextGroups[gIdx] = { 
+                                               ...nextGroups[gIdx], 
+                                               sizes: [...(nextGroups[gIdx].sizes || []), template]
+                                            }
+                                            return { ...prev, data: { ...prev.data, variantGroups: nextGroups } }
+                                         })
+                                      }}
+                                   >
+                                      <MdAdd /> Add Size
+                                   </button>
                                 </div>
-                              </div>
-                              <div className="form-control w-28">
-                                <label className="label py-1"><span className="label-text text-xs font-medium opacity-70">MRP (₹)</span></label>
-                                <input 
-                                  className="input input-bordered input-sm text-right tabular-nums" 
-                                  placeholder="0" 
-                                  value={v.mrp} 
-                                  onChange={(e) => {
-                                    const val = e.target.value.replace(/[^0-9.]/g, '')
-                                    setEditModal(prev => {
-                                      const next = [...prev.data.variants]
-                                      const base = { ...next[idx], mrp: val }
-                                      const recomputed = recomputePricing(base, 'mrp')
-                                      next[idx] = recomputed
-                                      return { ...prev, data: { ...prev.data, variants: next } }
-                                    })
-                                  }} 
-                                />
-                              </div>
-                              <div className="form-control w-28">
-                                <label className="label py-1"><span className="label-text text-xs font-medium opacity-70">Rate (₹)</span></label>
-                                <input 
-                                  className="input input-bordered input-sm text-right tabular-nums font-semibold" 
-                                  placeholder="0" 
-                                  value={v.rate} 
-                                  onChange={(e) => {
-                                    const val = e.target.value.replace(/[^0-9.]/g, '')
-                                    setEditModal(prev => {
-                                      const next = [...prev.data.variants]
-                                      const base = { ...next[idx], rate: val }
-                                      const recomputed = recomputePricing(base, 'rate')
-                                      next[idx] = recomputed
-                                      return { ...prev, data: { ...prev.data, variants: next } }
-                                    })
-                                  }} 
-                                />
-                              </div>
-                              <div className="form-control w-24">
-                                <label className="label py-1"><span className="label-text text-xs font-medium opacity-70">Discount %</span></label>
-                                <input 
-                                  className="input input-bordered input-sm text-center font-bold text-success" 
-                                  placeholder="Auto"
-                                  value={v.discountPercent || ''} 
-                                  onChange={(e) => {
-                                    const val = e.target.value.replace(/[^0-9.]/g, '')
-                                    setEditModal(prev => {
-                                      const next = [...prev.data.variants]
-                                      const base = { ...next[idx], discountPercent: val }
-                                      const recomputed = recomputePricing(base, 'discountPercent')
-                                      next[idx] = recomputed
-                                      return { ...prev, data: { ...prev.data, variants: next } }
-                                    })
-                                  }} 
-                                />
-                              </div>
-                            </div>
+                             </div>
                           </div>
-                        ))}
-                      </div>
-                      <button 
-                        className="btn btn-outline btn-block border-dashed border-base-300 hover:border-primary hover:bg-primary/5 hover:text-primary transition-all gap-2" 
-                        onClick={() => setEditModal(prev => ({ ...prev, data: { ...prev.data, variants: [...prev.data.variants, { name: '', baseName: '', sizeValue: 'Half', mrp: '', rate: '', discountPercent: '', isSizeVariant: false }] } }))}
-                      >
-                        <MdAdd className="w-5 h-5" /> Add Another Variant
-                      </button>
+                       ))}
+
+                       <div className="flex justify-center pt-4">
+                          <button 
+                             className="btn btn-outline border-dashed w-full max-w-sm gap-2"
+                             onClick={() => {
+                                setEditModal(prev => ({
+                                   ...prev,
+                                   data: {
+                                      ...prev.data,
+                                      variantGroups: [...(prev.data.variantGroups || []), { id: Date.now(), name: '', sizes: [{ name: 'Half', mrp: '', rate: '', discountPercent: '' }, { name: 'Full', mrp: '', rate: '', discountPercent: '' }] }]
+                                   }
+                                }))
+                             }}
+                          >
+                             <MdAdd className="w-5 h-5" /> Add Variant Group (e.g. Garlic Pepper)
+                          </button>
+                       </div>
+                       
+                       <datalist id="variant-sizes">
+                          <option value="Half" />
+                          <option value="Full" />
+                          <option value="Regular" />
+                          <option value="Large" />
+                          <option value="6 Pcs" />
+                          <option value="12 Pcs" />
+                       </datalist>
                     </div>
                   ) : (
                     <div className="card bg-base-100 border border-base-200 shadow-sm">
@@ -1536,28 +1571,37 @@ export default function Inventory() {
                     }
 
                     if (editModal.data.hasVariants) {
-                      const validVariants = editModal.data.variants.filter(v => v.name.trim())
-                      if (validVariants.length === 0) {
-                        setEditModal(prev => ({ ...prev, error: 'Add at least one variant with a name.' }))
+                      const validGroups = (editModal.data.variantGroups || []).filter(g => g.name && g.name.trim())
+                      if (validGroups.length === 0) {
+                        setEditModal(prev => ({ ...prev, error: 'Add at least one variant group with a name (e.g. Tandoori).' }))
                         return
                       }
-                      for (const v of validVariants) {
-                        if (!parseAmount(v.rate)) {
-                          setEditModal(prev => ({ ...prev, error: `Rate is required for variant "${v.name}".` }))
-                          return
-                        }
+
+                      // Transform state to final structure
+                      // Item -> Variants (Groups) -> Sizes (the actual nested structure)
+                       nextItemData.variants = validGroups.map(g => {
+                         // Filter sizes that have at least a rate
+                         const validSizes = (g.sizes || []).filter(s => parseAmount(s.rate) && parseAmount(s.rate) > 0)
+                         return {
+                            name: g.name.trim(),
+                            sizes: validSizes.map(s => ({
+                               name: s.name ? s.name.trim() : 'Regular',
+                               rate: parseAmount(s.rate),
+                               mrp: parseAmount(s.mrp),
+                               discountPercent: parsePercent(s.discountPercent)
+                            }))
+                         }
+                      }).filter(g => g.sizes.length > 0)
+
+                      if (nextItemData.variants.length === 0) {
+                         setEditModal(prev => ({ ...prev, error: 'Every variant group must have at least one size with a valid Rate.' }))
+                         return
                       }
-                      nextItemData.variants = validVariants.map(v => ({
-                        name: v.name.trim(),
-                        rate: parseAmount(v.rate),
-                        price: parseAmount(v.rate),
-                        mrp: parseAmount(v.mrp),
-                        discountPercent: parsePercent(v.discountPercent)
-                      }))
-                      // Use first variant as main price
-                      nextItemData.price = nextItemData.variants[0].rate
-                      nextItemData.rate = nextItemData.variants[0].rate
-                      nextItemData.mrp = nextItemData.variants[0].mrp
+
+                      // Set base rate from first variant's first size for sorting/listing
+                      const firstSize = nextItemData.variants[0].sizes[0]
+                      nextItemData.rate = firstSize.rate
+                      nextItemData.mrp = firstSize.mrp
                     } else {
                       const rateNumber = parseAmount(editModal.data.rate)
                       if (rateNumber === null || rateNumber <= 0) {
@@ -1568,7 +1612,6 @@ export default function Inventory() {
                       const discountNumber = parsePercent(editModal.data.discountPercent)
                       const effectiveDiscount = discountNumber !== null ? discountNumber : computeDiscountPercent(mrpNumber ?? undefined, rateNumber ?? undefined)
                       
-                      nextItemData.price = rateNumber
                       nextItemData.rate = rateNumber
                       if (mrpNumber !== null && mrpNumber > 0) nextItemData.mrp = mrpNumber
                       if (effectiveDiscount !== null && effectiveDiscount > 0) nextItemData.discountPercent = effectiveDiscount
@@ -1864,7 +1907,6 @@ export default function Inventory() {
                           const rateNumber = parseAmount(d.rate)
                           if (rateNumber !== null) {
                             next.rate = rateNumber
-                            next.price = rateNumber
                           }
                         }
                         if (d.discountPercent !== '') {

@@ -239,8 +239,8 @@ export default function Orders() {
     const itemsHtml = (order.items || []).map(item => {
       const itemName = String(item.name || '').trim()
       const qty = Number(item.qty) || 1
-      const price = Number(item.price) || 0
-      const lineTotal = (qty * price).toFixed(0)
+      const rate = Number(item.rate ?? item.price) || 0
+      const lineTotal = (qty * rate).toFixed(0)
       // Format: "2x Chicken Burger" on one line, price right-aligned on next line if name is long
       const nameWrapped = wrapText(itemName, 28)
       return `
@@ -829,7 +829,7 @@ export default function Orders() {
                       <tr>
                         <th>Item</th>
                         <th className="text-right">Qty</th>
-                        <th className="text-right">Price</th>
+                        <th className="text-right">Rate</th>
                         <th className="text-right">Total</th>
                       </tr>
                     </thead>
@@ -843,8 +843,8 @@ export default function Orders() {
                             </div>
                           </td>
                           <td className="text-right font-bold">{it.qty}</td>
-                          <td className="text-right">₹{it.price}</td>
-                          <td className="text-right">₹{(it.price || 0) * (it.qty || 0)}</td>
+                          <td className="text-right">₹{Number(it.rate ?? it.price) || 0}</td>
+                          <td className="text-right">₹{(Number(it.rate ?? it.price) || 0) * (it.qty || 0)}</td>
                         </tr>
                       ))}
                     </tbody>

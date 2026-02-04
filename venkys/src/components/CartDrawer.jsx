@@ -70,9 +70,9 @@ export default function CartDrawer({ children }) {
                               <MdClose className="w-4 h-4" />
                             </button>
                           </div>
-                          <div className="text-sm font-bold text-primary mt-1">{formatPrice(it.price * qty)}</div>
+                          <div className="text-sm font-bold text-primary mt-1">{formatPrice(Number(it?.rate ?? it?.price ?? 0) * qty)}</div>
                           <div className="flex items-center justify-between mt-2">
-                            <span className="text-xs opacity-60">{formatPrice(it.price)} each</span>
+                            <span className="text-xs opacity-60">{formatPrice(Number(it?.rate ?? it?.price ?? 0))} each</span>
                             <div className="join join-horizontal">
                               <button 
                                 className="btn btn-xs join-item" 

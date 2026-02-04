@@ -207,7 +207,7 @@ export default function AdminTopNav() {
               </button>
               
               <Link to="/admin" className="shrink-0" aria-label="Admin home">
-                <img src="/icons/logo.png" alt="Venky's" className="brand-logo drop-shadow-sm" />
+                <img src={`${import.meta.env.BASE_URL}icons/Logo.png`} alt="Venky's" className="brand-logo drop-shadow-sm" />
               </Link>
               
               <div className="hidden md:block min-w-0 flex-1">
@@ -311,7 +311,7 @@ export default function AdminTopNav() {
           <aside className="absolute left-0 top-0 bottom-0 w-[280px] max-w-[80vw] bg-base-100 shadow-2xl flex flex-col animate-in slide-in-from-left duration-200">
             <div className="p-4 border-b border-base-200 flex items-center justify-between bg-base-200/50">
               <div className="flex items-center gap-3">
-                <img src="/icons/logo.png" alt="Venky's" className="h-8 w-auto" />
+                <img src={`${import.meta.env.BASE_URL}icons/Logo.png`} alt="Venky's" className="h-8 w-auto" />
                 <span className="font-bold text-lg tracking-tight">Admin</span>
               </div>
               <button className="btn btn-square btn-ghost btn-sm" onClick={() => setDrawerOpen(false)}>

@@ -15,8 +15,8 @@ export default function Admin({ section = 'inventory' }) {
   const [writeOk, setWriteOk] = useState(false)
   const [categories, setCategories] = useState([])
   const [newCats, setNewCats] = useState([{ name: '' }])
-  const [newItems, setNewItems] = useState([{ category: '', name: '', price: '', veg: true }])
-  const [editing, setEditing] = useState({ key: null, name: '', price: '' })
+  const [newItems, setNewItems] = useState([{ category: '', name: '', rate: '', veg: true }])
+  const [editing, setEditing] = useState({ key: null, name: '', rate: '' })
   const [editingCat, setEditingCat] = useState({ id: null, name: '' })
   const [orders, setOrders] = useState([])
   const [loadingOrders, setLoadingOrders] = useState(false)
@@ -403,14 +403,14 @@ export default function Admin({ section = 'inventory' }) {
         const catName = r.category?.trim()
         if (!name || !catName) continue
         const arr = grouped.get(catName) || []
-        arr.push({ name, price: Number(r.price) || 0, veg: r.veg !== false })
+        arr.push({ name, rate: Number(r.rate) || 0, veg: r.veg !== false })
         grouped.set(catName, arr)
       }
       for (const [catName, items] of grouped.entries()) {
         await upsertMenuCategory(catName)
         await addMenuItems(catName, items)
       }
-      setNewItems([{ category: '', name: '', price: '', veg: true }])
+      setNewItems([{ category: '', name: '', rate: '', veg: true }])
       const cats = await fetchMenuCategories()
       setCategories(cats)
       setInfo('Items saved.')
@@ -547,11 +547,11 @@ export default function Admin({ section = 'inventory' }) {
                 inputMode="decimal"
                 pattern="[0-9]*[.]?[0-9]*"
                 className="input input-bordered input-sm w-28"
-                placeholder="Price"
-                value={row.price}
+                placeholder="Rate"
+                value={row.rate}
                 onChange={(e) => {
                   const v = [...newItems]
-                  v[idx] = { ...v[idx], price: e.target.value }
+                  v[idx] = { ...v[idx], rate: e.target.value }
                   setNewItems(v)
                 }}
                 onWheel={(e) => e.currentTarget.blur()}
@@ -581,7 +581,7 @@ export default function Admin({ section = 'inventory' }) {
                   className="btn btn-ghost btn-sm px-1 min-h-0 h-auto hover:bg-base-200/70 transition"
                   title="Add item row"
                   aria-label="Add item"
-                  onClick={() => setNewItems((v) => [...v, { category: '', name: '', price: '', veg: true }])}
+                  onClick={() => setNewItems((v) => [...v, { category: '', name: '', rate: '', veg: true }])}
                 >
                   <MdAdd className="w-8 h-8 text-black" />
                 </button>
@@ -744,7 +744,7 @@ export default function Admin({ section = 'inventory' }) {
                       <thead>
                         <tr>
                           <th className="w-1/3">Item</th>
-                          <th className="w-24 text-right">Price</th>
+                          <th className="w-24 text-right">Rate</th>
                           <th className="w-16 text-center">Type</th>
                           <th className="w-24 text-center">Image</th>
                           <th className="w-32 text-right">Actions</th>
@@ -794,11 +794,11 @@ export default function Admin({ section = 'inventory' }) {
                                     className="input input-bordered input-xs w-20 text-right"
                                     type="text"
                                     inputMode="decimal"
-                                    value={editing.price}
-                                    onChange={(e) => setEditing(s => ({ ...s, price: e.target.value }))}
+                                    value={editing.rate}
+                                    onChange={(e) => setEditing(s => ({ ...s, rate: e.target.value }))}
                                     onWheel={(e) => e.currentTarget.blur()}
                                   />
-                                ) : (it.price !== undefined && it.price !== '' ? `₹${it.price}` : '')}
+                                ) : (it.rate !== undefined && it.rate !== '' ? `₹${it.rate}` : '')}
                               </td>
                               <td className="text-center">
                                 {isEditing ? (
@@ -875,12 +875,12 @@ export default function Admin({ section = 'inventory' }) {
                                         try {
                                           const updated = categories.map(cat =>
                                             cat.id === c.id
-                                              ? { ...cat, items: cat.items.map((x, i) => (i === idx ? { name: editing.name.trim(), price: Number(editing.price) || 0, veg: editing.veg !== false, imageId: x.imageId } : x)) }
+                                              ? { ...cat, items: cat.items.map((x, i) => (i === idx ? { name: editing.name.trim(), rate: Number(editing.rate) || 0, veg: editing.veg !== false, imageId: x.imageId } : x)) }
                                               : cat
                                           )
                                           setCategories(updated)
                                           await setMenuItems(c.id, updated.find(x => x.id === c.id).items)
-                                          setEditing({ key: null, name: '', price: '' })
+                                          setEditing({ key: null, name: '', rate: '' })
                                           setInfo('Item updated.')
                                         } catch (e) {
                                           setError(e.message || 'Update failed')
@@ -890,7 +890,7 @@ export default function Admin({ section = 'inventory' }) {
                                     >✓</button>
                                     <button
                                       className="btn btn-error btn-xs join-item"
-                                      onClick={() => setEditing({ key: null, name: '', price: '' })}
+                                      onClick={() => setEditing({ key: null, name: '', rate: '' })}
                                       title="Cancel"
                                     >✕</button>
                                   </div>
@@ -898,7 +898,7 @@ export default function Admin({ section = 'inventory' }) {
                                   <div className="flex items-center justify-end gap-1">
                                     <button
                                       className="btn btn-ghost btn-xs"
-                                      onClick={() => setEditing({ key, name: it.name, price: String(it.price ?? ''), veg: it.veg !== false })}
+                                      onClick={() => setEditing({ key, name: it.name, rate: String(it.rate ?? ''), veg: it.veg !== false })}
                                       title="Edit item"
                                     >✎</button>
                                     <button
@@ -1340,7 +1340,7 @@ export default function Admin({ section = 'inventory' }) {
                                 <div className="flex-1 min-h-[34px] font-medium leading-snug truncate" title={it.name}>{it.name}</div>
                                 <div className="flex items-center justify-between text-[10px] opacity-70">
                                   <span>{it.veg === false ? 'Non-Veg' : 'Veg'}</span>
-                                  {it.price !== undefined && <span>₹{it.price}</span>}
+                                  {it.rate !== undefined && <span>₹{it.rate}</span>}
                                 </div>
                                 <button
                                   type="button"
@@ -1726,7 +1726,7 @@ export default function Admin({ section = 'inventory' }) {
                       <tr>
                         <th>Name</th>
                         <th>Qty</th>
-                        <th>Price</th>
+                        <th>Rate</th>
                         <th>Total</th>
                       </tr>
                     </thead>
@@ -1735,8 +1735,8 @@ export default function Admin({ section = 'inventory' }) {
                         <tr key={it.id}>
                           <td>{it.name}</td>
                           <td>{it.qty}</td>
-                          <td>₹{it.price}</td>
-                          <td>₹{(it.price || 0) * (it.qty || 0)}</td>
+                          <td>₹{it.rate ?? it.price}</td>
+                          <td>₹{(Number(it.rate ?? it.price) || 0) * (it.qty || 0)}</td>
                         </tr>
                       ))}
                     </tbody>

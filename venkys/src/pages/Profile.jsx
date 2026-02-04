@@ -432,8 +432,7 @@ export default function Profile() {
       addToCart({
         id: it.id || `${it.name}`,
         name: it.name,
-        price: it.price || 0,
-        qty: it.qty || 1,
+        rate: Number(it?.rate ?? it?.price ?? 0),
         imageUrl: it.imageUrl || it.img || null,
       }, it.qty || 1)
     })
@@ -1012,7 +1011,7 @@ function getOrderItems(order) {
 }
 
 function calculateItemsSubtotal(items) {
-  return items.reduce((sum, it) => sum + (Number(it?.price) || 0) * (Number(it?.qty) || 0), 0)
+  return items.reduce((sum, it) => sum + (Number(it?.rate ?? it?.price) || 0) * (Number(it?.qty) || 0), 0)
 }
 
 function getOrderSubtotal(order, items) {
@@ -1182,7 +1181,7 @@ function OrderDetailsModal({ order, onClose }) {
                 </thead>
                 <tbody>
                   {items.map((it) => {
-                    const lineTotal = (Number(it?.price) || 0) * (Number(it?.qty) || 0)
+                    const lineTotal = (Number(it?.rate ?? it?.price) || 0) * (Number(it?.qty) || 0)
                     return (
                       <tr key={`${order.id || 'order'}-${it.id || it.name}`} className="text-sm">
                         <td>{it.name}</td>

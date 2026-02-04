@@ -1,6 +1,7 @@
-const CACHE = 'venkys-admin-pwa-v1'
+const CACHE = 'venkys-admin-pwa-v2'
 const APP_SHELL = ['/', '/index.html']
 const WB_MANIFEST = self.__WB_MANIFEST || []
+const MAX_CACHE_AGE = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -22,9 +23,9 @@ self.addEventListener('fetch', (event) => {
   const req = event.request
   const url = new URL(req.url)
 
-  // Do not attempt Cache API writes for cross-origin audio/media.
-  // This avoids net::ERR_CACHE_OPERATION_NOT_SUPPORTED seen with Mixkit preview mp3.
-  if (url.origin !== self.location.origin && (req.destination === 'audio' || /\.(?:mp3|wav|ogg)(?:\?|$)/i.test(url.pathname))) {
+  // Skip caching for API calls, cross-origin audio/media, and external resources
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/') || 
+      (req.destination === 'audio' || /\.(?:mp3|wav|ogg)(?:\?|$)/i.test(url.pathname))) {
     event.respondWith(fetch(req))
     return
   }
@@ -33,18 +34,25 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(fetch(req).catch(() => caches.match('/index.html')))
     return
   }
-  if (url.pathname.match(/\.(?:png|jpg|jpeg|gif|svg|webp|ico|css|js)$/)) {
+  
+  // Only cache essential static assets (CSS, JS, icons, fonts)
+  // Exclude menu item images to save storage
+  if (url.pathname.match(/\.(?:css|js|woff2?|ttf|eot)$/) || url.pathname.includes('/icons/')) {
     event.respondWith(
       caches.match(req).then((cached) => {
         if (cached) return cached
         return fetch(req).then((res) => {
-          const copy = res.clone()
-          caches.open(CACHE).then((cache) => cache.put(req, copy))
+          if (res.ok) {
+            const copy = res.clone()
+            caches.open(CACHE).then((cache) => cache.put(req, copy))
+          }
           return res
         })
       })
     )
     return
   }
+  
+  // For everything else, network-first
   event.respondWith(fetch(req).catch(() => caches.match(req)))
 })

@@ -57,7 +57,7 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icons/logo.png', 'favicon.ico'],
+        includeAssets: ['icons/Logo.png', 'favicon.ico'],
         manifest: {
           name: 'Venky’s Chicken Xperience Durgapur',
           short_name: 'Venky’s',
@@ -68,8 +68,8 @@ export default defineConfig(({ mode }) => {
           background_color: '#ffffff',
           theme_color: '#facc15',
           icons: [
-            { src: '/icons/logo.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-            { src: '/icons/logo.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+            { src: 'icons/Logo.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: 'icons/Logo.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
           ]
         },
         strategies: 'injectManifest',

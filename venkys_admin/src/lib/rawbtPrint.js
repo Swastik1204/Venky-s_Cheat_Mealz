@@ -132,8 +132,8 @@ export function buildEscPosReceiptForOrder(order, opts = {}) {
   for (const it of items) {
     const qty = Number(it?.qty) || 1
     const name = String(it?.name || '').trim() || 'Item'
-    const price = Number(it?.price) || 0
-    const lineTotal = Math.round(qty * price)
+    const rate = Number(it?.rate ?? it?.price) || 0
+    const lineTotal = Math.round(qty * rate)
 
     const prefix = `${qty}x `
     const nameWidth = Math.max(10, width - prefix.length)

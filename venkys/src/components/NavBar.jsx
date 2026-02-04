@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import logo from '../assets/logo.png'
 import useDeliveryLocation from '../hooks/useDeliveryLocation'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
@@ -8,6 +7,7 @@ import { MdLocationOn, MdLogin, MdPerson, MdSearch } from 'react-icons/md'
 import { fetchMenuCategories, getUserTheme, setUserTheme } from '../lib/data'
 
 export default function NavBar() {
+  const logoUrl = `${import.meta.env.BASE_URL}icons/Logo.png`
   const [scrolled, setScrolled] = useState(false)
   const [theme, setTheme] = useState('venkys_light')
   const { user /*, logout */ } = useAuth()
@@ -58,7 +58,7 @@ export default function NavBar() {
   // Search state
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [allSearchItems, setAllSearchItems] = useState([]) // {type:'category'|'item', label, cat?, veg?, price?}
+  const [allSearchItems, setAllSearchItems] = useState([]) // {type:'category'|'item', label, cat?, veg?, rate?, mrp?, discountPercent?}
   const [activeIndex, setActiveIndex] = useState(-1)
   const searchWrapRef = useRef(null)
   const inputRef = useRef(null)
@@ -80,19 +80,20 @@ export default function NavBar() {
         coll.push({ type: 'category', label: cat.id, cat: cat.id })
         if (Array.isArray(cat.items)) {
           cat.items.forEach(it => {
-            const rawPrice = typeof it.price === 'number' ? it.price : Number(it.price) || 0
             const rateNumber = typeof it.rate === 'number' ? it.rate : Number(it.rate)
-            const price = Number.isFinite(rateNumber) && rateNumber >= 0 ? Math.round(rateNumber * 100) / 100 : Math.round(rawPrice * 100) / 100
+            const rate = Number.isFinite(rateNumber) && rateNumber >= 0
+              ? Math.round(rateNumber * 100) / 100
+              : Math.round((Number(it.price) || 0) * 100) / 100
             const mrpRaw = typeof it.mrp === 'number' ? it.mrp : Number(it.mrp)
             const mrp = Number.isFinite(mrpRaw) && mrpRaw > 0 ? Math.round(mrpRaw * 100) / 100 : null
             const discountRaw = typeof it.discountPercent === 'number' ? it.discountPercent : Number(it.discountPercent)
-            const derivedDiscount = mrp && mrp > price && mrp > 0
-              ? Math.max(0, Math.round(((mrp - price) / mrp) * 1000) / 10)
+            const derivedDiscount = mrp && mrp > rate && mrp > 0
+              ? Math.max(0, Math.round(((mrp - rate) / mrp) * 1000) / 10)
               : null
             const discountPercent = Number.isFinite(discountRaw) && discountRaw > 0
               ? Math.round(Math.max(0, Math.min(100, discountRaw)) * 10) / 10
               : (derivedDiscount && derivedDiscount > 0 ? derivedDiscount : null)
-            coll.push({ type: 'item', label: it.name, cat: cat.id, veg: it.veg !== false, price, rate: price, mrp, discountPercent })
+            coll.push({ type: 'item', label: it.name, cat: cat.id, veg: it.veg !== false, rate, mrp, discountPercent })
           })
         }
       })
@@ -211,7 +212,7 @@ export default function NavBar() {
             {/* Left: Logo */}
             <div className="shrink-0">
               <Link to="/" className="inline-flex items-center" aria-label="Home">
-                <img src={logo} alt="Venky's" className="brand-logo" />
+                <img src={logoUrl} alt="Venky's" className="brand-logo" />
               </Link>
             </div>
 
@@ -287,8 +288,8 @@ export default function NavBar() {
                               <p className="font-medium text-sm text-base-content truncate">{r.label}</p>
                               <p className="text-xs opacity-70 truncate">{r.type === 'item' ? (r.veg !== false ? 'Vegetarian dish' : 'Non-veg dish') : 'Category shortcut'}</p>
                             </div>
-                            {r.type === 'item' && r.price !== undefined && r.price !== '' && (
-                              <span className="text-sm font-semibold text-base-content/80">₹{formatMoney(r.price)}</span>
+                            {r.type === 'item' && r.rate !== undefined && r.rate !== '' && (
+                              <span className="text-sm font-semibold text-base-content/80">₹{formatMoney(r.rate)}</span>
                             )}
                           </button>
                         </li>

@@ -3,8 +3,8 @@ import { MdSort } from 'react-icons/md'
 
 const SORT_OPTIONS = [
   { key: 'default', label: 'Default' },
-  { key: 'price-asc', label: 'Price: Low to High' },
-  { key: 'price-desc', label: 'Price: High to Low' },
+  { key: 'price-asc', label: 'Rate: Low to High' },
+  { key: 'price-desc', label: 'Rate: High to Low' },
   { key: 'name-asc', label: 'Name: A to Z' },
   { key: 'name-desc', label: 'Name: Z to A' },
 ]

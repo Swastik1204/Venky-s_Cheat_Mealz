@@ -600,7 +600,7 @@ export default function Appearance() {
                               <div className="flex-1 min-h-[34px] font-medium leading-snug truncate" title={it.name}>{it.name}</div>
                               <div className="flex items-center justify-between text-[10px] opacity-70">
                                 <span>{it.veg === false ? 'Non-Veg' : 'Veg'}</span>
-                                {it.price !== undefined && <span>₹{it.price}</span>}
+                                  {it.rate !== undefined && <span>₹{it.rate}</span>}
                               </div>
                               <button
                                 type="button"

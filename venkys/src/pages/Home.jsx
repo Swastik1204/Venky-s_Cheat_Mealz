@@ -82,41 +82,49 @@ export default function Home() {
         }))
         const flat = cats.flatMap((c) =>
           (c.items || []).flatMap((it, idx) => {
-            const processItem = (sourceItem, variant = null) => {
-              const sourcePrice = variant ? null : (typeof sourceItem.price === 'number' ? sourceItem.price : Number(sourceItem.price) || 0)
-              const sourceRate = variant ? variant.rate : (typeof sourceItem.rate === 'number' ? sourceItem.rate : Number(sourceItem.rate))
-              const sourceMrp = variant ? variant.mrp : (typeof sourceItem.mrp === 'number' ? sourceItem.mrp : Number(sourceItem.mrp))
-              const sourceDiscount = variant ? variant.discountPercent : (typeof sourceItem.discountPercent === 'number' ? sourceItem.discountPercent : Number(sourceItem.discountPercent))
+            const processItem = (sourceItem, idSuffixOverride = null) => {
+              const sourceRate = (typeof sourceItem.rate === 'number' ? sourceItem.rate : Number(sourceItem.rate))
+              const sourceMrp = (typeof sourceItem.mrp === 'number' ? sourceItem.mrp : Number(sourceItem.mrp))
+              const sourceDiscount = (typeof sourceItem.discountPercent === 'number' ? sourceItem.discountPercent : Number(sourceItem.discountPercent))
 
               const rateNumber = typeof sourceRate === 'number' ? sourceRate : Number(sourceRate)
               const effectiveRate = Number.isFinite(rateNumber) && rateNumber >= 0 
                 ? Math.round(rateNumber * 100) / 100 
-                : (variant ? 0 : Math.round(sourcePrice * 100) / 100)
+                : Math.round((Number(sourceItem.price) || 0) * 100) / 100
 
               const mrpNumberRaw = typeof sourceMrp === 'number' ? sourceMrp : Number(sourceMrp)
-              const mrpNumber = Number.isFinite(mrpNumberRaw) && mrpNumberRaw > 0 ? Math.round(mrpNumberRaw * 100) / 100 : null
               
               const discountRaw = typeof sourceDiscount === 'number' ? sourceDiscount : Number(sourceDiscount)
-              const derivedDiscount = mrpNumber && mrpNumber > effectiveRate && mrpNumber > 0
-                ? Math.max(0, Math.round(((mrpNumber - effectiveRate) / mrpNumber) * 1000) / 10)
-                : null
-              const discountNumber = Number.isFinite(discountRaw) && discountRaw > 0
-                ? Math.round(Math.max(0, Math.min(100, discountRaw)) * 10) / 10
-                : (derivedDiscount && derivedDiscount > 0 ? derivedDiscount : null)
+              
+              // If we have a fixed discount in DB, use it directly (user preference)
+              // Otherwise derive it from MRP/Rate if possible
+              let discountNumber = Number.isFinite(discountRaw) && discountRaw > 0 ? discountRaw : null
+
+              // Recalculate MRP if discount is fixed (Rate / (1 - Disc%))
+              // The user requested only MRP needs recalculation in this case
+              let mrpNumber = Number.isFinite(mrpNumberRaw) && mrpNumberRaw > 0 ? Math.round(mrpNumberRaw * 100) / 100 : null
+              
+              if (discountNumber !== null && effectiveRate > 0) {
+                 const calculatedMrp = (effectiveRate * 100) / (100 - discountNumber)
+                 mrpNumber = Math.round(calculatedMrp * 100) / 100
+              } else if (mrpNumber && mrpNumber > effectiveRate) {
+                 // Fallback: derive discount if not explicit
+                 const derived = ((mrpNumber - effectiveRate) / mrpNumber) * 100
+                 if (discountNumber === null) {
+                    discountNumber = Math.round(derived * 10) / 10
+                 }
+              }
 
               const baseName = sourceItem.name || ''
-              const variantName = variant ? variant.name : null
-              const finalName = variantName ? `${baseName} - ${variantName}` : baseName
               
-              const uniqueIdSuffix = variantName 
-                ? `${baseName}-${variantName}`.toLowerCase().replace(/[^a-z0-9]+/g, '-') 
-                : baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+              const uniqueIdSuffix = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+
+              const finalIdx = idSuffixOverride !== null ? idSuffixOverride : idx
 
               return {
-                id: `${c.id}-${idx}-${uniqueIdSuffix}`,
-                name: finalName,
+                id: `${c.id}-${finalIdx}-${uniqueIdSuffix}`,
+                name: baseName,
                 desc: sourceItem.desc || sourceItem.description || '',
-                price: effectiveRate,
                 rate: effectiveRate,
                 mrp: mrpNumber,
                 discountPercent: discountNumber,
@@ -129,13 +137,51 @@ export default function Home() {
                 imageId: sourceItem.imageId || null,
                 components: Array.isArray(sourceItem.components) ? sourceItem.components : [],
                 isCustom: !!sourceItem.isCustom,
+                variants: Array.isArray(sourceItem.variants) ? sourceItem.variants : []
               }
             }
 
-            if (Array.isArray(it.variants) && it.variants.length > 0) {
-              return it.variants.map(v => processItem(it, v))
+            // Handle nested variants: Item -> Variant -> Sizes
+            // We split items with nested variants into separate cards (e.g. "Grilled Chicken (Tandoori)")
+            // each containing their respective sizes.
+            if (Array.isArray(it.variants) && it.variants.some(v => Array.isArray(v.sizes) && v.sizes.length > 0)) {
+               return it.variants.map((v, vIdx) => {
+                  const cloned = { ...it, ...v }
+                  // Use a descriptive name: "Variant Name Item Name" (Admin style)
+                  cloned.name = `${v.name} ${it.name}`
+                  // The new item's variants are now the sizes from the nested structure
+                  cloned.variants = v.sizes
+                  // Use image from variant if available
+                  if (v.imageId) cloned.imageId = v.imageId
+                  if (v.image) cloned.image = v.image
+
+                  // Find the costlier option (max price) to display on the card
+                  // This is purely for display; actual selection happens in modal/dropdown
+                  if (Array.isArray(v.sizes) && v.sizes.length > 0) {
+                     const maxPriceSize = v.sizes.reduce((prev, curr) => {
+                        const prevRate = Number(prev.rate ?? prev.price ?? 0)
+                        const currRate = Number(curr.rate ?? curr.price ?? 0)
+                        return currRate > prevRate ? curr : prev
+                     }, v.sizes[0])
+                     
+                     if (maxPriceSize) {
+                        cloned.rate = Number(maxPriceSize.rate ?? maxPriceSize.price ?? 0)
+                        // If discount logic needs to apply to the displayed max price
+                        if (cloned.discountPercent) {
+                           // Recalc MRP based on this new rate + fixed discount
+                           const calcMrp = (cloned.rate * 100) / (100 - cloned.discountPercent)
+                           cloned.mrp = Math.round(calcMrp * 100) / 100
+                        } else {
+                           cloned.mrp = Number(maxPriceSize.mrp ?? 0)
+                        }
+                     }
+                  }
+
+                  return processItem(cloned, `${idx}-v${vIdx}`) 
+               })
             }
-            return [processItem(it)]
+
+            return processItem(it)
           })
         )
         setCategories(cats)
@@ -285,8 +331,8 @@ export default function Home() {
     })
     // Sorting
     const sorted = [...base]
-    if (sortBy === 'price-asc') sorted.sort((a,b) => (a.price||0) - (b.price||0))
-    else if (sortBy === 'price-desc') sorted.sort((a,b) => (b.price||0) - (a.price||0))
+    if (sortBy === 'price-asc') sorted.sort((a,b) => (a.rate||0) - (b.rate||0))
+    else if (sortBy === 'price-desc') sorted.sort((a,b) => (b.rate||0) - (a.rate||0))
     else if (sortBy === 'name-asc') sorted.sort((a,b) => (a.name||'').localeCompare(b.name||''))
     else if (sortBy === 'name-desc') sorted.sort((a,b) => (b.name||'').localeCompare(a.name||''))
     return sorted
@@ -410,7 +456,7 @@ export default function Home() {
         <ul className="space-y-3">
           {items.length ? items.map(({ entry, item }) => {
             const imageUrl = item ? resolveImageUrlFor(item) : undefined
-            const priceLabel = item ? formatCurrency(item.price) : null
+            const priceLabel = item ? formatCurrency(item?.rate ?? item?.price ?? 0) : null
             const discountLabel = item && typeof item.discountPercent === 'number'
               ? Math.round(item.discountPercent * 10) / 10
               : null

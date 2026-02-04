@@ -309,21 +309,24 @@ export async function createOrder({
 	}
 
 	const normalizedItems = safeItems.map((item, idx) => {
-		const price = Number(item?.price) || 0
+		const rate = Number(item?.rate ?? item?.price) || 0
 		const qty = Number(item?.qty) || 0
-		const total = Number((price * qty).toFixed(2))
+		const total = Number((rate * qty).toFixed(2))
 		const normalized = {
 			id: item?.id || `item-${idx + 1}`,
 			name: String(item?.name || `Item ${idx + 1}`).trim(),
-			price,
+			rate,
 			qty,
 			total,
 		}
+		if (item?.mrp != null) normalized.mrp = Number(item.mrp) || null
+		if (item?.discountPercent != null) normalized.discountPercent = Number(item.discountPercent) || null
+		if (item?.variantLabel) normalized.variantLabel = String(item.variantLabel)
 		if (item?.note) normalized.note = String(item.note)
 		if (item?.modifiers) normalized.modifiers = item.modifiers
 		return normalized
 	})
-	const subtotal = Number(normalizedItems.reduce((sum, it) => sum + (Number(it.total) || (it.price * it.qty)), 0).toFixed(2))
+	const subtotal = Number(normalizedItems.reduce((sum, it) => sum + (Number(it.total) || ((it.rate || 0) * it.qty)), 0).toFixed(2))
 	const normalizedTaxRate = typeof taxRate === 'number' ? taxRate : (taxRate != null ? Number(taxRate) : null)
 	const normalizedTaxAmount = taxAmount != null ? Number(taxAmount) : (normalizedTaxRate != null ? Number((subtotal * normalizedTaxRate).toFixed(2)) : null)
 	const resolvedTotalAmount = totalAmount != null ? Number(totalAmount) : Number((subtotal + (normalizedTaxAmount || 0)).toFixed(2))
@@ -902,7 +905,7 @@ export async function upsertMenuItem(id, data) {
 		ref,
 		{
 			name: data.name,
-			price: Number(data.price) || 0,
+			rate: Number(data.rate ?? data.price) || 0,
 			categoryId: data.categoryId,
 			active: data.active ?? true,
 			desc: data.desc ?? '',
@@ -1218,12 +1221,11 @@ export async function appendMenuItems(categoryName, items) {
 	await setDoc(ref, {}, { merge: true })
 	for (const it of items) {
 		const rate = toMoney(it.rate ?? it.price)
-		const price = rate !== null ? rate : (Number(it.price) || 0)
 		const mrp = toMoney(it.mrp ?? it.MRP)
 		const discountSource = it.discountPercent ?? it.discount
 		const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
 		const discount = toDiscount(discountSource ?? derivedDiscount)
-		const item = { name: it.name, price, veg: it.veg === false ? false : true }
+		const item = { name: it.name, veg: it.veg === false ? false : true }
 		if (rate !== null) item.rate = rate
 		if (mrp !== null) item.mrp = mrp
 		if (discount !== null) item.discountPercent = discount
@@ -1250,11 +1252,10 @@ export async function addMenuItems(categoryName, rawItems) {
 		if (existingNames.has(key)) { skipped++; continue }
 		existingNames.add(key)
 		const rate = toMoney(r.rate ?? r.price)
-		const price = rate !== null ? rate : (Number(r.price) || 0)
 		const mrp = toMoney(r.mrp ?? r.MRP)
 		const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
 		const discount = toDiscount(r.discountPercent ?? derivedDiscount)
-		const item = { name, price, veg: r.veg === false ? false : true }
+		const item = { name, veg: r.veg === false ? false : true }
 		if (rate !== null) item.rate = rate
 		if (mrp !== null) item.mrp = mrp
 		if (r.needsReview) item.needsReview = true
@@ -1278,11 +1279,10 @@ export async function setMenuItems(categoryName, items) {
 				name: it.name,
 				...(() => {
 					const rate = toMoney(it.rate ?? it.price)
-					const price = rate !== null ? rate : (Number(it.price) || 0)
 					const mrp = toMoney(it.mrp ?? it.MRP)
 					const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
 					const discount = toDiscount(it.discountPercent ?? derivedDiscount)
-					const base = { price }
+					const base = {}
 					if (rate !== null) base.rate = rate
 					if (mrp !== null) base.mrp = mrp
 					if (discount !== null) base.discountPercent = discount
@@ -1304,10 +1304,16 @@ export async function setMenuItems(categoryName, items) {
 					? {
 							variants: it.variants.map(v => ({
 								name: String(v.name || '').trim(),
-								price: Number(v.price) || Number(v.rate) || 0,
-								rate: Number(v.rate) || Number(v.price) || 0,
-								mrp: Number(v.mrp) || null,
-								discountPercent: Number(v.discountPercent) || null
+								...(Array.isArray(v.sizes)
+									? {
+										sizes: v.sizes.map(s => ({
+											name: String(s.name || '').trim(),
+											rate: Number(s.rate) || Number(s.price) || 0,
+											mrp: Number(s.mrp) || null,
+											discountPercent: Number(s.discountPercent) || null,
+										})),
+									}
+									: {}),
 							}))
 						}
 					: {}),
@@ -1566,7 +1572,7 @@ purgeLegacyStorageImageCache()
 
 const __imageObjectCache = new Map() // id -> { data, mime } or { url }
 const __imageObjectCacheOrder = []
-const __MAX_IMAGE_OBJECT_CACHE = 250
+const __MAX_IMAGE_OBJECT_CACHE = 100 // Reduced from 250 to save memory
 
 function getCachedImageObject(id) {
 	return __imageObjectCache.get(id) || null

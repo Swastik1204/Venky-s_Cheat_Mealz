@@ -209,21 +209,24 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
   }
 
   const normalizedItems = safeItems.map((item, idx) => {
-    const price = Number(item?.price) || 0
+    const rate = Number(item?.rate ?? item?.price) || 0
     const qty = Number(item?.qty) || 0
-    const total = Number((price * qty).toFixed(2))
+    const total = Number((rate * qty).toFixed(2))
     const normalized = {
       id: item?.id || `item-${idx + 1}`,
       name: String(item?.name || `Item ${idx + 1}`).trim(),
-      price,
+      rate,
       qty,
       total,
     }
+    if (item?.mrp != null) normalized.mrp = Number(item.mrp) || null
+    if (item?.discountPercent != null) normalized.discountPercent = Number(item.discountPercent) || null
+    if (item?.variantLabel) normalized.variantLabel = String(item.variantLabel)
     if (item?.note) normalized.note = String(item.note)
     if (item?.modifiers) normalized.modifiers = item.modifiers
     return normalized
   })
-  const subtotal = Number(normalizedItems.reduce((sum, it) => sum + (Number(it.total) || (it.price * it.qty)), 0).toFixed(2))
+  const subtotal = Number(normalizedItems.reduce((sum, it) => sum + (Number(it.total) || ((it.rate || 0) * it.qty)), 0).toFixed(2))
   const normalizedTaxRate = typeof taxRate === 'number' ? taxRate : (taxRate != null ? Number(taxRate) : null)
   const normalizedTaxAmount = taxAmount != null ? Number(taxAmount) : (normalizedTaxRate != null ? Number((subtotal * normalizedTaxRate).toFixed(2)) : null)
   const resolvedTotalAmount = totalAmount != null ? Number(totalAmount) : Number((subtotal + (normalizedTaxAmount || 0)).toFixed(2))
@@ -661,42 +664,9 @@ export async function fetchMenuCategories() {
     const snap = await getDocs(collection(db, 'menu'))
     let cats = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
     
-    // Process variants: Explode items with variants into separate items for the customer view
-    cats.forEach(cat => {
-      if (Array.isArray(cat.items)) {
-        const explodedItems = []
-        cat.items.forEach(item => {
-          if (item.variants && Array.isArray(item.variants) && item.variants.length > 0) {
-            item.variants.forEach(variant => {
-              if (!variant.name) return
-              const variantItem = { ...item }
-              // Construct composite name: "Variant Name Item Name"
-              variantItem.name = `${variant.name} ${item.name}`
-              
-              // Apply variant pricing
-              variantItem.price = variant.rate || variant.price || 0
-              variantItem.rate = variant.rate || variant.price || 0
-              variantItem.mrp = variant.mrp || 0
-              variantItem.discountPercent = variant.discountPercent || 0
-              
-              // Generate a derived ID to ensure uniqueness in lists/cart
-              const baseId = item.id || item.itemId || item.name
-              variantItem.id = `${baseId}_${variant.name}`.replace(/\s+/g, '_')
-              
-              // Remove variant info from the clone so it behaves like a standard item
-              delete variantItem.variants
-              delete variantItem.hasVariants
-              
-              explodedItems.push(variantItem)
-            })
-          } else {
-            explodedItems.push(item)
-          }
-        })
-        cat.items = explodedItems
-      }
-    })
-
+    // Variant processing logic moved to ui/Home.jsx for display
+    // Here we just return the raw data with variants intact    
+    
     // Attempt to apply appearance ordering if present
     try {
       const appearanceRef = doc(db, 'miscellaneous', 'appearance')
@@ -888,12 +858,11 @@ export async function appendMenuItems(categoryName, items) {
   await setDoc(ref, {}, { merge: true })
   for (const it of items) {
     const rate = toMoney(it.rate ?? it.price)
-    const price = rate !== null ? rate : (Number(it.price) || 0)
     const mrp = toMoney(it.mrp ?? it.MRP)
     const discountSource = it.discountPercent ?? it.discount
     const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
     const discount = toDiscount(discountSource ?? derivedDiscount)
-    const item = { name: it.name, price, veg: it.veg === false ? false : true }
+    const item = { name: it.name, veg: it.veg === false ? false : true }
     if (rate !== null) item.rate = rate
     if (mrp !== null) item.mrp = mrp
     if (discount !== null) item.discountPercent = discount
@@ -906,7 +875,7 @@ export async function appendMenuItems(categoryName, items) {
 }
 
 // High-level safe adder: prevents duplicates (case-insensitive), merges by skipping existing
-// Accepts raw items: [{ name, price, veg }]
+// Accepts raw items: [{ name, rate, mrp?, discountPercent?, veg? }]
 export async function addMenuItems(categoryName, rawItems) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) return { added: 0, skipped: 0 }
   const ref = doc(db, 'menu', categoryName)
@@ -922,11 +891,10 @@ export async function addMenuItems(categoryName, rawItems) {
     if (existingNames.has(key)) { skipped++; continue }
     existingNames.add(key)
     const rate = toMoney(r.rate ?? r.price)
-    const price = rate !== null ? rate : (Number(r.price) || 0)
     const mrp = toMoney(r.mrp ?? r.MRP)
     const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
     const discount = toDiscount(r.discountPercent ?? derivedDiscount)
-    const item = { name, price, veg: r.veg === false ? false : true }
+    const item = { name, veg: r.veg === false ? false : true }
     if (rate !== null) item.rate = rate
     if (mrp !== null) item.mrp = mrp
     if (discount !== null) item.discountPercent = discount
@@ -952,11 +920,10 @@ export async function setMenuItems(categoryName, items) {
         name: it.name,
         ...(() => {
           const rate = toMoney(it.rate ?? it.price)
-          const price = rate !== null ? rate : (Number(it.price) || 0)
           const mrp = toMoney(it.mrp ?? it.MRP)
           const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
           const discount = toDiscount(it.discountPercent ?? derivedDiscount)
-          const base = { price }
+          const base = {}
           if (rate !== null) base.rate = rate
           if (mrp !== null) base.mrp = mrp
           if (discount !== null) base.discountPercent = discount
@@ -974,6 +941,23 @@ export async function setMenuItems(categoryName, items) {
             }
           : {}),
         ...(it.isCustom ? { isCustom: true } : {}),
+        ...(Array.isArray(it.variants) && it.variants.length
+          ? {
+              variants: it.variants.map(v => ({
+                name: String(v.name || '').trim(),
+                ...(Array.isArray(v.sizes)
+                  ? {
+                      sizes: v.sizes.map(s => ({
+                        name: String(s.name || '').trim(),
+                        rate: Number(s.rate) || Number(s.price) || 0,
+                        mrp: Number(s.mrp) || null,
+                        discountPercent: Number(s.discountPercent) || null,
+                      }))
+                    }
+                  : {})
+              }))
+            }
+          : {}),
       })),
     },
     { merge: true },
@@ -1036,7 +1020,7 @@ export async function loadCart(uid) {
         // Rehydrate into expected shape { [id]: { item, qty } }
         const restored = {}
         Object.entries(live.items).forEach(([id, v]) => {
-          restored[id] = { item: { id, name: v.name, price: Number(v.price)||0 }, qty: Number(v.qty)||0 }
+          restored[id] = { item: { id, name: v.name, rate: Number(v.rate ?? v.price) || 0 }, qty: Number(v.qty) || 0 }
         })
         return restored
       }
@@ -1056,7 +1040,7 @@ export async function saveCart(uid, cartItems) {
   try {
     const ref = doc(db, 'users', uid, 'meta', 'cart')
     // cartItems shape: { [id]: { item, qty } }
-    // Minimize storage: only keep id, name, price, qty
+    // Minimize storage: only keep id, name, rate, qty
     const minimalItems = {}
     Object.entries(cartItems || {}).forEach(([id, entry]) => {
       if (entry && entry.item && entry.qty > 0) {
@@ -1064,7 +1048,10 @@ export async function saveCart(uid, cartItems) {
           item: {
             id: entry.item.id,
             name: entry.item.name,
-            price: typeof entry.item.price === 'number' ? entry.item.price : Number(entry.item.price) || 0,
+            rate:
+              typeof entry.item.rate === 'number'
+                ? entry.item.rate
+                : Number(entry.item.rate ?? entry.item.price) || 0,
           },
           qty: entry.qty,
         }
@@ -1301,11 +1288,19 @@ export async function fetchImagesByIdsCached(ids) {
 
 // Optional tiny in-memory cache for image data URLs for this module instance
 const memoryImageCache = new Map()
+const MAX_MEMORY_IMAGE_CACHE = 50 // Limit to 50 images in memory
 export function getImageDataUrl(obj) {
   // obj shape: { data, mime }
   const key = `${obj.mime || 'image/*'}:${obj.data?.slice?.(0, 24) || ''}:${obj.data?.length || 0}`
   if (memoryImageCache.has(key)) return memoryImageCache.get(key)
   const url = `data:${obj.mime || 'image/*'};base64,${obj.data}`
+  
+  // Limit cache size to prevent memory bloat
+  if (memoryImageCache.size >= MAX_MEMORY_IMAGE_CACHE) {
+    const firstKey = memoryImageCache.keys().next().value
+    memoryImageCache.delete(firstKey)
+  }
+  
   memoryImageCache.set(key, url)
   return url
 }

@@ -29,16 +29,16 @@ export function formatINR(value, withDecimals = false) {
 /**
  * Calculate discount percentage label
  * @param {number} originalPrice - Original price (MRP)
- * @param {number} currentPrice - Current/discounted price
+ * @param {number} currentRate - Current/selling rate
  * @returns {string|null} Discount percentage string (e.g., "20% OFF") or null if no discount
  */
-export function getDiscountLabel(originalPrice, currentPrice) {
+export function getDiscountLabel(originalPrice, currentRate) {
   const mrp = Number(originalPrice)
-  const price = Number(currentPrice)
-  if (!Number.isFinite(mrp) || !Number.isFinite(price) || mrp <= price || mrp <= 0) {
+  const rate = Number(currentRate)
+  if (!Number.isFinite(mrp) || !Number.isFinite(rate) || mrp <= rate || mrp <= 0) {
     return null
   }
-  const percent = Math.round(((mrp - price) / mrp) * 100)
+  const percent = Math.round(((mrp - rate) / mrp) * 100)
   return percent > 0 ? `${percent}% OFF` : null
 }
 

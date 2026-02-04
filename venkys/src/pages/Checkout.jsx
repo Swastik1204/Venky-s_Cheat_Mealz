@@ -99,6 +99,12 @@ export default function Checkout() {
   const [confirmedSteps, setConfirmedSteps] = useState({ contact: false, address: false })
   const [highlightGPSButton, setHighlightGPSButton] = useState(false)
 
+  // Location share enforcement
+  const [locationVerifiedByButton, setLocationVerifiedByButton] = useState(false)
+  const [locationWarningShown, setLocationWarningShown] = useState(false)
+  const [showLocationAnimation, setShowLocationAnimation] = useState(false)
+  const gpsButtonRef = useRef(null)
+
   useEffect(() => {
     if (!orderId) return
     navigate(`/active-orders?id=${encodeURIComponent(orderId)}`, { replace: true })
@@ -457,6 +463,7 @@ export default function Checkout() {
   }, [form.phone])
 
   const handleAutoFillLocation = useCallback(async () => {
+    setLocationVerifiedByButton(true)
     if (typeof window === 'undefined' || !('geolocation' in navigator)) {
       setShowAddressForm(true)
       setFieldError('location')
@@ -571,6 +578,7 @@ export default function Checkout() {
   }, [update, deliveryLocation, pushToast])
 
   const handleGPSOnly = useCallback(async () => {
+    setLocationVerifiedByButton(true)
     if (typeof window === 'undefined' || !('geolocation' in navigator)) {
       pushToast('Location is not available in this browser.', 'error', 5000)
       return
@@ -911,7 +919,7 @@ export default function Checkout() {
         items: entries.map(({ item, qty }) => ({
           id: item.id,
           name: item.name,
-          price: item.price,
+          rate: item?.rate ?? item?.price ?? 0,
           qty,
         })),
         totalAmount: Number(subtotal)
@@ -927,7 +935,7 @@ export default function Checkout() {
             phone: form.phone,
             address: [form.addressLine1, form.addressLine2, form.city, form.pin].filter(Boolean).join(', '),
           },
-          items: entries.map(({ item, qty }) => ({ ...item, qty, total: item.price * qty })),
+          items: entries.map(({ item, qty }) => ({ ...item, qty, total: (Number(item?.rate ?? item?.price ?? 0) * qty) })),
           subtotal: Number(subtotal),
           taxAmount: 0,
           totalAmount: Number(subtotal),
@@ -1043,6 +1051,23 @@ export default function Checkout() {
       }
       else guideToNextField()
     } else if (currentStep === 2) {
+        // Enforce location button click once
+        if (!locationVerifiedByButton && !locationWarningShown) {
+            setLocationWarningShown(true)
+            setShowLocationAnimation(true)
+            // Auto hide animation after 3s
+            setTimeout(() => setShowLocationAnimation(false), 3000)
+            
+            // Scroll to the lower button
+            try {
+                gpsButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            } catch(e){/*ignore*/}
+            
+            // Humble message
+            pushToast('Please help us locate you better for hassle-free delivery!', 'info', 4000)
+            return
+        }
+
       if (step2Complete) {
         // Save/Update address if form is open
         if (user && showAddressForm) {
@@ -1277,14 +1302,25 @@ export default function Checkout() {
 
                                 {/* Confirm Location Only Button */}
                                 <div className="relative">
+                                  {showLocationAnimation && (
+                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-64 flex flex-col items-center animate-in zoom-in slide-in-from-bottom-5 duration-500 pointer-events-none">
+                                        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl shadow-xl border border-red-100 text-center mb-1">
+                                            <p className="text-sm font-bold">Small request! 🙏</p>
+                                            <p className="text-xs mt-0.5 leading-tight">Please share location for easy, hassle-free delivery.</p>
+                                        </div>
+                                        <div className="text-5xl animate-bounce drop-shadow-lg filter pt-2">👇</div>
+                                    </div>
+                                  )}
+
                                   <button
+                                    ref={gpsButtonRef}
                                     type="button"
-                                    className={`btn btn-block rounded-xl min-h-[3.25rem] text-base font-semibold border-error/20 bg-error/10 text-error hover:bg-error/15 transition-all duration-300 ease-in-out ${gettingLocation ? 'loading opacity-70' : 'opacity-100'} ${highlightGPSButton ? 'ring-4 ring-error/50 animate-pulse' : ''}`}
+                                    className={`btn btn-block rounded-xl min-h-[3.25rem] text-base font-semibold border-none bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 shadow-lg shadow-red-500/20 hover:shadow-red-500/40 transition-all duration-300 ease-in-out ${gettingLocation ? 'loading opacity-70' : 'opacity-100'} ${highlightGPSButton || showLocationAnimation ? 'ring-4 ring-offset-2 ring-red-500/50 scale-[1.02]' : ''}`}
                                     onClick={handleGPSOnly}
                                   >
-                                    <MdGpsFixed /> Press to share location for faster delivery
+                                    <MdGpsFixed className={showLocationAnimation ? "animate-pulse" : ""} /> Press to share location for faster delivery
                                   </button>
-                                  {highlightGPSButton && (
+                                  {highlightGPSButton && !showLocationAnimation && (
                                     <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-error text-error-content px-4 py-2 rounded-xl text-xs font-bold shadow-xl z-50 whitespace-nowrap animate-in fade-in slide-in-from-bottom-4 duration-300 after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-transparent after:border-t-error">
                                       👆 Click here to share your location!
                                     </div>
@@ -1322,7 +1358,7 @@ export default function Checkout() {
                                             <span className="font-bold bg-base-200 px-1.5 py-0.5 rounded">{qty}x</span>
                                             <span>{item.name}</span>
                                         </div>
-                                        <span>₹{item.price * qty}</span>
+                                    <span>₹{Number(item?.rate ?? item?.price ?? 0) * qty}</span>
                                     </div>
                                 ))}
                                 <div className="divider my-1"></div>

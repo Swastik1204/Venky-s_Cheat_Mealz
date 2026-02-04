@@ -16,8 +16,8 @@ function formatBillMessage(order) {
   if (Array.isArray(items)) {
     items.forEach(item => {
       const qty = item.qty || 0
-      const price = item.price || 0
-      const total = item.total || (qty * price)
+      const rate = Number(item?.rate ?? item?.price ?? 0)
+      const total = item.total || (qty * rate)
       message += `${qty} x ${item.name} (₹${total})\n`
       if (item.modifiers && Array.isArray(item.modifiers) && item.modifiers.length > 0) {
          message += `   _(${item.modifiers.map(m => m.name).join(', ')})_\n`
@@ -50,7 +50,7 @@ function formatItemsList(items) {
   // WhatsApp templates don't allow newlines in parameters, use comma separation
   const lines = items.map(item => {
     const qty = item.qty || 0
-    const total = item.total || (qty * (item.price || 0))
+    const total = item.total || (qty * Number(item?.rate ?? item?.price ?? 0))
     let line = `${qty} x ${item.name} (₹${total})`
     if (item.modifiers && Array.isArray(item.modifiers) && item.modifiers.length > 0) {
        line += ` + ${item.modifiers.map(m => m.name).join(', ')}`

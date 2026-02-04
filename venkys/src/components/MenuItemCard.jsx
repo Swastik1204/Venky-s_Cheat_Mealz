@@ -86,23 +86,44 @@ function MenuItemCardInner({ item }) {
       })()}%`
     : null
   const mrp = Number(item.mrp)
-  const showMrp = Number.isFinite(mrp) && mrp > Number(item.price)
+  const unitRateForDisplay = Number(item?.rate ?? item?.price ?? 0)
+  const showMrp = Number.isFinite(mrp) && mrp > unitRateForDisplay
 
-  function handleAddClick(e) {
+  function handleAddClick(e, variantToUse = null) {
     if (item.storeClosed) return
+
+    // If item has variants but no specific variant selected (and we are not in modal flow),
+    // open the variant/details modal.
+    if ((!variantToUse) && Array.isArray(item.variants) && item.variants.length > 0) {
+      openItem(item)
+      return
+    }
+
+    const currentItem = variantToUse 
+      ? {
+          ...item,
+          id: `${item.id}_${variantToUse.name}`.replace(/\s+/g, '_'),
+          name: `${variantToUse.name} ${item.name}`,
+          rate: variantToUse.rate || variantToUse.price || 0,
+          mrp: variantToUse.mrp || 0,
+          discountPercent: variantToUse.discountPercent || 0,
+          // Remove variant list from cart item to avoid nesting issues
+          variants: undefined
+        }
+      : item
 
     // Ensure we always have a stable id key (some callers may pass items without `id`).
     const resolvedId =
-      item.id ||
-      item.itemId ||
-      item._id ||
-      item.docId ||
-      item.sku ||
-      `${item.categoryId || ''}:${item.name || ''}`
+      currentItem.id ||
+      currentItem.itemId ||
+      currentItem._id ||
+      currentItem.docId ||
+      currentItem.sku ||
+      `${currentItem.categoryId || ''}:${currentItem.name || ''}`
     
-    const itemToAdd = resolvedId && item.id !== resolvedId
-      ? { ...item, id: resolvedId }
-      : item
+    const itemToAdd = resolvedId && currentItem.id !== resolvedId
+      ? { ...currentItem, id: resolvedId }
+      : currentItem
 
     add(itemToAdd)
     
@@ -127,7 +148,9 @@ function MenuItemCardInner({ item }) {
       clone.style.height = `${cardRect.height}px`
       clone.style.zIndex = '9999'
       clone.style.transition = 'all 1.5s cubic-bezier(0.2, 1, 0.3, 1)'
+      // Remove pointer events and potential ID conflicts
       clone.style.pointerEvents = 'none'
+      clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'))
       clone.style.opacity = '0.8'
       clone.style.borderRadius = '1.5rem'
       
@@ -155,12 +178,14 @@ function MenuItemCardInner({ item }) {
     }
   }
 
-  const addCtaLabel = item.storeClosed ? 'Store closed' : 'Add to cart'
+  const hasVariants = Array.isArray(item.variants) && item.variants.length > 0
+  const addCtaLabel = item.storeClosed ? 'Store closed' : (hasVariants ? 'Select size' : 'Add to cart')
+  const addBtnText = item.storeClosed ? 'Closed' : (hasVariants ? 'Add' : 'Add')
 
   return (
-    <article ref={cardRef} className={`group relative flex h-full flex-col overflow-hidden rounded-3xl border border-base-300/25 bg-base-100 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.45)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-[0_26px_48px_-20px_rgba(239,68,68,0.35)] ${shakeActive ? 'animate-cart-shake' : ''}`}>
+    <article ref={cardRef} className={`group relative flex h-full flex-col overflow-hidden rounded-3xl border border-base-300/25 bg-base-100 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.45)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-[0_26px_48px_-20px_rgba(239,68,68,0.35)] cursor-pointer ${shakeActive ? 'animate-cart-shake' : ''}`} onClick={() => openItem(item)}>
       <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-primary/40 via-secondary/40 to-primary/40 opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden="true" />
-      <div className="relative m-4 overflow-hidden rounded-2xl border border-base-300/20 bg-gradient-to-br from-base-200 via-base-100/60 to-base-100 cursor-pointer" onClick={() => openItem(item)}>
+      <div className="relative m-4 overflow-hidden rounded-2xl border border-base-300/20 bg-gradient-to-br from-base-200 via-base-100/60 to-base-100 cursor-pointer">
         <div className="relative aspect-[5/4] cursor-pointer">
           {img ? (
             <img
@@ -212,18 +237,18 @@ function MenuItemCardInner({ item }) {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-3 px-5 pb-5">
-        <div className="flex items-start justify-between gap-3 cursor-pointer" onClick={() => openItem(item)}>
+      <div className="flex flex-1 flex-col gap-0 px-5 pb-5">
+        <div className="flex items-start justify-between gap-3 cursor-pointer">
           <div className="min-w-0 space-y-1">
-            <h3 className="line-clamp-1 text-lg font-semibold text-base-content">{item.name}</h3>
+            <h3 className="text-lg font-semibold text-base-content">{item.name}</h3>
             {item.desc ? (
-              <p className="text-sm leading-relaxed text-base-content/70 line-clamp-2">{item.desc}</p>
+              <p className="text-sm leading-relaxed text-base-content/70">{item.desc}</p>
             ) : null}
           </div>
         </div>
 
         {components.length > 0 && (
-          <div className="flex flex-wrap gap-2 pt-1 cursor-pointer" onClick={() => openItem(item)}>
+          <div className="flex flex-wrap gap-2 pt-1 cursor-pointer">
             {components.map((comp) => (
               <span key={comp.key} className="inline-flex items-center rounded-full bg-base-200/80 px-3 py-1 text-[11px] font-medium text-base-content/70">
                 {comp.label}
@@ -232,17 +257,21 @@ function MenuItemCardInner({ item }) {
           </div>
         )}
 
-        <div className="mt-auto space-y-3">
-          <div className="flex flex-wrap items-baseline gap-3">
-            <span className="text-2xl font-semibold text-base-content">₹{formatMoney(item.price)}</span>
+        <div className="flex-1 min-h-[0.25rem]" />
+
+        <div className="flex flex-wrap items-baseline gap-3">
+            <span className="text-2xl font-semibold text-base-content">₹{formatMoney(item?.rate ?? item?.price ?? 0)}</span>
             {showMrp && <span className="text-sm line-through text-base-content/50">₹{formatMoney(mrp)}</span>}
             {discountLabel && (
               <span className="inline-flex items-center rounded-full bg-secondary/10 px-2 py-0.5 text-xs font-semibold text-secondary">
                 {discountLabel}
               </span>
             )}
-          </div>
-          <div className="text-xs uppercase tracking-[0.3em] text-base-content/50">for one</div>
+        </div>
+
+        <div className="flex-1 min-h-[0.25rem]" />
+          
+        <div>
           {qty > 0 ? (
             <div className="flex items-center justify-between bg-red-600 text-white rounded-lg p-1 h-9 w-full shadow-md" onClick={(e) => e.stopPropagation()}>
               <button 
@@ -269,7 +298,7 @@ function MenuItemCardInner({ item }) {
               <button
                 type="button"
                 className="btn btn-outline btn-sm w-full px-1 text-xs"
-                onClick={() => openItem(item)}
+                onClick={(e) => { e.stopPropagation(); openItem(item) }}
               >
                 View details
               </button>
@@ -278,7 +307,7 @@ function MenuItemCardInner({ item }) {
                 className="btn btn-primary btn-sm w-full shadow-md shadow-primary/20 px-1"
                 disabled={item.storeClosed}
                 title={addCtaLabel}
-                onClick={handleAddClick}
+                onClick={(e) => { e.stopPropagation(); handleAddClick(e) }}
               >
                 {item.storeClosed ? 'Closed' : 'Add'}
               </button>
@@ -294,9 +323,11 @@ function MenuItemCardInner({ item }) {
 const MenuItemCard = memo(MenuItemCardInner, (prevProps, nextProps) => {
   const prev = prevProps.item
   const next = nextProps.item
+  const prevRate = Number(prev?.rate ?? prev?.price ?? 0)
+  const nextRate = Number(next?.rate ?? next?.price ?? 0)
   return (
     prev.id === next.id &&
-    prev.price === next.price &&
+    prevRate === nextRate &&
     prev.imageUrl === next.imageUrl &&
     prev.storeClosed === next.storeClosed &&
     prev.active === next.active

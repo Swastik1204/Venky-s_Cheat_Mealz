@@ -370,7 +370,7 @@ function CategorySalesPie({ orders, categories, colorFor, R }) {
       (o.items||[]).forEach(it => {
         const key = String(it.name || it.id || '').trim().toLowerCase()
         const cat = itemToCat.get(key) || 'Uncategorized'
-        const amount = (Number(it.price)||0) * (Number(it.qty)||0)
+        const amount = (Number(it.rate ?? it.price) || 0) * (Number(it.qty) || 0)
         byCat.set(cat, (byCat.get(cat)||0) + amount)
       })
     })
