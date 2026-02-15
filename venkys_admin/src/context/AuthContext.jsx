@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
 import { auth, db } from '../lib/firebase'
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, GoogleAuthProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
@@ -117,7 +117,7 @@ export function AuthProvider({ children }) {
     return cred.user
   }
 
-  const value = { 
+  const value = useMemo(() => ({ 
     user, 
     loading, 
     role, 
@@ -135,7 +135,7 @@ export function AuthProvider({ children }) {
     loginWithGoogle, 
     sendOtp, 
     verifyOtp 
-  }
+  }), [user, loading, role, roleLoading, canAccess, refreshRole])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

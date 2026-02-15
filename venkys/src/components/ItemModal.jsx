@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useUI } from '../context/UIContext'
 import { useCart } from '../context/CartContext'
 import { MdClose } from 'react-icons/md'
+import { formatMoney } from '../lib/formatCurrency'
 
 export default function ItemModal() {
   const { selectedItem, closeItem } = useUI()
@@ -33,13 +34,6 @@ export default function ItemModal() {
     }
   }, [selectedItem])
 
-  const formatMoney = (value) => {
-    const num = Number(value)
-    if (!Number.isFinite(num)) return '0'
-    const rounded = Math.round(num * 100) / 100
-    const str = rounded.toFixed(2)
-    return str.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
-  }
 
   const open = Boolean(selectedItem)
   if (!open) return null

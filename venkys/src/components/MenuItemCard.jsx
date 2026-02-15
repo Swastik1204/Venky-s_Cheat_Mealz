@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect, memo } from 'react'
 import { MdOutlineRestaurant, MdDelete, MdAdd, MdRemove } from 'react-icons/md'
 import { useCart } from '../context/CartContext'
 import { useUI } from '../context/UIContext'
+import { formatMoney } from '../lib/formatCurrency'
 
 const FIRST_ADD_STORAGE_KEY = 'venkys:first-add-shake'
 
@@ -70,13 +71,7 @@ function MenuItemCardInner({ item }) {
       .filter(c => c.label)
       .slice(0, 2)
   }, [item.components])
-  const formatMoney = (value) => {
-    const num = Number(value)
-    if (!Number.isFinite(num)) return '0'
-    const rounded = Math.round(num * 100) / 100
-    const str = rounded.toFixed(2)
-    return str.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
-  }
+
   const discountPercent = Number(item.discountPercent)
   const hasDiscount = Number.isFinite(discountPercent) && discountPercent > 0
   const discountLabel = hasDiscount

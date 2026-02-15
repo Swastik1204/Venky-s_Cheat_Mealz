@@ -15,17 +15,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const checks = {
-    wa_configured: !!(process.env.WA_TOKEN && process.env.WA_PHONE_NUMBER_ID),
-    razorpay_configured: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
-    vite_razorpay_key: !!process.env.VITE_RAZORPAY_KEY_ID
-  }
-
   return res.status(200).json({
     status: 'ok',
     app: 'venkys-admin',
-    timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV || 'development',
-    checks
+    timestamp: new Date().toISOString()
   })
 }

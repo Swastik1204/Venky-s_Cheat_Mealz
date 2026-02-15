@@ -1,13 +1,10 @@
 import { useCart } from '../context/CartContext'
 import { MdDelete, MdShoppingCart, MdClose, MdAdd, MdRemove } from 'react-icons/md'
 import { Link } from 'react-router-dom'
+import { formatINR } from '../lib/formatCurrency'
 
 export default function CartDrawer({ children }) {
   const { entries, subtotal, remove, setQty, clear } = useCart()
-  
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(price)
-  }
 
   return (
     <div className="drawer drawer-end" id="cartDrawerRoot">
@@ -70,9 +67,9 @@ export default function CartDrawer({ children }) {
                               <MdClose className="w-4 h-4" />
                             </button>
                           </div>
-                          <div className="text-sm font-bold text-primary mt-1">{formatPrice(Number(it?.rate ?? it?.price ?? 0) * qty)}</div>
+                          <div className="text-sm font-bold text-primary mt-1">{formatINR(Number(it?.rate ?? it?.price ?? 0) * qty)}</div>
                           <div className="flex items-center justify-between mt-2">
-                            <span className="text-xs opacity-60">{formatPrice(Number(it?.rate ?? it?.price ?? 0))} each</span>
+                            <span className="text-xs opacity-60">{formatINR(Number(it?.rate ?? it?.price ?? 0))} each</span>
                             <div className="join join-horizontal">
                               <button 
                                 className="btn btn-xs join-item" 
@@ -100,7 +97,7 @@ export default function CartDrawer({ children }) {
             <div className="p-4 border-t border-base-200 bg-base-100 space-y-3">
               <div className="flex items-center justify-between text-sm">
                 <span className="opacity-70">Subtotal ({entries.reduce((s, e) => s + e.qty, 0)} items)</span>
-                <span className="font-bold text-lg">{formatPrice(subtotal)}</span>
+                <span className="font-bold text-lg">{formatINR(subtotal)}</span>
               </div>
               <div className="flex gap-2">
                 <button onClick={clear} className="btn btn-ghost btn-sm flex-1">Clear</button>

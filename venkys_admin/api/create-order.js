@@ -7,6 +7,7 @@
 
 import Razorpay from 'razorpay'
 import { createRateLimiter } from './lib/rateLimiter.js'
+import { verifyAuth } from './lib/verifyAuth.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'create-order' })
 
@@ -36,16 +37,26 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed' })
   }
+  // Verify Firebase Auth token
+  const auth = await verifyAuth(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+
   try {
     const keyId = (process.env.RAZORPAY_KEY_ID || '').trim()
     const keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim()
     if (!keyId || !keySecret) {
-      return res.status(500).json({ error: 'Razorpay not configured', missing: { RAZORPAY_KEY_ID: !keyId, RAZORPAY_KEY_SECRET: !keySecret } })
+      return res.status(500).json({ error: 'Payment gateway not configured' })
     }
 
     const { amount } = req.body || {}
     if (!amount || isNaN(amount) || amount <= 0) {
       return res.status(400).json({ error: 'Invalid amount' })
+    }
+
+    // Server-side amount ceiling to prevent abuse (max ₹50,000 per order)
+    const MAX_ORDER_AMOUNT = 50000
+    if (Number(amount) > MAX_ORDER_AMOUNT) {
+      return res.status(400).json({ error: 'Amount exceeds maximum order limit', maxAmount: MAX_ORDER_AMOUNT })
     }
 
     const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret })

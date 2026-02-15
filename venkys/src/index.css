@@ -1,10 +1,6 @@
 @import "tailwindcss";
 @plugin "daisyui";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 @layer components {
 	.app-shell { 
 		@apply relative min-h-screen flex flex-col;

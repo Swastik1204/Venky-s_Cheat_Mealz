@@ -4,19 +4,67 @@
  * VERCEL BILL PROTECTION - Rate Limiter + Kill Switch
  * 
  * FEATURES:
- * 1. Per-route rate limiting (token bucket algorithm)
+ * 1. Per-route rate limiting (token bucket / sliding window)
  * 2. Per-IP + Per-User tracking
  * 3. Global kill switch (emergency shutdown)
  * 4. Automatic logging of violations
+ * 5. Upstash Redis support for distributed rate limiting (serverless-safe)
  * 
  * CONFIGURATION:
  * - Set RATE_LIMIT_DISABLED=1 to bypass rate limiting (dev/testing)
  * - Set API_KILL_SWITCH=1 to shut down all APIs (emergency)
  * - Set API_KILL_SWITCH_REASON="..." for custom message
- * 
- * NOTE: Uses in-memory storage (resets on cold start). For production-grade
- * persistent limits across instances, use Vercel KV or Upstash Redis.
+ * - Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for distributed rate limiting
+ *   (falls back to in-memory when not configured)
  */
+
+// ============================================================================
+// REDIS STORE (Upstash - distributed, serverless-safe)
+// ============================================================================
+
+let _redis = null
+let _redisInitFailed = false
+
+function getRedis() {
+  if (_redis) return _redis
+  if (_redisInitFailed) return null
+  const url = (process.env.UPSTASH_REDIS_REST_URL || '').trim()
+  const token = (process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
+  if (!url || !token) return null
+  try {
+    // Dynamic import at module level is not supported, so we use a lazy sync pattern.
+    // The packages are resolved at deploy time by Vercel's bundler.
+    const { Redis } = require('@upstash/redis')
+    _redis = new Redis({ url, token })
+    return _redis
+  } catch {
+    _redisInitFailed = true
+    return null
+  }
+}
+
+// Upstash sliding-window rate limiter instances (cached per route)
+const _rateLimiters = new Map()
+
+function getRedisRateLimiter(routeName, config) {
+  if (_rateLimiters.has(routeName)) return _rateLimiters.get(routeName)
+  const redis = getRedis()
+  if (!redis) return null
+  try {
+    const { Ratelimit } = require('@upstash/ratelimit')
+    const windowSec = Math.max(1, Math.ceil(config.windowMs / 1000))
+    const limiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(config.requests, `${windowSec} s`),
+      prefix: `rl:${routeName}`,
+      analytics: false,
+    })
+    _rateLimiters.set(routeName, limiter)
+    return limiter
+  } catch {
+    return null
+  }
+}
 
 // ============================================================================
 // CONFIGURATION
@@ -108,7 +156,10 @@ async function sendEmailNotification({ type, message, metadata }) {
     
     const response = await fetch(`${baseUrl}/api/send-log-email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.API_INTERNAL_SECRET ? { 'X-Internal-Secret': process.env.API_INTERNAL_SECRET } : {})
+      },
       body: JSON.stringify({ type, message, metadata })
     })
     
@@ -197,9 +248,41 @@ function createRateLimiter(options = {}) {
     const clientId = getClientId(req)
     const routeName = options.routeName || getRouteName(req)
     const config = options.config || getRateLimitConfig(routeName)
+
+    // 4. Try Redis-based rate limiting first (distributed, serverless-safe)
+    const redisLimiter = getRedisRateLimiter(routeName, config)
+    if (redisLimiter) {
+      try {
+        const { success, limit, remaining, reset } = await redisLimiter.limit(clientId)
+        res.setHeader('X-RateLimit-Limit', limit)
+        res.setHeader('X-RateLimit-Remaining', remaining)
+        res.setHeader('X-RateLimit-Reset', new Date(reset).toISOString())
+        if (success) {
+          if (next) return next()
+          return
+        }
+        // Rate limit exceeded
+        const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000))
+        logRateLimitViolation(clientId, routeName, `Exceeded ${config.requests} requests per ${config.windowMs}ms (redis)`)
+          .catch(err => console.error('[rateLimiter] Log error:', err))
+        res.status(429).json({
+          error: 'rate_limit_exceeded',
+          message: `Too many requests. Please try again in ${retryAfter} seconds.`,
+          retryAfter,
+          limit: config.requests,
+          window: `${config.windowMs / 1000}s`
+        })
+        return
+      } catch (redisErr) {
+        // Redis failed, fall through to in-memory
+        console.warn('[rateLimiter] Redis error, falling back to in-memory:', redisErr.message)
+      }
+    }
+
+    // 5. In-memory fallback (per-instance, resets on cold start)
     const bucketKey = `${routeName}:${clientId}`
 
-    // 4. Get or create bucket
+    // 6. Get or create bucket
     if (!buckets.has(bucketKey)) {
       buckets.set(bucketKey, {
         tokens: config.requests,
@@ -211,10 +294,10 @@ function createRateLimiter(options = {}) {
     const bucket = buckets.get(bucketKey)
     const now = Date.now()
 
-    // 5. Refill tokens based on time elapsed
+    // 7. Refill tokens based on time elapsed
     refillTokens(bucket, config, now)
 
-    // 6. Check if request is allowed
+    // 8. Check if request is allowed
     if (bucket.tokens >= 1) {
       bucket.tokens -= 1
       
@@ -227,7 +310,7 @@ function createRateLimiter(options = {}) {
       return
     }
 
-    // 7. Rate limit exceeded
+    // 9. Rate limit exceeded
     bucket.violations += 1
     const retryAfter = Math.ceil((config.windowMs - (now - bucket.lastRefill)) / 1000)
 

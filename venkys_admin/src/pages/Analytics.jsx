@@ -19,9 +19,10 @@ export default function Analytics() {
     async function load() {
       try {
         setLoading(true)
-        const res = await fetchAllOrders()
+        const res = await fetchAllOrders({ maxResults: null })
         if (!active) return
-        setOrders(Array.isArray(res) ? res : [])
+        const list = Array.isArray(res?.orders) ? res.orders : Array.isArray(res) ? res : []
+        setOrders(list)
       } finally { if (active) setLoading(false) }
     }
     load()

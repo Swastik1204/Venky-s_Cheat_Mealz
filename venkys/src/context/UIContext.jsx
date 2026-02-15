@@ -12,36 +12,43 @@ export function UIProvider({ children }) {
   const [toasts, setToasts] = useState([]) // {id, type, msg}
   const [confirmState, setConfirmState] = useState(null) // { message, onConfirm, onCancel }
 
-  function pushToast(msg, type = 'info', ttl = 5000) {
+  const pushToast = useCallback((msg, type = 'info', ttl = 5000) => {
     const id = genId()
     setToasts(t => [...t, { id, msg, type }])
     if (ttl > 0) setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), ttl)
     return id
-  }
+  }, [])
 
-  function dismissToast(id) {
+  const dismissToast = useCallback((id) => {
     setToasts(t => t.filter(x => x.id !== id))
-  }
+  }, [])
 
-  function confirm(options) {
+  const confirm = useCallback((options) => {
     setConfirmState({ ...options })
-  }
+  }, [])
 
   const resolveConfirm = useCallback((accepted) => {
-    if (!confirmState) return
-    const { onConfirm, onCancel } = confirmState
-    setConfirmState(null)
-    if (accepted) onConfirm && onConfirm()
-    else onCancel && onCancel()
-  }, [confirmState])
+    setConfirmState(prev => {
+      if (!prev) return null
+      const { onConfirm, onCancel } = prev
+      if (accepted) onConfirm && onConfirm()
+      else onCancel && onCancel()
+      return null
+    })
+  }, [])
+
+  const openItem = useCallback((item) => setSelectedItem(item), [])
+  const closeItem = useCallback(() => setSelectedItem(null), [])
+  const openAuth = useCallback((mode) => setAuthMode(mode), [])
+  const closeAuth = useCallback(() => setAuthMode(null), [])
 
   const value = useMemo(() => ({
     selectedItem,
-    openItem: (item) => setSelectedItem(item),
-    closeItem: () => setSelectedItem(null),
+    openItem,
+    closeItem,
     authMode,
-    openAuth: (mode) => setAuthMode(mode),
-    closeAuth: () => setAuthMode(null),
+    openAuth,
+    closeAuth,
     // Toasts
     toasts,
     pushToast,
@@ -50,7 +57,7 @@ export function UIProvider({ children }) {
     confirm,
     confirmState,
     resolveConfirm,
-  }), [selectedItem, authMode, toasts, confirmState, resolveConfirm])
+  }), [selectedItem, authMode, toasts, confirmState, openItem, closeItem, openAuth, closeAuth, pushToast, dismissToast, confirm, resolveConfirm])
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>
 }

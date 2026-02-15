@@ -4,10 +4,6 @@
   exclude: properties;
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 @layer components {
   .page-wrap { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
   .nav-sticky { @apply sticky top-0 z-50 px-2 bg-base-200/90 backdrop-blur supports-[backdrop-filter]:bg-base-200/70; }

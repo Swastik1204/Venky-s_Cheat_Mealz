@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { MdLocationOn, MdLogin, MdPerson, MdSearch } from 'react-icons/md'
 import { fetchMenuCategories, getUserTheme, setUserTheme } from '../lib/data'
+import { formatMoney } from '../lib/formatCurrency'
 
 export default function NavBar() {
   const logoUrl = `${import.meta.env.BASE_URL}icons/Logo.png`
@@ -64,13 +65,7 @@ export default function NavBar() {
   const inputRef = useRef(null)
   const navigate = useNavigate()
   const [locPanelOpen, setLocPanelOpen] = useState(false)
-  const formatMoney = useCallback((value) => {
-    const num = Number(value)
-    if (!Number.isFinite(num)) return '0'
-    const rounded = Math.round(num * 100) / 100
-    const str = rounded.toFixed(2)
-    return str.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
-  }, [])
+
 
   // Load categories + items once for client-side searching
   useEffect(() => {

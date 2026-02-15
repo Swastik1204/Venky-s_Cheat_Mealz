@@ -44,3 +44,17 @@ export function getDiscountLabel(originalPrice, currentRate) {
 
 // Re-export formatters for components that need direct access
 export { INR_FORMATTER, INR_FORMATTER_DECIMAL }
+
+/**
+ * Format a numeric value as a clean money string (no ₹ prefix).
+ * Use when components prepend ₹ themselves, e.g. `₹{formatMoney(value)}`
+ * @param {number} value
+ * @returns {string} e.g. "120", "99.5", "0"
+ */
+export function formatMoney(value) {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '0'
+  const rounded = Math.round(num * 100) / 100
+  const str = rounded.toFixed(2)
+  return str.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
+}

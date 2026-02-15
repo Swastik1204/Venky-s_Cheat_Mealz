@@ -29,16 +29,19 @@ export default defineConfig({
     // Use esbuild for CSS minification to avoid warnings from Lightning CSS
     // like "Unknown at rule: @property" coming from certain UI libraries.
     cssMinify: 'esbuild',
+    target: 'es2020',
+    sourcemap: false,
   // The Analytics/Recharts chunk is lazily loaded and consistently sits just above
   // Vite's default 500 kB warning threshold. Raising the limit keeps the build
     // output noise-free while the bulk of the app still ships much smaller chunks.
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
+        // NOTE: react-icons is NOT listed here so Vite can tree-shake unused icons
         manualChunks: {
           react: ['react','react-dom'],
           firebase: ['firebase/app','firebase/auth','firebase/firestore'],
-          vendor: ['react-router-dom','react-icons']
+          vendor: ['react-router-dom']
         }
       }
     }

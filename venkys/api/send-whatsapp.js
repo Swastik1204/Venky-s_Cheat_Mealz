@@ -4,6 +4,7 @@
 // Requires env: WA_TOKEN, WA_PHONE_NUMBER_ID
 
 import { createRateLimiter } from './lib/rateLimiter.js'
+import { verifyAuth } from './lib/verifyAuth.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'send-whatsapp' })
 
@@ -31,6 +32,9 @@ export default async function handler(req, res) {
   // Apply rate limiting
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return // Rate limit exceeded
+  // Verify Firebase Auth token
+  const auth = await verifyAuth(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'method_not_allowed' })
     return

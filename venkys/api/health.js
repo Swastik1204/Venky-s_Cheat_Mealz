@@ -25,19 +25,10 @@ export default async function handler(req, res) {
     return
   }
 
-  const checks = {
-    wa_configured: !!(process.env.WA_TOKEN && process.env.WA_PHONE_NUMBER_ID),
-    razorpay_configured: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
-    vite_razorpay_key: !!process.env.VITE_RAZORPAY_KEY_ID,
-    cors_origin: process.env.CORS_ORIGIN || 'not_set'
-  }
-
   return res.status(200).json({
     ok: true,
     status: 'healthy',
     app: 'venkys-customer',
-    timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV || 'development',
-    checks
+    timestamp: new Date().toISOString()
   })
 }

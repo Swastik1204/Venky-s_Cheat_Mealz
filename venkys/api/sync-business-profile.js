@@ -101,8 +101,15 @@ export default async function handler(req, res) {
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return // Rate limit exceeded
 
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  // CORS - restrict to configured origins
+  const allow = process.env.CORS_ORIGIN || ''
+  const origin = req.headers?.origin || ''
+  let allowOrigin = origin || '*'
+  if (allow && allow !== '*') {
+    const list = allow.split(',').map(s => s.trim()).filter(Boolean)
+    allowOrigin = list.includes(origin) ? origin : list[0] || '*'
+  }
+  res.setHeader('Access-Control-Allow-Origin', allowOrigin)
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   

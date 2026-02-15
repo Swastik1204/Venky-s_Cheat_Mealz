@@ -15,8 +15,6 @@ export default function Contact() {
     Promise.all([fetchBusinessProfile(), fetchAppSettings()])
       .then(([bp, app]) => {
         if (!active) return
-        console.log('Business Profile:', bp)
-        console.log('App Settings:', app)
         setProfile(bp)
         setSettings(app)
       })

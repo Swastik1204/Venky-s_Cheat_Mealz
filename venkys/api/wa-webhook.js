@@ -3,9 +3,31 @@
 // - Verification: GET with hub.mode, hub.verify_token, hub.challenge
 // - Events: POST JSON with messages/statuses
 
+import crypto from 'crypto'
 import { createRateLimiter } from './lib/rateLimiter.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'wa-webhook' })
+
+/**
+ * Verify the X-Hub-Signature-256 header from Meta/WhatsApp webhook events.
+ * Returns true if signature is valid or if no app secret is configured (graceful fallback).
+ */
+function verifyWebhookSignature(req) {
+  const appSecret = process.env.WA_APP_SECRET
+  if (!appSecret) return true // Skip verification if not configured
+
+  const signature = req.headers['x-hub-signature-256']
+  if (!signature) return false
+
+  const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {})
+  const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex')
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+  } catch {
+    return false
+  }
+}
 
 export default async function handler(req, res) {
   // Apply rate limiting (only for POST, skip for GET verification)
@@ -32,9 +54,14 @@ export default async function handler(req, res) {
     return
   }
 
+  // Verify webhook signature (Meta best practice)
+  if (!verifyWebhookSignature(req)) {
+    res.status(401).json({ ok: false, error: 'invalid_signature' })
+    return
+  }
+
   try {
     const payload = req.body || {}
-    // Minimal logging of statuses and messages; visible in Vercel logs
     if (Array.isArray(payload.entry)) {
       for (const entry of payload.entry) {
         const changes = entry.changes || []

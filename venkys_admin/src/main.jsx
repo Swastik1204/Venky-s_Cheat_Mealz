@@ -22,6 +22,23 @@ ReactDOM.createRoot(rootEl).render(
   </React.StrictMode>
 )
 
-if ('serviceWorker' in navigator) {
+// Catch unhandled promise rejections globally
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[Unhandled Rejection]', event.reason)
+  event.preventDefault()
+})
+
+// In development, unregister any existing SW and clear caches
+if (import.meta.env.DEV && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((r) => r.unregister())
+  }).catch(() => {})
+  if (typeof caches !== 'undefined') {
+    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).catch(() => {})
+  }
+}
+
+// Only register the service worker in production
+if (import.meta.env.PROD) {
   registerSW({ immediate: true })
 }

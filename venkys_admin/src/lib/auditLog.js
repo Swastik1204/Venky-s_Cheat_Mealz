@@ -59,8 +59,6 @@ export async function logChange({
 
 		// Store in logs collection - auto-creates if doesn't exist
 		await addDoc(collection(db, 'logs'), logEntry)
-		
-		console.log('[AuditLog]', action, collectionName, documentId, 'by', performedBy)
 	} catch (error) {
 		// Don't fail the main operation if logging fails
 		console.error('[AuditLog] Failed to log change:', error)

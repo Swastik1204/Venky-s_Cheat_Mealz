@@ -15,24 +15,24 @@ export default defineConfig(({ mode }) => {
     build: {
       // Enable minification and tree-shaking
       minify: 'esbuild',
+      cssMinify: 'esbuild',
       target: 'es2020',
       // Increase chunk size warning limit (Firebase is large)
       chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {
           // Better code splitting for faster initial load
+          // NOTE: react-icons and recharts are NOT listed here so Vite can tree-shake them
           manualChunks: {
             'react-core': ['react', 'react-dom'],
             'react-router': ['react-router-dom'],
             'firebase-app': ['firebase/app'],
             'firebase-auth': ['firebase/auth'],
             'firebase-firestore': ['firebase/firestore'],
-            'icons': ['react-icons'],
-            'recharts': ['recharts']
           }
         }
       },
-      // Enable source map for debugging (can disable in prod)
+      // Disable source maps in production
       sourcemap: false,
     },
     resolve: {

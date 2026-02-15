@@ -7,6 +7,7 @@
 
 import crypto from 'crypto'
 import { createRateLimiter } from './lib/rateLimiter.js'
+import { verifyAuth } from './lib/verifyAuth.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'verify-payment' })
 
@@ -34,6 +35,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
+  // Verify Firebase Auth token
+  const auth = await verifyAuth(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+
   try {
     const { orderId, paymentId, signature } = req.body || {}
     if (!orderId || !paymentId || !signature) {
@@ -47,7 +52,12 @@ export default async function handler(req, res) {
 
     const payload = `${orderId}|${paymentId}`
     const expectedSignature = crypto.createHmac('sha256', secret).update(payload).digest('hex')
-    const valid = expectedSignature === signature
+    
+    // Use timing-safe comparison to prevent timing attacks
+    const expectedBuffer = Buffer.from(expectedSignature, 'hex')
+    const signatureBuffer = Buffer.from(signature, 'hex')
+    const valid = expectedBuffer.length === signatureBuffer.length && 
+      crypto.timingSafeEqual(expectedBuffer, signatureBuffer)
 
     if (!valid) {
       return res.status(400).json({ error: 'Invalid payment signature', valid: false })

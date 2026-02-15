@@ -180,12 +180,8 @@ export default function AdminTopNav() {
       })
 
       alert(`Connected to: ${device.name || 'Bluetooth Printer'}`)
-      // Store device reference if needed for later use
-      console.log('Bluetooth device connected:', device)
     } catch (error) {
-      if (error.name === 'NotFoundError') {
-        console.log('User cancelled device selection')
-      } else {
+      if (error.name !== 'NotFoundError') {
         console.error('Bluetooth connection error:', error)
         alert(`Bluetooth error: ${error.message}`)
       }

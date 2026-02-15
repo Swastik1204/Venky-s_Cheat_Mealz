@@ -468,9 +468,7 @@ export default function AdminBiller() {
          try {
            // Get Razorpay key from environment
            const keyId = await getRazorpayKeyId()
-           console.log('[AdminBiller] Razorpay keyId:', keyId ? '***' + keyId.slice(-4) : '(empty)')
            if (!keyId) {
-             console.error('[AdminBiller] Razorpay key is missing. Check console for [getRazorpayKeyId] errors.')
              throw new Error('Online payments are not configured. Please check browser console for details, or contact admin to add RAZORPAY_KEY_ID to Vercel environment variables.')
            }
            if (!grandTotal || grandTotal <= 0) throw new Error('Amount must be greater than zero.')
@@ -652,8 +650,8 @@ export default function AdminBiller() {
 
   async function loadAllOrders() {
     const res = await fetchAllOrders()
-    if (Array.isArray(res)) setAllOrders(res)
-    else if (Array.isArray(res.list)) setAllOrders(res.list)
+    const list = Array.isArray(res?.orders) ? res.orders : Array.isArray(res) ? res : []
+    setAllOrders(list)
   }
 
   function calcAppend(ch) { setCalcExpr((s) => (s + ch)) }

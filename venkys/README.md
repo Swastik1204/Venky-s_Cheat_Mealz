@@ -1,90 +1,213 @@
 # 🍔 Venky's Cheat Mealz - Customer App
 
-> A modern, fast, and beautiful food ordering app for Venky's Cheat Mealz restaurant. Customers can browse the menu, add items to their cart, and place orders with various payment options.
+> A Progressive Web Application (PWA) for online food ordering, built with React 19 and Firebase. This is the customer-facing frontend where users browse the menu, manage their cart, and place orders with integrated payment processing.
 
 ---
 
 ## 📖 Table of Contents
 
 1. [What is This App?](#-what-is-this-app)
-2. [Features Overview](#-features-overview)
-3. [Tech Stack](#-tech-stack)
-4. [Project Structure](#-project-structure)
-5. [Getting Started](#-getting-started)
-6. [Environment Variables](#-environment-variables)
-7. [Pages Explained](#-pages-explained)
-8. [Components Explained](#-components-explained)
-9. [Context Providers](#-context-providers)
-10. [Hooks](#-hooks)
-11. [Library Functions](#-library-functions)
-12. [API Routes](#-api-routes)
-13. [How Things Work](#-how-things-work)
-14. [Deployment](#-deployment)
-15. [Troubleshooting](#-troubleshooting)
+2. [System Architecture Overview](#-system-architecture-overview)
+3. [Features Overview](#-features-overview)
+4. [Tech Stack](#-tech-stack)
+5. [Project Structure](#-project-structure)
+6. [Getting Started](#-getting-started)
+7. [Environment Variables](#-environment-variables)
+8. [Pages Explained](#-pages-explained)
+9. [Components Explained](#-components-explained)
+10. [Context Providers](#-context-providers)
+11. [Hooks](#-hooks)
+12. [Library Functions](#-library-functions)
+13. [API Routes](#-api-routes)
+14. [How Things Work](#-how-things-work)
+15. [Data Models](#-data-models)
+16. [Deployment](#-deployment)
+17. [Troubleshooting](#-troubleshooting)
 
 ---
 
 ## 🎯 What is This App?
 
-Imagine you're hungry and want to order food from Venky's Cheat Mealz restaurant. Instead of calling them or going there physically, you can:
+This is the **Customer-Facing Application** of the Venky's Cheat Mealz food ordering system. It serves as the digital storefront where customers can:
 
-1. **Open this app** on your phone or computer
-2. **Browse the menu** with beautiful pictures and descriptions
-3. **Add items to your cart** (like putting things in a shopping basket)
-4. **Choose how you want to pay** (online with UPI/card or cash when food arrives)
-5. **Enter your address** and **place your order**
-6. **Track your order** in real-time until it arrives!
+1. **Browse the menu** - View food items organized by categories with images, descriptions, and pricing
+2. **Manage a shopping cart** - Add, remove, and adjust quantities of items
+3. **Authenticate** - Create accounts and sign in using Email/Password, Google OAuth, or Phone OTP
+4. **Place orders** - Complete checkout with online payment (Razorpay) or Cash on Delivery
+5. **Track orders** - View real-time order status updates
+6. **Manage profile** - Save delivery addresses and personal information
 
-It's like having the restaurant in your pocket! 📱
+### How This App Fits in the System
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    VENKY'S CHEAT MEALZ SYSTEM                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────────┐          ┌─────────────────┐                   │
+│  │  CUSTOMER APP   │          │   ADMIN APP     │                   │
+│  │  (This App)     │          │ (venkys_admin/) │                   │
+│  │                 │          │                 │                   │
+│  │  • Browse Menu  │          │  • Manage Menu  │                   │
+│  │  • Place Orders │◄────────►│  • View Orders  │                   │
+│  │  • Track Status │          │  • Update Status│                   │
+│  │  • User Profile │          │  • Analytics    │                   │
+│  └────────┬────────┘          └────────┬────────┘                   │
+│           │                            │                            │
+│           └────────────┬───────────────┘                            │
+│                        │                                            │
+│                        ▼                                            │
+│           ┌─────────────────────────┐                               │
+│           │    FIREBASE BACKEND     │                               │
+│           ├─────────────────────────┤                               │
+│           │ • Firestore (Database)  │                               │
+│           │ • Auth (User Accounts)  │                               │
+│           │ • Storage (Images)      │                               │
+│           └─────────────────────────┘                               │
+│                        │                                            │
+│           ┌────────────┴────────────┐                               │
+│           │                         │                               │
+│           ▼                         ▼                               │
+│  ┌─────────────────┐     ┌─────────────────┐                        │
+│  │ VERCEL FUNCTIONS│     │  RAZORPAY API   │                        │
+│  │ (Serverless)    │     │  (Payments)     │                        │
+│  │                 │     │                 │                        │
+│  │ • create-order  │     │ • Process UPI   │                        │
+│  │ • verify-payment│     │ • Process Cards │                        │
+│  │ • send-whatsapp │     │ • Verify Sigs   │                        │
+│  └─────────────────┘     └─────────────────┘                        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Why Two Apps?**
+- The **Customer App** is public-facing, optimized for browsing and ordering
+- The **Admin App** is staff-only, optimized for order management and business operations
+- Both apps share the same Firebase backend, ensuring data consistency
+
+---
+
+## 🏗️ System Architecture Overview
+
+### Frontend Architecture
+
+The application follows a **component-based architecture** using React 19 with the following layers:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        PRESENTATION LAYER                       │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  Pages (Home, Checkout, Profile, ActiveOrders, etc.)        ││
+│  │  └─ Composed of reusable Components                         ││
+│  └─────────────────────────────────────────────────────────────┘│
+├─────────────────────────────────────────────────────────────────┤
+│                        STATE MANAGEMENT                         │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  React Context Providers                                    ││
+│  │  ├─ AuthContext (User authentication state)                 ││
+│  │  ├─ CartContext (Shopping cart state + persistence)         ││
+│  │  └─ UIContext (Modal states, toasts, UI flags)              ││
+│  └─────────────────────────────────────────────────────────────┘│
+├─────────────────────────────────────────────────────────────────┤
+│                        DATA ACCESS LAYER                        │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  Library Functions (src/lib/)                               ││
+│  │  ├─ data.js (Firestore CRUD operations)                     ││
+│  │  ├─ userData.js (User profile operations)                   ││
+│  │  ├─ firebase.js (SDK initialization)                        ││
+│  │  └─ deliverySettings.js (Geo-validation)                    ││
+│  └─────────────────────────────────────────────────────────────┘│
+├─────────────────────────────────────────────────────────────────┤
+│                        EXTERNAL SERVICES                        │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  ├─ Firebase (Auth + Firestore + Storage)                   ││
+│  │  ├─ Razorpay (Payment Gateway)                              ││
+│  │  ├─ Google Places API (Address Autocomplete)                ││
+│  │  └─ Vercel Serverless Functions (Backend APIs)              ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow Pattern
+
+The application uses a **unidirectional data flow**:
+
+1. **User Action** → Component triggers an action (e.g., "Add to Cart")
+2. **Context Update** → Context provider processes the action and updates state
+3. **Side Effects** → State change triggers persistence (localStorage or Firestore)
+4. **Re-render** → React re-renders affected components with new state
 
 ---
 
 ## ✨ Features Overview
 
-### For Customers
+### Customer-Facing Features
 
-| Feature | What it Does |
-|---------|--------------|
-| 🍕 **Menu Browsing** | See all food items organized by categories (Burgers, Pizzas, Drinks, etc.) |
-| 🔍 **Search** | Type what you want and find it instantly |
-| 🏷️ **Filters** | Filter by Veg/Non-Veg, price range, and more |
-| 🛒 **Shopping Cart** | Add items, change quantities, see total |
-| 💳 **Multiple Payments** | Pay with UPI, Card, Net Banking, or Cash on Delivery |
-| 📍 **Address Management** | Save multiple delivery addresses |
-| 👤 **User Accounts** | Sign up with Email, Google, or Phone Number |
-| 📱 **PWA Support** | Install the app on your phone like a native app |
-| 🔔 **Order Tracking** | See real-time status of your orders |
-| ⭐ **Hot Deals & Specials** | See chef's special items and discounts |
+| Feature | Description | Implementation Details |
+|---------|-------------|------------------------|
+| 🍕 **Menu Browsing** | Hierarchical menu organized by categories | Fetched from Firestore `menu` collection, cached locally |
+| 🔍 **Search** | Real-time search across all menu items | Client-side filtering with debounced input (300ms) |
+| 🏷️ **Filters** | Veg/Non-Veg toggle, price-based sorting | Implemented in `FilterBar.jsx`, applied in `Home.jsx` |
+| 🛒 **Shopping Cart** | Persistent cart with quantity management | `CartContext` with dual persistence (localStorage + Firestore) |
+| 💳 **Payments** | UPI, Card, Net Banking, COD | Razorpay SDK integration with server-side verification |
+| 📍 **Address Management** | Save/edit multiple delivery addresses | Stored in user's Firestore document |
+| 👤 **Authentication** | Email/Password, Google OAuth, Phone OTP | Firebase Auth with multiple providers |
+| 📱 **PWA Support** | Installable, works offline | Service Worker + Web App Manifest |
+| 🔔 **Order Tracking** | Real-time status updates | Firestore real-time listeners (`onSnapshot`) |
+| ⭐ **Spotlight Sections** | Hot Deals, Chef's Specials | Configurable from Admin app, stored in `appearance` doc |
 
 ### Technical Features
 
-| Feature | What it Does |
-|---------|--------------|
-| ⚡ **Super Fast** | Built with Vite for lightning-fast loading |
-| 📱 **Works Offline** | Service Worker caches the app for offline use |
-| 🔒 **Secure Payments** | Razorpay integration with signature verification |
-| 🗄️ **Cloud Database** | Firebase Firestore for real-time data |
-| 🔐 **Secure Authentication** | Firebase Auth with multiple sign-in methods |
-| 📲 **WhatsApp Notifications** | Get order updates on WhatsApp |
+| Feature | What It Does | Why It Matters |
+|---------|--------------|----------------|
+| ⚡ **Vite Build** | Sub-second HMR, optimized production bundles | Faster development, better user experience |
+| 📱 **Service Worker** | Caches static assets for offline access | App works without internet, faster repeat visits |
+| 🔒 **Payment Verification** | HMAC-SHA256 signature validation | Prevents payment fraud and replay attacks |
+| 🗄️ **Real-time Database** | Firestore with live listeners | Instant order status updates without polling |
+| 🔐 **Secure Auth** | Firebase Authentication | Industry-standard security, no password storage |
+| 📲 **WhatsApp Integration** | Order notifications via WhatsApp Cloud API | High delivery rate, customers prefer WhatsApp |
 
 ---
 
 ## 🛠️ Tech Stack
 
-Think of these as the tools and materials used to build the app:
+### Core Technologies
 
-| Technology | What it Does | Think of it as... |
-|------------|--------------|-------------------|
-| **React 19** | The framework for building the user interface | The blueprint and structure of a building |
-| **Vite 7** | Super fast development and build tool | The power tools that make building fast |
-| **Firebase** | Authentication + Database (Firestore) | The secure vault that stores all data |
-| **Razorpay** | Payment processing | The cash register that handles money |
-| **Tailwind CSS** | Styling framework | The paint and decorations |
-| **daisyUI** | Pre-made UI components | Pre-built furniture you can use |
-| **React Router** | Page navigation | The hallways connecting rooms |
-| **React Icons** | Beautiful icons | The signage and symbols |
-| **Vercel** | Hosts the API functions | The internet address where APIs live |
-| **Firebase Hosting** | Hosts the website | The internet address where the app lives |
+| Technology | Version | Purpose | Why We Chose It |
+|------------|---------|---------|-----------------|
+| **React** | 19.x | UI Framework | Component-based architecture, large ecosystem, excellent performance with concurrent features |
+| **Vite** | 7.x | Build Tool | 10x faster than Webpack, native ES modules, instant HMR |
+| **Firebase** | 11.x | Backend-as-a-Service | Real-time database, built-in auth, no server maintenance required |
+| **Razorpay** | SDK | Payment Gateway | Leading Indian payment gateway, supports UPI/Cards/Net Banking, easy integration |
+
+### Frontend Libraries
+
+| Library | Purpose | How It's Used |
+|---------|---------|---------------|
+| **Tailwind CSS** | Utility-first CSS framework | All styling via utility classes, no custom CSS files needed |
+| **daisyUI** | Tailwind component library | Pre-built components (buttons, modals, cards) with theme support |
+| **React Router** | Client-side routing | SPA navigation between pages without full page reloads |
+| **React Icons** | Icon library | Consistent iconography across the app (Material Design icons) |
+
+### Backend Services
+
+| Service | Purpose | How It's Used |
+|---------|---------|---------------|
+| **Firebase Auth** | User authentication | Email/password, Google OAuth, Phone OTP verification |
+| **Firestore** | NoSQL database | Stores menu, orders, user profiles, settings |
+| **Firebase Storage** | File storage | Menu item images, category images |
+| **Vercel Functions** | Serverless backend | API routes for payment processing, WhatsApp integration |
+| **Google Places API** | Address autocomplete | Suggests addresses as user types, provides geocoding |
+| **WhatsApp Cloud API** | Notifications | Order confirmations, status updates to customers |
+
+### Development Tools
+
+| Tool | Purpose |
+|------|---------|
+| **ESLint** | Code linting and error detection |
+| **PostCSS** | CSS processing (used by Tailwind) |
+| **Firebase CLI** | Deployment and emulator |
+| **Vercel CLI** | API function deployment |
 
 ---
 
@@ -826,7 +949,206 @@ UI updates to show logged-in state
 
 ---
 
-## 🚢 Deployment
+## � Data Models
+
+Understanding the database structure is essential for working with this application. All data is stored in Firebase Firestore.
+
+### Firestore Collections Overview
+
+```
+firestore/
+├── menu/                    # Menu categories and items
+│   └── {categoryId}/        # e.g., "Burgers", "Pizzas"
+│       ├── name: string
+│       ├── imageId: string?
+│       └── items: array[MenuItem]
+│
+├── orders/                  # Customer orders
+│   └── {orderId}/
+│       ├── userId, status, items, total, ...
+│
+├── users/                   # User profiles
+│   └── {userId}/
+│       ├── displayName, phone, addresses, ...
+│
+├── carts/                   # Persistent shopping carts
+│   └── {userId}/
+│       └── items: object
+│
+├── images/                  # Image metadata
+│   └── {imageId}/
+│       ├── data: base64
+│       ├── mime: string
+│
+├── appearance/              # UI customization
+│   └── settings/
+│       ├── spotlight: object
+│
+└── miscellaneous/           # App-wide settings
+    └── settings/
+        ├── open: boolean
+        ├── shopAddress, shopPhone, ...
+```
+
+### MenuItem Schema
+
+Each menu item stored in a category's `items` array:
+
+```typescript
+interface MenuItem {
+  name: string;                    // "Cheese Burger"
+  rate: number;                    // Selling price (e.g., 99)
+  mrp?: number;                    // Maximum retail price (e.g., 120)
+  discountPercent?: number;        // Calculated or explicit discount
+  desc?: string;                   // Item description
+  veg: boolean;                    // true = vegetarian, false = non-veg
+  active: boolean;                 // Whether item is available
+  imageId?: string;                // Reference to images collection
+  rating?: number;                 // Average rating (1-5)
+  components?: Component[];        // Customizable components
+  isCustom?: boolean;              // Whether item is customizable
+  variants?: Variant[];            // Size/flavor variants
+}
+
+interface Variant {
+  name: string;                    // "Half", "Full", "Tandoori"
+  rate: number;
+  mrp?: number;
+  discountPercent?: number;
+  sizes?: Size[];                  // Nested sizes for multi-level variants
+  imageId?: string;                // Variant-specific image
+}
+```
+
+### Order Schema
+
+```typescript
+interface Order {
+  id: string;                      // Auto-generated order ID
+  userId: string;                  // Firebase Auth UID
+  customerName: string;
+  customerPhone: string;
+  
+  // Items purchased (snapshot at time of order)
+  items: Array<{
+    id: string;
+    name: string;
+    rate: number;
+    qty: number;
+  }>;
+  
+  // Pricing
+  subtotal: number;                // Sum of (rate * qty) for all items
+  deliveryFee: number;
+  total: number;                   // subtotal + deliveryFee
+  
+  // Delivery
+  address: {
+    fullAddress: string;
+    lat: number;
+    lng: number;
+  };
+  
+  // Payment
+  paymentMethod: 'online' | 'cod';
+  paymentStatus: 'paid' | 'pending' | 'failed';
+  razorpayOrderId?: string;        // Only for online payments
+  razorpayPaymentId?: string;
+  
+  // Status tracking
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 
+          'out_for_delivery' | 'delivered' | 'cancelled';
+  
+  // Timestamps
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+```
+
+### User Schema
+
+```typescript
+interface User {
+  uid: string;                     // Firebase Auth UID
+  email?: string;
+  displayName?: string;
+  phone?: string;
+  gender?: 'male' | 'female' | 'other';
+  photoURL?: string;
+  
+  // Role (for admin app access)
+  role?: 'customer' | 'staff' | 'admin' | 'superAdmin';
+  pages?: string[];                // For staff: which pages they can access
+  
+  // Delivery addresses
+  addresses?: Address[];
+  defaultAddressId?: string;
+  
+  createdAt: Timestamp;
+  lastLoginAt: Timestamp;
+}
+
+interface Address {
+  id: string;                      // Generated UUID
+  label?: string;                  // "Home", "Work", etc.
+  fullAddress: string;
+  lat: number;
+  lng: number;
+  isDefault?: boolean;
+}
+```
+
+### Cart Schema (Firestore)
+
+```typescript
+// Stored in carts/{userId}
+interface CartDocument {
+  items: {
+    [itemId: string]: {
+      id: string;
+      name: string;
+      rate: number;
+      qty: number;
+      mrp?: number;
+      imageId?: string;
+    }
+  };
+  updatedAt: Timestamp;
+}
+```
+
+### Pricing Logic
+
+The pricing system follows these rules:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    PRICING CALCULATION                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  STORED IN DATABASE:                                        │
+│  • rate (selling price) - ALWAYS stored                     │
+│  • mrp (maximum retail price) - Optional                    │
+│  • discountPercent - Optional (can be derived)              │
+│                                                             │
+│  DISPLAY LOGIC:                                             │
+│                                                             │
+│  If discountPercent is explicitly set:                      │
+│    → Use it directly (e.g., 10%)                            │
+│    → Recalculate MRP: mrp = rate / (1 - discount/100)       │
+│                                                             │
+│  If discountPercent is NOT set but MRP exists:              │
+│    → Derive discount: ((mrp - rate) / mrp) * 100            │
+│                                                             │
+│  If only rate exists:                                       │
+│    → Show rate only, no discount badge                      │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## �🚢 Deployment
 
 ### Deploy to Firebase Hosting (Frontend)
 
@@ -936,10 +1258,65 @@ Menu items are managed through the Admin App. See `venkys_admin` README.
 
 ---
 
-## 📞 Support
+## 🔗 Related Applications
 
-For technical support, contact the development team or raise an issue in the repository.
+This Customer App is part of a two-app system:
+
+| Application | Purpose | Location |
+|-------------|---------|----------|
+| **Customer App** (this) | Public-facing ordering interface | `venkys/` |
+| **Admin App** | Staff dashboard and operations | `venkys_admin/` |
+
+### Shared Resources
+
+Both applications share:
+- **Firebase Project** - Same authentication, database, and storage
+- **API Functions** - Both use Vercel serverless functions
+- **Database Collections** - `menu`, `orders`, `users`, `images`, etc.
+- **WhatsApp Integration** - Same Meta Business account
+
+### Development Workflow
+
+When making changes that affect both apps:
+
+1. **Menu Changes** → Updated in Admin App → Reflected in Customer App automatically
+2. **User Accounts** → Created in either app → Accessible from both
+3. **Orders** → Created in Customer App → Managed in Admin App
 
 ---
 
-Made with ❤️ for Venky's Cheat Mealz
+## 📚 Additional Resources
+
+### For Developers
+
+- [React 19 Documentation](https://react.dev/)
+- [Vite Documentation](https://vitejs.dev/)
+- [Firebase Documentation](https://firebase.google.com/docs)
+- [Razorpay Integration Guide](https://razorpay.com/docs/)
+- [Tailwind CSS Documentation](https://tailwindcss.com/docs)
+
+### For Deployment
+
+- [Firebase Hosting Guide](https://firebase.google.com/docs/hosting)
+- [Vercel Serverless Functions](https://vercel.com/docs/functions)
+
+---
+
+## 📞 Support
+
+For technical support:
+1. Check the browser's Developer Console (F12) for errors
+2. Review Vercel function logs for API errors
+3. Check Firebase Console for database/auth issues
+4. Raise an issue in the repository with detailed steps to reproduce
+
+---
+
+## 📄 License
+
+This project is proprietary software developed for Venky's Cheat Mealz.
+
+---
+
+**Venky's Cheat Mealz - Customer Application**  
+*Built with React, Firebase, and modern web technologies*

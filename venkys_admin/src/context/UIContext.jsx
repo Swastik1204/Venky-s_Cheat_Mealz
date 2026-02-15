@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, useCallback, useMemo } from 'react'
 
 const UIContext = createContext(null)
 
@@ -11,32 +11,40 @@ export function UIProvider({ children }) {
   const [toasts, setToasts] = useState([])
   const [confirmState, setConfirmState] = useState(null)
 
-  function pushToast(msg, type = 'info', ttl = 8000, action = null) {
+  const dismissToast = useCallback((id) => { setToasts(t => t.filter(x => x.id !== id)) }, [])
+
+  const pushToast = useCallback((msg, type = 'info', ttl = 8000, action = null) => {
     const id = genId()
     setToasts(t => [...t, { id, msg, type, action }])
     if (ttl > 0) setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), ttl)
     return id
-  }
-  function dismissToast(id) { setToasts(t => t.filter(x => x.id !== id)) }
-  function confirm(options) { setConfirmState({ ...options }) }
-  function resolveConfirm(accepted) {
-    if (!confirmState) return
-    const { onConfirm, onCancel } = confirmState
-    setConfirmState(null)
-    if (accepted) onConfirm && onConfirm(); else onCancel && onCancel()
-  }
+  }, [])
 
-  const value = {
+  const confirm = useCallback((options) => { setConfirmState({ ...options }) }, [])
+
+  const resolveConfirm = useCallback((accepted) => {
+    setConfirmState(prev => {
+      if (!prev) return null
+      const { onConfirm, onCancel } = prev
+      if (accepted) onConfirm && onConfirm(); else onCancel && onCancel()
+      return null
+    })
+  }, [])
+
+  const openAuth = useCallback((mode) => setAuthMode(mode), [])
+  const closeAuth = useCallback(() => setAuthMode(null), [])
+
+  const value = useMemo(() => ({
     authMode,
-    openAuth: (mode) => setAuthMode(mode),
-    closeAuth: () => setAuthMode(null),
+    openAuth,
+    closeAuth,
     toasts,
     pushToast,
     dismissToast,
     confirm,
     confirmState,
     resolveConfirm,
-  }
+  }), [authMode, toasts, confirmState, openAuth, closeAuth, pushToast, dismissToast, confirm, resolveConfirm])
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>
 }

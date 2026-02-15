@@ -26,6 +26,12 @@ createRoot(document.getElementById('root')).render(
 // PWA hooks (beforeinstallprompt etc.)
 setupPWAHooks()
 
+// Catch unhandled promise rejections globally
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[Unhandled Rejection]', event.reason)
+  event.preventDefault()
+})
+
 // In development, do NOT keep a service worker: unregister any existing one and clear caches
 if (import.meta.env.DEV && 'serviceWorker' in navigator) {
   // Best-effort cleanup of existing SWs/caches that may hold stale prebundles

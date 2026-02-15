@@ -805,7 +805,15 @@ export default function Checkout() {
         if (!amountRupees || amountRupees <= 0) {
           throw new Error('Cart total must be greater than zero for online payment.')
         }
-        const razorpayOrder = await createRazorpayOrder(amountRupees)
+        // Send cart items for server-side price verification
+        const cartItems = entries.map(({ item, qty }) => ({
+          name: item.name,
+          rate: item?.rate ?? item?.price ?? 0,
+          qty,
+          categoryId: item.categoryId || undefined,
+          variantLabel: item.variantLabel || undefined,
+        }))
+        const razorpayOrder = await createRazorpayOrder(amountRupees, cartItems)
         razorpayOrderId = razorpayOrder.orderId
         const RazorpayConstructor = await ensureRazorpay()
         let settled = false

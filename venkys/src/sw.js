@@ -21,9 +21,25 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.map((k) => (k === CACHE ? undefined : caches.delete(k))))
-    )
+    (async () => {
+      // Delete old cache buckets
+      const keys = await caches.keys()
+      await Promise.all(keys.map((k) => (k === CACHE ? undefined : caches.delete(k))))
+      // Evict stale entries from current cache
+      const cache = await caches.open(CACHE)
+      const requests = await cache.keys()
+      const now = Date.now()
+      await Promise.all(
+        requests.map(async (req) => {
+          const res = await cache.match(req)
+          if (!res) return
+          const dateHeader = res.headers.get('date')
+          if (dateHeader && now - new Date(dateHeader).getTime() > MAX_CACHE_AGE) {
+            await cache.delete(req)
+          }
+        })
+      )
+    })()
   )
   self.clients.claim()
 })
@@ -34,7 +50,7 @@ self.addEventListener('fetch', (event) => {
 
   // Skip caching for API calls and external resources
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(req))
+    event.respondWith(fetch(req).catch(() => new Response('Network error', { status: 503 })))
     return
   }
 

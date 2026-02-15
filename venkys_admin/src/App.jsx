@@ -6,6 +6,7 @@ import { useUI } from './context/UIContext'
 import { useAuth } from './context/AuthContext'
 import AuthSkeleton from './components/AuthSkeleton'
 import InstallPWA from './components/InstallPWA'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const Inventory = lazy(() => import('./pages/Inventory'))
 const StockManager = lazy(() => import('./pages/StockManager'))
@@ -111,24 +112,26 @@ export default function App() {
   return (
     <>
       <InstallPWA />
-      <div className="admin-shell">
-        <AdminTopNav />
-        <main className={`page-wrap pb-16 pt-6 transition-all duration-200 ${authMode ? 'blur-when-auth-open' : ''}`}>
-          <Suspense fallback={<div className="py-20 text-center text-sm opacity-70">Loading module…</div>}>
-            <Routes>
-              <Route path="/" element={<Navigate to="/admin" replace />} />
+      <ErrorBoundary>
+        <div className="admin-shell">
+          <AdminTopNav />
+          <main className={`page-wrap pb-16 pt-6 transition-all duration-200 ${authMode ? 'blur-when-auth-open' : ''}`}>
+            <Suspense fallback={<div className="py-20 text-center text-sm opacity-70">Loading module…</div>}>
+              <Routes>
+                <Route path="/" element={<Navigate to="/admin" replace />} />
 
-              <Route path="/admin" element={<Navigate to={firstAllowedPath} replace />} />
-              {allowedPages.map((p) => (
-                <Route key={p.key} path={p.path} element={p.element} />
-              ))}
+                <Route path="/admin" element={<Navigate to={firstAllowedPath} replace />} />
+                {allowedPages.map((p) => (
+                  <Route key={p.key} path={p.path} element={p.element} />
+                ))}
 
-              <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />
-            </Routes>
-          </Suspense>
-        </main>
-        <AuthModal />
-      </div>
+                <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />
+              </Routes>
+            </Suspense>
+          </main>
+          <AuthModal />
+        </div>
+      </ErrorBoundary>
     </>
   )
 }

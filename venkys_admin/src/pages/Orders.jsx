@@ -424,7 +424,7 @@ export default function Orders() {
     setLoadingOrders(true)
     try {
       const result = await fetchAllOrders()
-      setOrders(Array.isArray(result) ? result : [])
+      setOrders(Array.isArray(result?.orders) ? result.orders : Array.isArray(result) ? result : [])
     } finally { setLoadingOrders(false) }
   }
 
@@ -444,9 +444,7 @@ export default function Orders() {
         openOtpModalForOrder(o)
         return
       }
-      console.log('[Orders] Accepting order:', o.id, 'userId:', o.userId)
       await updateOrder(o.userId || null, o.id, { status: 'preparing' }, user?.email); 
-      console.log('[Orders] Order accepted successfully:', o.id)
       // Deduct stock when order is accepted
       if (Array.isArray(o.items)) {
         deductStockForOrder(o.items).catch(err => console.error('Stock deduction failed', err))

@@ -7,6 +7,7 @@
 
 import crypto from 'crypto'
 import { createRateLimiter } from './lib/rateLimiter.js'
+import { verifyAuth } from './lib/verifyAuth.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'verify-payment' })
 
@@ -36,6 +37,10 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed' })
   }
+  // Verify Firebase Auth token
+  const auth = await verifyAuth(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+
   try {
     const secret = process.env.RAZORPAY_KEY_SECRET
     if (!secret) {
@@ -50,7 +55,11 @@ export default async function handler(req, res) {
       .update(`${orderId}|${paymentId}`)
       .digest('hex')
 
-    const valid = expected === signature
+    // Use timing-safe comparison to prevent timing attacks
+    const expectedBuffer = Buffer.from(expected, 'hex')
+    const signatureBuffer = Buffer.from(signature, 'hex')
+    const valid = expectedBuffer.length === signatureBuffer.length && 
+      crypto.timingSafeEqual(expectedBuffer, signatureBuffer)
     return res.status(200).json({ valid })
   } catch (e) {
     console.error('verify-payment error', e)

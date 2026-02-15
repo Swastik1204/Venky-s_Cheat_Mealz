@@ -314,8 +314,8 @@ service cloud.firestore {
         (docId == 'store' && isAdmin()) ||
         // Appearance - admin or staff with appearance access
         (docId == 'appearance' && (isAdmin() || hasPageAccess('appearance'))) ||
-        // Daily counter - any authenticated user can write (for order number generation)
-        (docId == 'dailyCounter' && request.auth != null)
+        // Daily counter - staff/admin can write (for order number generation)
+        (docId == 'dailyCounter' && (isAdmin() || isStaff()))
       );
     }
 
@@ -330,10 +330,11 @@ service cloud.firestore {
     }
 
     // -----------------------------------------
-    // HEALTH CHECK (Testing)
+    // HEALTH CHECK (Testing) - Read-only public
     // -----------------------------------------
     match /_health/{doc} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }
