@@ -1,3 +1,4 @@
+// Shipping — Delivery and shipping policy page
 export default function Shipping() {
   return (
     <div className="page-wrap py-10">

@@ -14,9 +14,8 @@
  *
  * Requires env: FIREBASE_SERVICE_ACCOUNT (JSON string)
  *
- * When AUTH_REQUIRED=0 or missing, auth is best-effort: if a token is provided
- * it will be verified, but requests without tokens are allowed through.
- * Set AUTH_REQUIRED=1 to enforce mandatory auth.
+ * Auth is mandatory by default. Set AUTH_REQUIRED=0 to disable (not recommended).
+ * When mandatory, requests without a valid Bearer token are rejected with 401.
  */
 
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
@@ -47,7 +46,8 @@ function ensureAdmin() {
  */
 export async function verifyAuth(req) {
   const authHeader = req.headers?.authorization || ''
-  const isMandatory = process.env.AUTH_REQUIRED === '1' || process.env.AUTH_REQUIRED === 'true'
+  const isDisabled = process.env.AUTH_REQUIRED === '0' || process.env.AUTH_REQUIRED === 'false'
+  const isMandatory = !isDisabled
 
   if (!authHeader.startsWith('Bearer ')) {
     if (isMandatory) {

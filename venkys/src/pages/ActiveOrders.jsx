@@ -1,11 +1,16 @@
+// ActiveOrders — Live order tracking dashboard
 import { useEffect, useMemo, useState } from 'react'
+
+import { doc, onSnapshot } from 'firebase/firestore'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { MdArrowBack, MdLocalShipping, MdPlace, MdReceiptLong, MdRefresh } from 'react-icons/md'
+
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { fetchOrder, fetchUserOrders } from '../lib/data'
 import { db } from '../lib/firebase'
-import { doc, onSnapshot } from 'firebase/firestore'
+
+// ── Constants & helpers ──
 
 const ORDER_STATUS_FLOW = ['placed', 'preparing', 'ready', 'delivered']
 
@@ -92,6 +97,7 @@ export default function ActiveOrders() {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
 
+  // ── State ──
   const selectedIdFromUrl = params.get('id') || ''
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -139,6 +145,7 @@ export default function ActiveOrders() {
     }
   }
 
+  // ── Side-effects ──
   useEffect(() => {
     refreshActiveOrders().catch(() => {
       setLoading(false)
@@ -242,6 +249,7 @@ export default function ActiveOrders() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  // ── Render ──
   return (
     <div className="page-wrap py-6 space-y-6">
       <div className="flex items-center justify-between gap-3">

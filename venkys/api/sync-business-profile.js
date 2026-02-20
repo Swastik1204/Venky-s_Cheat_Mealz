@@ -1,8 +1,10 @@
+/* eslint-env node */
 // Serverless function to fetch Google Business Profile data via Places API
 // and cache it in Firestore. Can be called manually or scheduled.
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { createRateLimiter } from './lib/rateLimiter.js'
+import { verifyAuth } from './lib/verifyAuth.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'sync-business-profile' })
 
@@ -124,6 +126,12 @@ export default async function handler(req, res) {
   
   // Verify cron requests come from Vercel (for scheduled jobs)
   const isCron = req.headers['x-vercel-cron'] === '1'
+
+  // POST requests require Firebase Auth (admin-triggered sync)
+  if (req.method === 'POST') {
+    const auth = await verifyAuth(req)
+    if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  }
   
   try {
     // Get API key from environment

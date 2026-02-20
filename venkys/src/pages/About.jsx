@@ -1,3 +1,4 @@
+// About — Restaurant about / story page
 export default function About() {
   const logoUrl = `${import.meta.env.BASE_URL}icons/Logo.png`
   return (

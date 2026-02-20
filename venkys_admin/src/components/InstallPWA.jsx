@@ -1,3 +1,4 @@
+// InstallPWA — PWA install banner prompt
 import { useEffect, useState } from 'react'
 
 export default function InstallPWA() {

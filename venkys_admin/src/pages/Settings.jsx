@@ -1,17 +1,22 @@
+// Settings — Store settings, staff roles, and notifications
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import AdminLayout from '../layouts/AdminLayout'
-import { useUI } from '../context/UIContext'
-import { useAuth } from '../context/AuthContext'
-import { fetchAppSettings, saveAppSettings, sendWhatsAppInvoice, BRAND_LONG, fetchBusinessProfile, syncBusinessProfile, fetchStaff, addStaffMember, updateStaffMember, removeStaffMember } from '../lib/data'
-import { fetchStoreStatus, setStoreOpen } from '../lib/storeStatus'
-import { fetchDeliverySettings, saveDeliverySettings } from '../lib/deliverySettings'
+
 import { MdDelete, MdEdit, MdPersonAdd } from 'react-icons/md'
+
+import AdminLayout from '../layouts/AdminLayout'
+import { useAuth } from '../context/AuthContext'
+import { useUI } from '../context/UIContext'
+import { fetchAppSettings, saveAppSettings, sendWhatsAppInvoice, fetchBusinessProfile, syncBusinessProfile, fetchStaff, addStaffMember, updateStaffMember, removeStaffMember } from '../lib/data'
+import { fetchDeliverySettings, saveDeliverySettings } from '../lib/deliverySettings'
+import { fetchStoreStatus, setStoreOpen } from '../lib/storeStatus'
 
 export default function Settings() {
   const { pushToast } = useUI()
   const { user, isAdmin, refreshRole } = useAuth()
-  const [appSettings, setAppSettings] = useState({ adminMobile: '', shopAddress: '', shopPhone: '', cashManagerPhone: '', chefName: '', centerLat: '', centerLng: '', radiusKm: 8, locationLink: '', googlePlaceId: '' })
+
+  // ── State ──
+  const [appSettings, setAppSettings] = useState({ adminMobile: '', shopAddress: '', shopPhone: '', centerLat: '', centerLng: '', radiusKm: 8, locationLink: '', googlePlaceId: '' })
   const [cashManagerPhones, setCashManagerPhones] = useState([''])
   const [orderMessengerPhones, setOrderMessengerPhones] = useState([''])
   const [appSettingsLoading, setAppSettingsLoading] = useState(false)
@@ -45,6 +50,7 @@ export default function Settings() {
     }
   }
 
+  // ── Side-effects ──
   useEffect(() => {
     if (error) {
       pushToast(error, 'error')
@@ -84,9 +90,7 @@ export default function Settings() {
 
   // Messaging test state
   const [testPhone, setTestPhone] = useState('')
-  const [testMsg, setTestMsg] = useState(`Hello from ${BRAND_LONG}👋`)
-  const [testSending, setTestSending] = useState({ wa: false, sms: false })
-  const [useTemplate, setUseTemplate] = useState(false)
+  const [testSending, setTestSending] = useState({ wa: false })
   const [tplName, setTplName] = useState('hello_world')
   const [tplLang, setTplLang] = useState('en_US')
   const [tplBodyText, setTplBodyText] = useState('')
@@ -130,8 +134,7 @@ export default function Settings() {
         if (cmDisplay.length > 0) {
           setCashManagerPhones(cmDisplay)
         } else {
-          const legacy = String(settingsRes.value.cashManagerPhone || '').replace(/\D/g, '')
-          setCashManagerPhones(legacy ? [legacy] : [''])
+          setCashManagerPhones([''])
         }
 
         const list = Array.isArray(settingsRes.value.orderMessengerPhones) ? settingsRes.value.orderMessengerPhones : []
@@ -164,6 +167,7 @@ export default function Settings() {
 
   const liveStatusDirty = liveEnabled !== liveDefault
 
+  // ── Render ──
   return (
     <AdminLayout>
       <div className="mb-6 flex items-center justify-between flex-wrap gap-3">
@@ -328,12 +332,7 @@ export default function Settings() {
                   <textarea className="textarea textarea-bordered min-h-24 w-full" value={appSettings.shopAddress} onChange={(e)=> setAppSettings(s => ({ ...s, shopAddress: e.target.value }))} placeholder="Street, Area, City - PIN"></textarea>
                 </td>
               </tr>
-              <tr>
-                <td className="font-medium">Chef name</td>
-                <td>
-                  <input className="input input-bordered w-48" value={appSettings.chefName} onChange={(e)=> setAppSettings(s => ({ ...s, chefName: e.target.value }))} placeholder="Chef name shown on bills" />
-                </td>
-              </tr>
+
               <tr>
                 <td className="font-medium">Google Maps location link</td>
                 <td>
@@ -477,7 +476,7 @@ export default function Settings() {
                 shopAddress: appSettings.shopAddress,
                 shopPhone: appSettings.shopPhone,
                 cashManagerPhones: validCashManagers,
-                chefName: appSettings.chefName,
+
                 locationLink: appSettings.locationLink || '',
                 googlePlaceId: appSettings.googlePlaceId || '',
                 orderMessengerPhones: validPhones,
@@ -518,8 +517,7 @@ export default function Settings() {
               if (cmDisplay.length > 0) {
                 setCashManagerPhones(cmDisplay)
               } else {
-                const legacy = String(settings?.cashManagerPhone || '').replace(/\D/g, '')
-                setCashManagerPhones(legacy ? [legacy] : [''])
+                setCashManagerPhones([''])
               }
 
               const list = Array.isArray(settings?.orderMessengerPhones) ? settings.orderMessengerPhones : []
@@ -540,7 +538,7 @@ export default function Settings() {
               <span className="text-success">WA Service Active</span>
             </div>
           </div>
-          <p className="text-xs opacity-70 mb-3">Send a one-off test message to verify your backend endpoints. Uses your configured URLs and does not expose any tokens in the browser.</p>
+          <p className="text-xs opacity-70 mb-3">Send a template test message to verify your WhatsApp Business API is configured correctly.</p>
           <div className="overflow-x-auto">
             <table className="table table-sm border-0">
               <tbody>
@@ -556,41 +554,23 @@ export default function Settings() {
                   </td>
                 </tr>
                 <tr>
-                  <td className="font-medium">Use template (for business-initiated messages outside 24h)</td>
+                  <td className="font-medium">Template name</td>
                   <td>
-                    <input type="checkbox" className="toggle toggle-sm" checked={useTemplate} onChange={(e)=>setUseTemplate(e.target.checked)} />
+                    <input className="input input-bordered w-48" value={tplName} onChange={(e)=>setTplName(e.target.value)} placeholder="hello_world or your template" />
                   </td>
                 </tr>
-                {!useTemplate && (
-                  <tr>
-                    <td className="font-medium">Message text</td>
-                    <td>
-                      <textarea className="textarea textarea-bordered min-h-20 w-full" value={testMsg} onChange={(e)=>setTestMsg(e.target.value)} />
-                    </td>
-                  </tr>
-                )}
-                {useTemplate && (
-                  <>
-                    <tr>
-                      <td className="font-medium">Template name</td>
-                      <td>
-                        <input className="input input-bordered w-48" value={tplName} onChange={(e)=>setTplName(e.target.value)} placeholder="hello_world or your template" />
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="font-medium">Language</td>
-                      <td>
-                        <input className="input input-bordered w-48" value={tplLang} onChange={(e)=>setTplLang(e.target.value)} placeholder="en_US" />
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="font-medium">Body text param</td>
-                      <td>
-                        <input className="input input-bordered w-48" value={tplBodyText} onChange={(e)=>setTplBodyText(e.target.value)} placeholder="Optional (depends on template)" />
-                      </td>
-                    </tr>
-                  </>
-                )}
+                <tr>
+                  <td className="font-medium">Language</td>
+                  <td>
+                    <input className="input input-bordered w-48" value={tplLang} onChange={(e)=>setTplLang(e.target.value)} placeholder="en_US" />
+                  </td>
+                </tr>
+                <tr>
+                  <td className="font-medium">Body text param</td>
+                  <td>
+                    <input className="input input-bordered w-48" value={tplBodyText} onChange={(e)=>setTplBodyText(e.target.value)} placeholder="Optional (depends on template)" />
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -603,16 +583,11 @@ export default function Settings() {
                 if (!/^\d{10}$/.test(phone)) { setError('Enter a valid 10-digit Indian mobile'); return }
                 setTestSending(s => ({ ...s, wa: true }))
                 try {
-                  let payload
-                  if (useTemplate) {
-                    const components = (tplBodyText || '').trim() ? [ { type: 'body', parameters: [ { type: 'text', text: tplBodyText.trim() } ] } ] : []
-                    payload = {
-                      templateName: (tplName || 'hello_world').trim(),
-                      templateLanguage: (tplLang || 'en_US').trim(),
-                      ...(components.length ? { components } : {})
-                    }
-                  } else {
-                    payload = { text: testMsg, from: 'admin-settings-test', store: { name: BRAND_LONG } }
+                  const components = (tplBodyText || '').trim() ? [ { type: 'body', parameters: [ { type: 'text', text: tplBodyText.trim() } ] } ] : []
+                  const payload = {
+                    templateName: (tplName || 'hello_world').trim(),
+                    templateLanguage: (tplLang || 'en_US').trim(),
+                    ...(components.length ? { components } : {})
                   }
                   const res = await sendWhatsAppInvoice(`91${phone}`, payload)
                   if (res && res.__error) {

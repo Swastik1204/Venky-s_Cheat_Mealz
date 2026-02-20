@@ -1,3 +1,4 @@
+// sw — Admin service worker for offline caching
 const CACHE = 'venkys-admin-pwa-v2'
 const APP_SHELL = ['/', '/index.html']
 const WB_MANIFEST = self.__WB_MANIFEST || []

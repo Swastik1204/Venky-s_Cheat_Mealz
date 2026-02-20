@@ -1,3 +1,4 @@
+// UIContext — Global UI state (auth mode, toasts)
 import { createContext, useContext, useState, useCallback, useMemo } from 'react'
 
 const UIContext = createContext(null)

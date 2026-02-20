@@ -1,3 +1,4 @@
+// Delivery — Delivery settings and zone configuration
 import { useAuth } from '../context/AuthContext'
 
 export default function Delivery() {

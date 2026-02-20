@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Dedicated WhatsApp template sender for new online-order notifications (order_messenger)
 // POST body: { phone: "+9198xxxxxx" | "9198xxxxxx", customerName: string, totalAmount: string|number, address: string }
 // Requires env: WA_TOKEN, WA_PHONE_NUMBER_ID

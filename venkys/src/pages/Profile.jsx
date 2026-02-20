@@ -1,19 +1,23 @@
+// Profile — User profile, addresses, and order history
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { MdPlace, MdApartment, MdLocationCity, MdMap, MdPinDrop, MdLocalPhone, MdGpsFixed, MdPerson, MdMail, MdEdit, MdLocalShipping, MdPolicy, MdGavel, MdCancel, MdReplay } from 'react-icons/md'
+
+import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { Link, useLocation } from 'react-router-dom'
 import { FaWhatsapp } from 'react-icons/fa'
-import { MdRefresh } from 'react-icons/md'
+import { MdPlace, MdApartment, MdLocationCity, MdMap, MdPinDrop, MdLocalPhone, MdGpsFixed, MdPerson, MdMail, MdEdit, MdLocalShipping, MdPolicy, MdGavel, MdCancel, MdReplay, MdRefresh } from 'react-icons/md'
+
 import { useAuth } from '../context/AuthContext'
 import { useCart } from '../context/CartContext'
-import { fetchUserOrders, fetchUserProfile, updateUserProfile, fetchAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress, isCounterDocId } from '../lib/data'
-import { db } from '../lib/firebase'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
-import { reverseGeocode, geocodeAddress } from '../lib/google'
 import { useUI } from '../context/UIContext'
 import useDeliveryLocation from '../hooks/useDeliveryLocation'
-import ProfileCompletionAlert from '../components/ProfileCompletionAlert'
 import usePlacesAutocomplete from '../hooks/usePlacesAutocomplete'
+import ProfileCompletionAlert from '../components/ProfileCompletionAlert'
+import { fetchUserOrders, fetchUserProfile, updateUserProfile, fetchAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress, isCounterDocId } from '../lib/data'
+import { db } from '../lib/firebase'
+import { reverseGeocode, geocodeAddress } from '../lib/google'
+
+// ── Helpers ──
 
 // Helper to compute profile completion (shared by components)
 function getProfileCompletion(user, profileForm, addrState) {
@@ -33,6 +37,7 @@ export default function Profile() {
   const location = useLocation();
   const deliveryLocation = useDeliveryLocation();
 
+  // ── State & refs ──
   // Profile and orders state
   const [profile, setProfile] = useState(null);
   const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', whatsapp: '', gender: '', email: '' });
@@ -69,6 +74,7 @@ export default function Profile() {
     setUsePhoneForWhatsapp(false);
   }, [profileSaving]);
 
+  // ── Side-effects ──
   // Handle scrolling from navigation state
   useEffect(() => {
     if (location.state?.scrollToTop) {
@@ -328,6 +334,7 @@ export default function Profile() {
     }
   }, [location.state, user, openEditModal]);
 
+  // ── Handlers ──
   function openEditAddress(a) {
     setAddrEditing(a)
     setAddrForm({ name: a.name||'', line1: a.line1||'', line2: a.line2||'', city: a.city||'', state: a.state||'', zip: a.zip||'', landmark: a.landmark||'', phone: a.phone||'', tag: a.tag||'Other', lat: a.lat ?? null, lng: a.lng ?? null, placeId: a.placeId || '', mapUrl: a.mapUrl || '' })
@@ -447,6 +454,8 @@ export default function Profile() {
       </div>
     )
   }
+
+  // ── Render ──
   return (
     <div className="page-wrap py-8 space-y-8 max-w-7xl mx-auto">
       {/* Profile heading with logout button on the right */}
@@ -660,7 +669,7 @@ export default function Profile() {
                   <MdPerson className="w-4 h-4 opacity-70" />
                   <input
                     type="text"
-                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={editForm.displayName}
                     onChange={e => setEditForm(f => ({ ...f, displayName: e.target.value }))}
                     placeholder="Full Name (required)"
@@ -672,7 +681,7 @@ export default function Profile() {
                   <MdMail className="w-4 h-4 opacity-70" />
                   <input
                     type="email"
-                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70 text-gray-400"
+                    className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70 text-gray-400"
                     value={editForm.email}
                     disabled
                     placeholder="Email (optional)"
@@ -874,7 +883,7 @@ export default function Profile() {
               <div className="form-control w-full">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdPlace className="w-5 h-5 opacity-50" />
-                      <input className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="Nearby Landmark (Optional)" value={addrForm.landmark} onChange={(e)=>setAddrForm(f=>({...f,landmark:e.target.value}))} />
+                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Nearby Landmark (Optional)" value={addrForm.landmark} onChange={(e)=>setAddrForm(f=>({...f,landmark:e.target.value}))} />
                   </div>
               </div>
 
@@ -882,7 +891,7 @@ export default function Profile() {
               <div className="form-control w-full">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdApartment className="w-5 h-5 opacity-50" />
-                      <input ref={addrLine1Ref} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="House / Flat No., Building" value={addrForm.line1} onChange={(e)=>setAddrForm(f=>({...f,line1:e.target.value}))} required />
+                      <input ref={addrLine1Ref} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="House / Flat No., Building" value={addrForm.line1} onChange={(e)=>setAddrForm(f=>({...f,line1:e.target.value}))} required />
                   </div>
               </div>
 
@@ -890,7 +899,7 @@ export default function Profile() {
               <div className="form-control w-full">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdMap className="w-5 h-5 opacity-50" />
-                      <input ref={addrLine2Ref} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="Area / Locality (Auto-filled)" value={addrForm.line2} onChange={(e)=>setAddrForm(f=>({...f,line2:e.target.value}))} />
+                      <input ref={addrLine2Ref} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Area / Locality (Auto-filled)" value={addrForm.line2} onChange={(e)=>setAddrForm(f=>({...f,line2:e.target.value}))} />
                   </div>
                   <label className="label py-1"><span className="label-text-alt opacity-60">Select from suggestions for best accuracy</span></label>
               </div>
@@ -899,11 +908,11 @@ export default function Profile() {
               <div className="grid grid-cols-2 gap-4">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdPinDrop className="w-5 h-5 opacity-50" />
-                      <input className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="PIN Code" value={addrForm.zip} onChange={(e)=>setAddrForm(f=>({...f,zip:e.target.value}))} />
+                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="PIN Code" value={addrForm.zip} onChange={(e)=>setAddrForm(f=>({...f,zip:e.target.value}))} />
                   </div>
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent opacity-70 cursor-not-allowed">
                       <MdLocationCity className="w-5 h-5 opacity-50" />
-                      <input className="bg-transparent w-full outline-none" value="Durgapur" readOnly />
+                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0" value="Durgapur" readOnly />
                   </div>
               </div>
 
@@ -911,7 +920,7 @@ export default function Profile() {
               <div className="form-control w-full">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdLocalPhone className="w-5 h-5 opacity-50" />
-                      <input className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="Phone Number" value={addrForm.phone} onChange={(e)=>setAddrForm(f=>({...f,phone:e.target.value}))} />
+                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Phone Number" value={addrForm.phone} onChange={(e)=>setAddrForm(f=>({...f,phone:e.target.value}))} />
                   </div>
               </div>
 
@@ -948,6 +957,8 @@ export default function Profile() {
     </div>
   )
 }
+
+// ── Order status utilities ──
 
 const ORDER_STATUS_FLOW = ['placed', 'preparing', 'ready', 'delivered'];
 
@@ -1045,6 +1056,8 @@ function getOrderAddressParts(order) {
   return { primary, secondary }
 }
 
+// ── OrderCard component ──
+
 function OrderCard({ order, openModal, onReorder }) {
   if (!order) return null
   const status = order.status || 'placed'
@@ -1120,6 +1133,8 @@ function OrderCard({ order, openModal, onReorder }) {
     </div>
   )
 }
+
+// ── OrderDetailsModal component ──
 
 function OrderDetailsModal({ order, onClose }) {
   if (!order) return null

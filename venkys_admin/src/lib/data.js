@@ -1,38 +1,41 @@
-﻿// Data layer – barrel re-export (admin)
+// Data layer – barrel re-export (admin)
 // Each domain module lives in its own file for maintainability.
 // Import everything from './data' as before — the public API is unchanged.
 
-// --- Common helpers & constants ---
+// ── Common helpers & constants ──
 export { BRAND_LONG, BRAND_SHORT, isCounterDocId, apiUrl, getAuthHeaders, DEFAULT_SPOTLIGHT } from './data-common'
 
-// --- Orders ---
+// ── Orders ──
 export { generateDailyOrderNo, createOrder, updateOrder, fetchOrder, fetchAllOrders, fetchRecentOrders, nextOrderStatus, fetchLatestUserOrder, fetchUserOrders } from './data-orders'
 
-// --- WhatsApp messaging ---
+// ── WhatsApp messaging ──
 export { sendWhatsAppInvoice, sendOrderMessengerViaWhatsApp, sendOtpViaWhatsApp } from './data-whatsapp'
 
-// --- Menu ---
+// ── Menu ──
 export { fetchMenuCategories, upsertMenuCategory, appendMenuItems, addMenuItems, setMenuItems, removeMenuItem, renameMenuCategory, fetchMenuItems, fetchItems, addItem, upsertCategory, upsertMenuItem, migrateRemoveCategoryNameFields } from './data-menu'
 // Legacy alias — the original export name for deleting from the old menuItems collection
 export { deleteMenuItem_legacy as deleteMenuItem } from './data-menu'
 
-// --- Users ---
+// ── Users ──
 export { GUEST_USER_ID, ensureGuestUser, getUser, updateUser, getUserTheme, setUserTheme, fetchUserProfile, updateUserProfile, addAddress, updateAddress, deleteAddress, fetchAddresses, setDefaultAddress, getAvatarUrl, getRandomOtp } from './data-user'
 
-// --- Images ---
+// ── Images ──
 export { saveBase64Image, fetchImagesByIds, fetchImagesByIdsCached, getImageDataUrl, deleteImageById, removeCategoryImage } from './data-images'
 
-// --- Payments ---
+// ── Payments ──
 export { fetchPublicConfig, getRazorpayKeyId, createRazorpayOrder, verifyRazorpayPayment } from './data-payments'
 
-// --- Settings & appearance ---
+// ── Settings & appearance ──
 export { fetchAppearanceSettings, saveCategoriesOrder, saveAppearanceSpotlight, fetchAppSettings, saveAppSettings, fetchBusinessProfile, syncBusinessProfile } from './data-settings'
 
-// --- Inventory ---
+// ── Inventory ──
 export { fetchRawMaterials, saveRawMaterial, deleteRawMaterial, updateRawMaterialStock, deductStockForOrder } from './data-inventory'
 
-// --- Staff ---
+// ── Audit / Logging ──
+export { sendLogEmail } from './auditLog'
+
+// ── Staff ──
 export { fetchStaff, getStaffMember, addStaffMember, updateStaffMember, removeStaffMember, normalizeRolePages, assertValidStaffRole } from './data-staff'
 
-// --- Cart ---
+// ── Cart ──
 export { saveCart } from './data-cart'

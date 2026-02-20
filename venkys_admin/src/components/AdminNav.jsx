@@ -1,12 +1,17 @@
-import { Link, useLocation } from 'react-router-dom'
+// AdminNav — Top navigation bar with drawer and store controls
 import { useEffect, useMemo, useState } from 'react'
+
+import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { Link, useLocation } from 'react-router-dom'
+import { MdLogin, MdPerson, MdMenu, MdClose, MdPrint } from 'react-icons/md'
+
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { getUserTheme, setUserTheme } from '../lib/data'
-import { fetchStoreStatus, setStoreOpen } from '../lib/storeStatus'
-import { MdLogin, MdPerson, MdMenu, MdClose, MdPrint } from 'react-icons/md'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import { fetchStoreStatus, setStoreOpen } from '../lib/storeStatus'
+
+// ── AdminLinks sub-component ──
 
 function AdminLinks({ section, vertical = false, onClick }) {
   const { pathname } = useLocation()
@@ -67,17 +72,21 @@ export function AdminNav({ section, bare = true }) {
   )
 }
 
+// ── AdminTopNav (default export) ──
+
 export default function AdminTopNav() {
   const { user, logout, isStaffMember, roleLoading, isAdmin, role } = useAuth()
   const { openAuth } = useUI()
   const { pathname } = useLocation()
+
+  // ── State ──
   const [theme, setTheme] = useState('venkys_light')
   const [themeReady, setThemeReady] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [liveEnabled, setLiveEnabled] = useState(true)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-
+  // ── Side-effects ──
   useEffect(() => {
     if (drawerOpen) {
       document.body.style.overflow = 'hidden'
@@ -141,6 +150,7 @@ export default function AdminTopNav() {
     return () => { cancelled = true }
   }, [])
 
+  // ── Derived state & handlers ──
   const isDark = theme === 'venkys_dark'
   const activeSection = pathname.startsWith('/admin/') ? pathname.split('/')[2] : 'inventory'
 
@@ -188,6 +198,7 @@ export default function AdminTopNav() {
     }
   }
 
+  // ── Render ──
   return (
     <>
       <header className="nav-sticky">

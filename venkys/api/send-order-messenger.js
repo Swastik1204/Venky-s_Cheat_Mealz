@@ -14,6 +14,7 @@ export default async function handler(req, res) {
   const origin = req.headers?.origin || ''
   let allowOrigin = origin || '*'
 
+  // Always allow localhost for development
   if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
     allowOrigin = origin
   } else if (allow && allow !== '*') {

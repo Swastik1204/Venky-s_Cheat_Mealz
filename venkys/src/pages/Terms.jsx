@@ -1,3 +1,4 @@
+// Terms — Terms and conditions page
 export default function Terms() {
   return (
     <div className="page-wrap py-10">

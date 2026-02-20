@@ -1,17 +1,24 @@
+// NavBar — Top navigation bar with theme toggle, auth, and search
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+
 import { Link, useNavigate } from 'react-router-dom'
-import useDeliveryLocation from '../hooks/useDeliveryLocation'
+import { MdLocationOn, MdLogin, MdPerson, MdSearch } from 'react-icons/md'
+
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { MdLocationOn, MdLogin, MdPerson, MdSearch } from 'react-icons/md'
+import useDeliveryLocation from '../hooks/useDeliveryLocation'
 import { fetchMenuCategories, getUserTheme, setUserTheme } from '../lib/data'
 import { formatMoney } from '../lib/formatCurrency'
 
 export default function NavBar() {
   const logoUrl = `${import.meta.env.BASE_URL}icons/Logo.png`
+
+  // ── State & refs ──
   const [scrolled, setScrolled] = useState(false)
   const [theme, setTheme] = useState('venkys_light')
   const { user /*, logout */ } = useAuth()
+
+  // ── Side-effects ──
   useEffect(() => {
     const root = document.documentElement
     async function initTheme() {
@@ -56,7 +63,8 @@ export default function NavBar() {
     const local = email.split('@')[0]
     return local || 'User'
   })()
-  // Search state
+
+  // ── Search state ──
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [allSearchItems, setAllSearchItems] = useState([]) // {type:'category'|'item', label, cat?, veg?, rate?, mrp?, discountPercent?}
@@ -77,16 +85,16 @@ export default function NavBar() {
           cat.items.forEach(it => {
             const rateNumber = typeof it.rate === 'number' ? it.rate : Number(it.rate)
             const rate = Number.isFinite(rateNumber) && rateNumber >= 0
-              ? Math.round(rateNumber * 100) / 100
-              : Math.round((Number(it.price) || 0) * 100) / 100
+              ? Math.round(rateNumber)
+              : Math.round(Number(it.price) || 0)
             const mrpRaw = typeof it.mrp === 'number' ? it.mrp : Number(it.mrp)
-            const mrp = Number.isFinite(mrpRaw) && mrpRaw > 0 ? Math.round(mrpRaw * 100) / 100 : null
+            const mrp = Number.isFinite(mrpRaw) && mrpRaw > 0 ? Math.round(mrpRaw) : null
             const discountRaw = typeof it.discountPercent === 'number' ? it.discountPercent : Number(it.discountPercent)
             const derivedDiscount = mrp && mrp > rate && mrp > 0
-              ? Math.max(0, Math.round(((mrp - rate) / mrp) * 1000) / 10)
+              ? Math.max(0, Math.round(((mrp - rate) / mrp) * 100))
               : null
             const discountPercent = Number.isFinite(discountRaw) && discountRaw > 0
-              ? Math.round(Math.max(0, Math.min(100, discountRaw)) * 10) / 10
+              ? Math.round(Math.max(0, Math.min(99, discountRaw)))
               : (derivedDiscount && derivedDiscount > 0 ? derivedDiscount : null)
             coll.push({ type: 'item', label: it.name, cat: cat.id, veg: it.veg !== false, rate, mrp, discountPercent })
           })
@@ -96,6 +104,7 @@ export default function NavBar() {
     }).catch(()=>{})
   }, [])
 
+  // ── Search helpers ──
   // Simple fuzzy scoring: case-insensitive includes boost + Levenshtein distance threshold
   const levenshtein = useMemo(() => {
     return (a, b) => {
@@ -155,6 +164,7 @@ export default function NavBar() {
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
+  // ── Handlers ──
   const executeSearch = useCallback((value) => {
     const v = (value ?? query).trim()
     if (!v) return
@@ -199,6 +209,7 @@ export default function NavBar() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [searchOpen, onKeyDown])
 
+  // ── Render ──
   return (
     <div className="nav-sticky w-full">
       <div className="flex justify-center px-2 sm:px-4">
@@ -255,7 +266,8 @@ export default function NavBar() {
                   value={query}
                   onChange={(e)=> { setQuery(e.target.value); setSearchOpen(true) }}
                   onFocus={() => setSearchOpen(true)}
-                  className="flex-1 min-w-0 bg-transparent outline-none text-sm sm:text-base placeholder:text-base-content/50 placeholder:opacity-80 focus:placeholder:opacity-60"
+                  className="input input-ghost flex-1 min-w-0 border-none shadow-none focus:outline-none px-0 text-sm sm:text-base placeholder:text-base-content/50 placeholder:opacity-80 focus:placeholder:opacity-60"
+                  aria-label="Search dishes"
                 />
                 <button
                   type="button"

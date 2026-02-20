@@ -48,8 +48,8 @@ export default async function handler(req, res) {
     }
     const { phone, payload, text } = req.body || {}
     const to = String(phone || '').replace(/\D/g, '')
-    if (!to) {
-      res.status(400).json({ error: 'missing_phone' })
+    if (!to || to.length < 10) {
+      res.status(400).json({ error: 'invalid_phone', expected: 'at_least_10_digits' })
       return
     }
     const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`

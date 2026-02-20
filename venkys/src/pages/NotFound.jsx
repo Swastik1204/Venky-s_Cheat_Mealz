@@ -1,3 +1,4 @@
+// NotFound — 404 error page
 import { Link } from 'react-router-dom'
 import { MdHome, MdRestaurantMenu, MdSentimentDissatisfied } from 'react-icons/md'
 

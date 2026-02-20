@@ -1,7 +1,9 @@
+// CartContext — Shopping cart state management with persistence
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react'
+
 import { useAuth } from './AuthContext'
-import { loadCart, saveCart } from '../lib/data'
 import { useUI } from './UIContext'
+import { loadCart, saveCart } from '../lib/data'
 
 const CartContext = createContext(null)
 const GUEST_CART_KEY = 'venkys_guest_cart_v1'

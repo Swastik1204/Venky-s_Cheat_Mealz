@@ -1,7 +1,8 @@
-// src/hooks/useDeliveryLocation.js
-// React hook wrapping location services with state for label/loading/error.
+// useDeliveryLocation — Hook wrapping location services with state
+// Manages label, loading, and error for delivery address selection.
 
 import { useCallback, useMemo, useState, useEffect } from 'react'
+
 import { geolocate, reverseGeocode, getSavedDeliveryAddress, saveDeliveryAddress } from '../services/location'
 
 function useDeliveryLocation(defaultLabel = 'Durgapur') {

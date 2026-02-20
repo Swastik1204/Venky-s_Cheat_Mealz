@@ -1,4 +1,4 @@
-// Optional: Hooks for prompting install and handling updates
+// pwa — PWA install prompt hooks and update handlers
 export function setupPWAHooks() {
   // Listen for the beforeinstallprompt event (Android/Chrome)
   window.addEventListener('beforeinstallprompt', (e) => {

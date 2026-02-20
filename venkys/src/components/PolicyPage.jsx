@@ -1,7 +1,4 @@
-/**
- * Reusable layout component for policy/info pages
- * Used by: About, Privacy, Terms, Shipping, CancellationRefunds
- */
+// PolicyPage — Reusable layout wrapper for policy / info pages
 export default function PolicyPage({ title, icon, children }) {
   return (
     <div className="page-wrap py-10">

@@ -1,5 +1,8 @@
+// MenuItemCard — Individual menu item card with quantity controls
 import { useState, useMemo, useRef, useEffect, memo } from 'react'
+
 import { MdOutlineRestaurant, MdDelete, MdAdd, MdRemove } from 'react-icons/md'
+
 import { useCart } from '../context/CartContext'
 import { useUI } from '../context/UIContext'
 import { formatMoney } from '../lib/formatCurrency'
@@ -75,10 +78,7 @@ function MenuItemCardInner({ item }) {
   const discountPercent = Number(item.discountPercent)
   const hasDiscount = Number.isFinite(discountPercent) && discountPercent > 0
   const discountLabel = hasDiscount
-    ? `-${(() => {
-        const rounded = Math.round(discountPercent * 10) / 10
-        return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace(/\.0$/, '')
-      })()}%`
+    ? `-${Math.round(discountPercent)}%`
     : null
   const mrp = Number(item.mrp)
   const unitRateForDisplay = Number(item?.rate ?? item?.price ?? 0)

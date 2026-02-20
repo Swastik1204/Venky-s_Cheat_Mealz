@@ -1,12 +1,15 @@
+// App — Admin root component with role-based routing
 import { Suspense, lazy } from 'react'
+
 import { Routes, Route, Navigate } from 'react-router-dom'
+
+import { useAuth } from './context/AuthContext'
+import { useUI } from './context/UIContext'
 import AdminTopNav from './components/AdminNav'
 import AuthModal from './components/AuthModal'
-import { useUI } from './context/UIContext'
-import { useAuth } from './context/AuthContext'
 import AuthSkeleton from './components/AuthSkeleton'
-import InstallPWA from './components/InstallPWA'
 import ErrorBoundary from './components/ErrorBoundary'
+import InstallPWA from './components/InstallPWA'
 
 const Inventory = lazy(() => import('./pages/Inventory'))
 const StockManager = lazy(() => import('./pages/StockManager'))

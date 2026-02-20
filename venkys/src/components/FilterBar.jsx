@@ -1,3 +1,4 @@
+// FilterBar — Diet / preference filter chips
 import { useEffect, useRef, useState } from 'react'
 import { MdSort } from 'react-icons/md'
 

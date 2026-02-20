@@ -31,15 +31,35 @@ export function formatUserSegment(userId) {
 export function toMoney(value) {
   const num = Number(value)
   if (!Number.isFinite(num) || num < 0) return null
-  return Math.round(num * 100) / 100
+  return Math.round(num)
 }
 
 export function toDiscount(value) {
   const num = Number(value)
   if (!Number.isFinite(num) || num <= 0) return null
-  const clamped = Math.max(0, Math.min(100, num))
-  const rounded = Math.round(clamped * 10) / 10
+  const clamped = Math.max(0, Math.min(99, num))
+  const rounded = Math.round(clamped)
   return rounded > 0 ? rounded : null
+}
+
+export function normalizeTextKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+export function dedupeByTextKey(list, keySelector) {
+  const seen = new Set()
+  const out = []
+  for (const item of Array.isArray(list) ? list : []) {
+    const raw = keySelector ? keySelector(item) : item
+    const key = normalizeTextKey(raw)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(item)
+  }
+  return out
 }
 
 // ── Error helpers ──

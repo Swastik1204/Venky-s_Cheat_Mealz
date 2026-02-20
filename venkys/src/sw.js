@@ -1,4 +1,4 @@
-// Custom service worker used by vite-plugin-pwa (injectManifest strategy)
+// sw — Custom service worker for offline caching (injectManifest)
 // Caches app shell, precaches build assets via injected manifest, with navigation fallback.
 
 const CACHE = 'venkys-pwa-v2'

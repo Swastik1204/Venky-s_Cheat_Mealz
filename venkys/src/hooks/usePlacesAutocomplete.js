@@ -1,4 +1,6 @@
+// usePlacesAutocomplete — Google Places autocomplete hook
 import { useEffect, useRef } from 'react'
+
 import { initAutocomplete } from '../lib/google'
 
 const INSTANCE_KEY = '__venkysPlacesAutocomplete'

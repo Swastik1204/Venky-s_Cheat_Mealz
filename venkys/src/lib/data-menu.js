@@ -1,7 +1,19 @@
 // Menu-related data functions
 import { collection, doc, getDocs, getDoc, setDoc, serverTimestamp, deleteDoc, arrayUnion } from 'firebase/firestore'
 import { db } from './firebase'
-import { toMoney, toDiscount, isPermissionDenied } from './data-common'
+import { toMoney, toDiscount, isPermissionDenied, normalizeTextKey, dedupeByTextKey } from './data-common'
+
+async function assertUniqueCategoryName(name, ignoreId = null) {
+  const key = normalizeTextKey(name)
+  if (!key) throw new Error('Category name is required')
+  const ignoreKey = ignoreId ? normalizeTextKey(ignoreId) : null
+  const snap = await getDocs(collection(db, 'menu'))
+  const found = snap.docs.find(d => {
+    if (ignoreKey && normalizeTextKey(d.id) === ignoreKey) return false
+    return normalizeTextKey(d.id) === key
+  })
+  if (found) throw new Error('Category with this name already exists')
+}
 
 export async function fetchMenuCategories() {
   try {
@@ -39,20 +51,33 @@ export async function fetchMenuCategories() {
 }
 
 export async function upsertMenuCategory(name) {
-  const ref = doc(db, 'menu', name)
+  const normalizedName = String(name || '').trim()
+  const ref = doc(db, 'menu', normalizedName)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) {
+    await assertUniqueCategoryName(normalizedName)
+  }
   await setDoc(ref, {}, { merge: true })
-  return name
+  return normalizedName
 }
 
 export async function appendMenuItems(categoryName, items) {
   const ref = doc(db, 'menu', categoryName)
   await setDoc(ref, {}, { merge: true })
-  for (const it of items) {
+  const snap = await getDoc(ref)
+  const existingItems = snap.exists() && Array.isArray(snap.data().items) ? snap.data().items : []
+  const existingNames = new Set(existingItems.map(i => normalizeTextKey(i?.name)))
+  const uniqueItems = dedupeByTextKey(items, it => it?.name)
+  for (const it of uniqueItems) {
+    const normalizedName = String(it?.name || '').trim()
+    const nameKey = normalizeTextKey(normalizedName)
+    if (!nameKey || existingNames.has(nameKey)) continue
+    existingNames.add(nameKey)
     const rate = toMoney(it.rate ?? it.price)
     const mrp = toMoney(it.mrp ?? it.MRP)
     const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
     const discount = toDiscount(it.discountPercent ?? derivedDiscount)
-    const item = { name: it.name, veg: it.veg === false ? false : true }
+    const item = { name: normalizedName, veg: it.veg === false ? false : true }
     if (rate !== null) item.rate = rate
     if (mrp !== null) item.mrp = mrp
     if (discount !== null) item.discountPercent = discount
@@ -68,13 +93,13 @@ export async function addMenuItems(categoryName, rawItems) {
   const ref = doc(db, 'menu', categoryName)
   const snap = await getDoc(ref)
   const existing = snap.exists() && Array.isArray(snap.data().items) ? snap.data().items : []
-  const existingNames = new Set(existing.map(i => (i.name || '').trim().toLowerCase()))
+  const existingNames = new Set(existing.map(i => normalizeTextKey(i.name)))
   const toAdd = []
   let skipped = 0
   for (const r of rawItems) {
     const name = (r.name || '').trim()
     if (!name) { skipped++; continue }
-    const key = name.toLowerCase()
+    const key = normalizeTextKey(name)
     if (existingNames.has(key)) { skipped++; continue }
     existingNames.add(key)
     const rate = toMoney(r.rate ?? r.price)
@@ -97,10 +122,11 @@ export async function addMenuItems(categoryName, rawItems) {
 
 export async function setMenuItems(categoryName, items) {
   const ref = doc(db, 'menu', categoryName)
+  const uniqueItems = dedupeByTextKey(items, it => it?.name)
   await setDoc(
     ref,
     {
-      items: items.map((it) => ({
+      items: uniqueItems.map((it) => ({
         name: it.name,
         ...(() => {
           const rate = toMoney(it.rate ?? it.price)
@@ -132,9 +158,9 @@ export async function setMenuItems(categoryName, items) {
                   ? {
                       sizes: v.sizes.map(s => ({
                         name: String(s.name || '').trim(),
-                        rate: Number(s.rate) || Number(s.price) || 0,
-                        mrp: Number(s.mrp) || null,
-                        discountPercent: Number(s.discountPercent) || null,
+                        rate: Math.round(Number(s.rate) || Number(s.price) || 0),
+                        mrp: s.mrp != null ? Math.round(Number(s.mrp)) || null : null,
+                        discountPercent: s.discountPercent != null ? Math.round(Number(s.discountPercent)) || null : null,
                       }))
                     }
                   : {})
@@ -155,7 +181,7 @@ export async function removeMenuItem(categoryName, itemName) {
   if (!snap.exists()) return false
   const data = snap.data()
   const items = Array.isArray(data.items) ? data.items : []
-  const idx = items.findIndex(it => (it.name || '').trim().toLowerCase() === itemName.trim().toLowerCase())
+  const idx = items.findIndex(it => normalizeTextKey(it.name) === normalizeTextKey(itemName))
   if (idx === -1) return false
   const next = items.filter((_, i) => i !== idx)
   await setDoc(ref, { items: next }, { merge: true })
@@ -166,6 +192,7 @@ export async function renameMenuCategory(oldName, newName) {
   const from = String(oldName || '').trim()
   const to = String(newName || '').trim()
   if (!from || !to || from === to) return from
+  await assertUniqueCategoryName(to, from)
   const oldRef = doc(db, 'menu', from)
   const oldSnap = await getDoc(oldRef)
   const data = oldSnap.exists() ? oldSnap.data() : { items: [] }

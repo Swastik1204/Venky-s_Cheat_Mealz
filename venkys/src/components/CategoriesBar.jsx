@@ -1,4 +1,6 @@
+// CategoriesBar — Horizontal scrollable category navigation strip
 import { useRef, useState, useEffect, memo, useCallback } from 'react'
+
 import { useNavigate, useLocation } from 'react-router-dom'
 
 function CategoriesBarInner({ items = [] }) {

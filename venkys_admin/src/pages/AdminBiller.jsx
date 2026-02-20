@@ -1,9 +1,12 @@
+// AdminBiller — POS billing interface for walk-in orders
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
-import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, fetchAllOrders, updateOrder, sendWhatsAppInvoice, fetchAppSettings, getRandomOtp, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
+
 import { useNavigate } from 'react-router-dom'
+import { MdPayment, MdQrCode, MdCreditCard, MdHistory, MdSearch, MdKeyboardReturn, MdRestaurantMenu } from 'react-icons/md'
+
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { MdPayment, MdQrCode, MdCreditCard, MdHistory, MdSearch, MdKeyboardReturn, MdRestaurantMenu } from 'react-icons/md'
+import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, fetchAllOrders, updateOrder, sendWhatsAppInvoice, fetchAppSettings, getRandomOtp, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
 
 const PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash', helper: 'Collect cash at counter', icon: MdPayment },
@@ -11,6 +14,8 @@ const PAYMENT_OPTIONS = [
 ]
 
 const PAYMENT_LABELS = PAYMENT_OPTIONS.reduce((map, opt) => ({ ...map, [opt.key]: opt.label }), {})
+
+// ── Helpers ──
 
 function normalizePaymentMethod(method) {
   return PAYMENT_OPTIONS.some((opt) => opt.key === method) ? method : 'cod'
@@ -91,6 +96,7 @@ export default function AdminBiller() {
   const { pushToast } = useUI()
   const navigate = useNavigate()
 
+  // ── State & refs ──
   const [items, setItems] = useState([])
   const [catsMeta, setCatsMeta] = useState([])
   const [q, setQ] = useState('')
@@ -164,6 +170,7 @@ export default function AdminBiller() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showCalc])
 
+  // ── Data loading ──
   useEffect(() => {
     let mounted = true
     fetchAppSettings().then((s) => { if (mounted) setAppSettings(s) }).catch(()=>{})
@@ -389,6 +396,7 @@ export default function AdminBiller() {
     setOpenCats(first ? new Set([first]) : new Set())
   }, [q, grouped])
 
+  // ── Bill handlers ──
   function addLine(it) {
     setBill((prev) => {
       const key = it.id
@@ -654,12 +662,48 @@ export default function AdminBiller() {
     setAllOrders(list)
   }
 
+  // ── Calculator ──
   function calcAppend(ch) { setCalcExpr((s) => (s + ch)) }
   function calcClear() { setCalcExpr('') }
+
+  // Safe math evaluator — no Function/eval, recursive-descent parser for +, -, *, /, ()
+  function safeMathEval(expr) {
+    const tokens = expr.match(/(\d+\.?\d*|[+\-*/()])/g) || []
+    let pos = 0
+    const peek = () => tokens[pos]
+    const next = () => tokens[pos++]
+    function parseExpr() {
+      let left = parseTerm()
+      while (peek() === '+' || peek() === '-') {
+        const op = next()
+        const right = parseTerm()
+        left = op === '+' ? left + right : left - right
+      }
+      return left
+    }
+    function parseTerm() {
+      let left = parseFactor()
+      while (peek() === '*' || peek() === '/') {
+        const op = next()
+        const right = parseFactor()
+        left = op === '*' ? left * right : left / right
+      }
+      return left
+    }
+    function parseFactor() {
+      if (peek() === '(') { next(); const v = parseExpr(); next(); return v }
+      const t = next()
+      return t === undefined ? 0 : Number(t)
+    }
+    const result = parseExpr()
+    if (!Number.isFinite(result)) throw new Error('Invalid')
+    return result
+  }
+
   function calcEval() {
     try {
       const safe = calcExpr.replace(/[^0-9+\-*/().]/g, '')
-      const val = Function(`"use strict"; return (${safe || '0'})`)()
+      const val = safeMathEval(safe || '0')
       setCalcExpr(String(val))
     } catch { setCalcExpr('Err') }
   }
@@ -667,6 +711,7 @@ export default function AdminBiller() {
   const viewOrderHistory = viewOrder ? getStatusHistory(viewOrder) : []
   const viewOrderPayment = viewOrder?.payment || null
 
+  // ── Render ──
   return (
     <div className="page-wrap py-6 pb-32">
       <div className="flex items-center justify-between mb-4 gap-3">

@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Minimal WhatsApp Cloud API forwarder for Vercel/Node serverless
 // POST body: { phone: "+9198xxxxxx", payload?: { text?: string, ...any } | { text: string } }
 // Requires env: WA_TOKEN, WA_PHONE_NUMBER_ID

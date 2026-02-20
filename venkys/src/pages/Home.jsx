@@ -1,14 +1,19 @@
+// Home — Menu browsing page with search, filters, and categories
 import { useCallback, useEffect, useMemo, useState, startTransition } from 'react'
-import { DEFAULT_SPOTLIGHT, fetchAppearanceSettings, fetchImagesByIdsCached, fetchLatestUserOrder, fetchMenuCategories, fetchUserProfile, getImageDataUrl, fetchAddresses } from '../lib/data'
-import { db } from '../lib/firebase'
+
 import { doc, onSnapshot } from 'firebase/firestore'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
-import MenuItemCard from '../components/MenuItemCard'
-import FilterBar from '../components/FilterBar'
-import CategoriesBar from '../components/CategoriesBar'
-import ProfileCompletionAlert from '../components/ProfileCompletionAlert'
 import { MdLocalOffer, MdOutlineAutoAwesome, MdOutlineBolt, MdTrackChanges } from 'react-icons/md'
+
+import { useAuth } from '../context/AuthContext'
+import CategoriesBar from '../components/CategoriesBar'
+import FilterBar from '../components/FilterBar'
+import MenuItemCard from '../components/MenuItemCard'
+import ProfileCompletionAlert from '../components/ProfileCompletionAlert'
+import { DEFAULT_SPOTLIGHT, fetchAppearanceSettings, fetchImagesByIdsCached, fetchLatestUserOrder, fetchMenuCategories, fetchUserProfile, getImageDataUrl, fetchAddresses } from '../lib/data'
+import { db } from '../lib/firebase'
+
+// ── Helpers ──
 
 // Debounce helper for search
 function useDebounce(value, delay) {
@@ -21,6 +26,7 @@ function useDebounce(value, delay) {
 }
 
 export default function Home() {
+  // ── State & refs ──
   const [categories, setCategories] = useState([]) // docs from 'menu'
   const [menu, setMenu] = useState([]) // flattened items with categoryId
   const [imageMap, setImageMap] = useState({}) // { imageId: { data, mime } }
@@ -51,6 +57,8 @@ export default function Home() {
     if (typeof value !== 'number' || Number.isNaN(value)) return null
     return currencyFormatter.format(value)
   }, [currencyFormatter])
+
+  // ── Side-effects ──
   // Load profile and addresses for completion calculation - with fallback to auth user data
   useEffect(() => {
     if (!user) { setProfileForm({ displayName: '', phone: '', gender: '' }); setAddrState({ list: [], defaultId: null }); return }
@@ -89,8 +97,8 @@ export default function Home() {
 
               const rateNumber = typeof sourceRate === 'number' ? sourceRate : Number(sourceRate)
               const effectiveRate = Number.isFinite(rateNumber) && rateNumber >= 0 
-                ? Math.round(rateNumber * 100) / 100 
-                : Math.round((Number(sourceItem.price) || 0) * 100) / 100
+                ? Math.round(rateNumber) 
+                : Math.round(Number(sourceItem.price) || 0)
 
               const mrpNumberRaw = typeof sourceMrp === 'number' ? sourceMrp : Number(sourceMrp)
               
@@ -102,16 +110,16 @@ export default function Home() {
 
               // Recalculate MRP if discount is fixed (Rate / (1 - Disc%))
               // The user requested only MRP needs recalculation in this case
-              let mrpNumber = Number.isFinite(mrpNumberRaw) && mrpNumberRaw > 0 ? Math.round(mrpNumberRaw * 100) / 100 : null
+              let mrpNumber = Number.isFinite(mrpNumberRaw) && mrpNumberRaw > 0 ? Math.round(mrpNumberRaw) : null
               
               if (discountNumber !== null && effectiveRate > 0) {
                  const calculatedMrp = (effectiveRate * 100) / (100 - discountNumber)
-                 mrpNumber = Math.round(calculatedMrp * 100) / 100
+                 mrpNumber = Math.round(calculatedMrp)
               } else if (mrpNumber && mrpNumber > effectiveRate) {
                  // Fallback: derive discount if not explicit
                  const derived = ((mrpNumber - effectiveRate) / mrpNumber) * 100
                  if (discountNumber === null) {
-                    discountNumber = Math.round(derived * 10) / 10
+                    discountNumber = Math.round(derived)
                  }
               }
 
@@ -165,14 +173,14 @@ export default function Home() {
                      }, v.sizes[0])
                      
                      if (maxPriceSize) {
-                        cloned.rate = Number(maxPriceSize.rate ?? maxPriceSize.price ?? 0)
+                        cloned.rate = Math.round(Number(maxPriceSize.rate ?? maxPriceSize.price ?? 0))
                         // If discount logic needs to apply to the displayed max price
                         if (cloned.discountPercent) {
                            // Recalc MRP based on this new rate + fixed discount
                            const calcMrp = (cloned.rate * 100) / (100 - cloned.discountPercent)
-                           cloned.mrp = Math.round(calcMrp * 100) / 100
+                           cloned.mrp = Math.round(calcMrp)
                         } else {
-                           cloned.mrp = Number(maxPriceSize.mrp ?? 0)
+                           cloned.mrp = Math.round(Number(maxPriceSize.mrp ?? 0))
                         }
                      }
                   }
@@ -309,6 +317,7 @@ export default function Home() {
     return () => { active = false }
   }, [categories])
 
+  // ── Image helpers ──
   // Clean resolver: just compute imageUrl, no debug logging
   function resolveImageUrlFor(item) {
     const imgObj = item.imageId && imageMap[item.imageId]
@@ -433,6 +442,7 @@ export default function Home() {
     navigate({ pathname: location.pathname, search: params.toString() })
   }, [location.pathname, location.search, navigate])
 
+  // ── Spotlight cards ──
   function renderSpotlightCard({ key, title, icon, bucket, accentClass = 'text-primary', iconWrapperClass = 'bg-primary/10 text-primary', badgeClass = 'badge-warning' }) {
     const activeItems = bucket?.active || []
     const inactiveCount = bucket?.inactive?.length || 0
@@ -458,7 +468,7 @@ export default function Home() {
             const imageUrl = item ? resolveImageUrlFor(item) : undefined
             const priceLabel = item ? formatCurrency(item?.rate ?? item?.price ?? 0) : null
             const discountLabel = item && typeof item.discountPercent === 'number'
-              ? Math.round(item.discountPercent * 10) / 10
+              ? Math.round(item.discountPercent)
               : null
             const badgeText = entry?.badge || (discountLabel ? `-${discountLabel}%` : null)
             const titleLabel = entry?.label || item?.name || entry?.itemName || 'Spotlight dish'
@@ -589,6 +599,7 @@ export default function Home() {
   const searchTerm = q.trim()
   const isSearching = searchTerm.length > 0
 
+  // ── Render ──
   if (loading) {
     return (
       <div className="page-wrap py-10">

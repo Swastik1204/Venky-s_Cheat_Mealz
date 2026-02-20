@@ -1,3 +1,4 @@
+// AuthSkeleton — Loading skeleton for auth initialisation
 import { useEffect } from 'react'
 import { useUI } from '../context/UIContext'
 

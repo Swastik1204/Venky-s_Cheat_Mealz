@@ -1,13 +1,16 @@
+// main — React DOM entry point with providers
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+
 import { BrowserRouter } from 'react-router-dom'
-import './index.css'
-import App from './App.jsx'
-import { CartProvider } from './context/CartContext'
-import { AuthProvider } from './context/AuthContext'
-import { UIProvider } from './context/UIContext'
-import { setupPWAHooks } from './pwa'
 import { registerSW } from 'virtual:pwa-register'
+
+import { AuthProvider } from './context/AuthContext'
+import { CartProvider } from './context/CartContext'
+import { UIProvider } from './context/UIContext'
+import App from './App.jsx'
+import { setupPWAHooks } from './pwa'
+import './index.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

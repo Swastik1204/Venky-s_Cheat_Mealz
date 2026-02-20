@@ -1,3 +1,4 @@
+// Delivery geo-fence settings (fetch & save with bounding-box calc)
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
 

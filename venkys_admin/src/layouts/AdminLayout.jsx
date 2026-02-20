@@ -1,3 +1,4 @@
+// AdminLayout — Admin page layout wrapper with toasts
 import { useUI } from '../context/UIContext'
 
 const toastClassMap = {

@@ -1,26 +1,27 @@
-// Data layer barrel — re-exports from domain modules.
-// All existing `import { X } from '../lib/data'` continue to work.
+// Data layer – barrel re-export
+// Each domain module lives in its own file for maintainability.
+// Import everything from './data' as before — the public API is unchanged.
 
-// Common constants & helpers
+// ── Common helpers & constants ──
 export { BRAND_LONG, BRAND_SHORT, isCounterDocId, DEFAULT_SPOTLIGHT } from './data-common'
 
-// Orders
+// ── Orders ──
 export { generateDailyOrderNo, createOrder, updateOrder, fetchOrder, fetchAllOrders, fetchRecentOrders, nextOrderStatus, fetchLatestUserOrder, fetchUserOrders, sendWhatsAppInvoice } from './data-orders'
 
-// Menu
+// ── Menu ──
 export { fetchMenuCategories, upsertMenuCategory, appendMenuItems, addMenuItems, setMenuItems, removeMenuItem, renameMenuCategory } from './data-menu'
 
-// User, profile & addresses
+// ── Users ──
 export { getUser, getUserTheme, setUserTheme, fetchUserProfile, updateUserProfile, addAddress, updateAddress, deleteAddress, fetchAddresses, setDefaultAddress } from './data-user'
 
-// Images
+// ── Images ──
 export { saveBase64Image, fetchImagesByIds, fetchImagesByIdsCached, getImageDataUrl } from './data-images'
 
-// Payments
+// ── Payments ──
 export { fetchPublicConfig, getRazorpayKeyId, createRazorpayOrder, verifyRazorpayPayment } from './data-payments'
 
-// Settings, appearance & business profile
+// ── Settings & appearance ──
 export { fetchAppearanceSettings, saveCategoriesOrder, fetchStoreStatus, setStoreOpen, fetchAppSettings, saveAppSettings, fetchBusinessProfile, syncBusinessProfile } from './data-settings'
 
-// Cart
+// ── Cart ──
 export { loadCart, saveCart } from './data-cart'

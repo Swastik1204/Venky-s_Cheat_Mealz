@@ -1,5 +1,5 @@
-// src/services/location.js
-// Centralized location utilities: geolocation, reverse geocoding, and persistence.
+// location — Geolocation and reverse-geocoding utilities
+// Centralized helpers for browser geolocation, reverse geocoding, and persistence.
 
 const STORAGE_KEY = 'deliveryAddress'
 

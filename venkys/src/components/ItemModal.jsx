@@ -1,7 +1,10 @@
+// ItemModal — Full-screen menu item detail with add-to-cart
 import { useState, useEffect } from 'react'
+
+import { MdClose } from 'react-icons/md'
+
 import { useUI } from '../context/UIContext'
 import { useCart } from '../context/CartContext'
-import { MdClose } from 'react-icons/md'
 import { formatMoney } from '../lib/formatCurrency'
 
 export default function ItemModal() {
@@ -58,10 +61,7 @@ export default function ItemModal() {
   const hasDiscount = Number.isFinite(Number(effectiveDiscount)) && Number(effectiveDiscount) > 0
   
   const discountLabel = hasDiscount
-    ? `${(() => {
-        const rounded = Math.round(Number(effectiveDiscount) * 10) / 10
-        return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace(/\.0$/, '')
-      })()}% off`
+    ? `${Math.round(Number(effectiveDiscount))}% off`
     : null
 
   const displayImage = selectedItem.imageUrl || selectedItem.image || selectedItem.img

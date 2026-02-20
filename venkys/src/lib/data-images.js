@@ -4,6 +4,8 @@
 import { collection, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
 
+// ── Upload / Save ──
+
 export async function saveBase64Image(base64, mime, meta = {}) {
   if (!base64) throw new Error('No image data')
   const imagesCol = collection(db, 'images')
@@ -22,6 +24,8 @@ export async function saveBase64Image(base64, mime, meta = {}) {
   return id
 }
 
+// ── Fetch ──
+
 export async function fetchImagesByIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) return {}
   const unique = Array.from(new Set(ids.filter(Boolean)))
@@ -38,6 +42,8 @@ export async function fetchImagesByIds(ids) {
   }))
   return out
 }
+
+// ── Session-scoped cache ──
 
 // Session-scoped image cache
 function getSessionImage(id) {
@@ -91,6 +97,8 @@ export async function fetchImagesByIdsCached(ids) {
   }
   return cachedOut
 }
+
+// ── Data-URL helper ──
 
 // In-memory cache for image data URLs
 const memoryImageCache = new Map()

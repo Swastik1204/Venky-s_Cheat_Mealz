@@ -1,6 +1,9 @@
+// FloatingCartBar — Sticky bottom bar showing cart summary
 import { useMemo } from 'react'
-import { MdShoppingCart } from 'react-icons/md'
+
 import { useLocation, useNavigate } from 'react-router-dom'
+import { MdShoppingCart } from 'react-icons/md'
+
 import { useCart } from '../context/CartContext'
 
 export default function FloatingCartBar() {

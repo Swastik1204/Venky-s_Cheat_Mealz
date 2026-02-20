@@ -1,3 +1,4 @@
+// CancellationRefunds — Cancellation and refund policy page
 export default function CancellationRefunds() {
   return (
     <div className="page-wrap py-10">

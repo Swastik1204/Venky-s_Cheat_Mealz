@@ -1,5 +1,8 @@
+// App — Root component with routing and layout
 import { Suspense, lazy } from 'react'
+
 import { Routes, Route } from 'react-router-dom'
+
 import Layout from './layouts/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 

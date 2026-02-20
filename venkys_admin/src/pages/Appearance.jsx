@@ -1,10 +1,14 @@
+// Appearance — Store appearance and branding configuration
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import AdminLayout from '../layouts/AdminLayout'
-import { fetchAppearanceSettings, fetchMenuCategories, saveAppearanceSpotlight, saveCategoriesOrder, setMenuItems, fetchImagesByIdsCached, getImageDataUrl } from '../lib/data'
-import { useUI } from '../context/UIContext'
+
 import { MdLocalOffer, MdOutlineAutoAwesome, MdDelete, MdDragIndicator, MdAdd } from 'react-icons/md'
 
+import AdminLayout from '../layouts/AdminLayout'
+import { useUI } from '../context/UIContext'
+import { fetchAppearanceSettings, fetchMenuCategories, saveAppearanceSpotlight, saveCategoriesOrder, setMenuItems, fetchImagesByIdsCached, getImageDataUrl } from '../lib/data'
+
 export default function Appearance() {
+  // ── State & refs ──
   const [categories, setCategories] = useState([])
   const [appearanceOrder, setAppearanceOrder] = useState([])
   const [originalAppearanceOrder, setOriginalAppearanceOrder] = useState([])
@@ -59,6 +63,7 @@ export default function Appearance() {
     return map
   }, [categories, makeMatchKey])
 
+  // ── Side-effects ──
   // Fetch images for spotlight items
   useEffect(() => {
     const allItems = [...(spotlightDraft.hotDeals || []), ...(spotlightDraft.chefSpecials || [])]
@@ -168,6 +173,7 @@ export default function Appearance() {
     })
   }, [categories])
 
+  // ── Handlers ──
   function moveAppearance(idx, delta) { setAppearanceOrder(o => { const next = [...o]; const ni = idx + delta; if (ni < 0 || ni >= next.length) return o; const tmp = next[idx]; next[idx] = next[ni]; next[ni] = tmp; return next }) }
   function moveAppearanceAbove(from, to) {
     if (from === to) return

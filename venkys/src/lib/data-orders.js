@@ -4,6 +4,8 @@ import { db } from './firebase'
 import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment, isPermissionDenied, apiUrl, getAuthHeaders } from './data-common'
 import { fetchAppSettings } from './data-settings'
 
+// ── Order number generation ──
+
 // Generate a daily-reset order number like YYYYMMDD-SEQ-USERSEGMENT
 export async function generateDailyOrderNo(orderType = 'dine-in', userId = null) {
   const type = String(orderType || 'dine-in').toLowerCase()
@@ -52,7 +54,7 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
   const normalizedItems = safeItems.map((item, idx) => {
     const rate = Number(item?.rate ?? item?.price) || 0
     const qty = Number(item?.qty) || 0
-    const total = Number((rate * qty).toFixed(2))
+    const total = Math.round(rate * qty)
     const normalized = {
       id: item?.id || `item-${idx + 1}`,
       name: String(item?.name || `Item ${idx + 1}`).trim(),
@@ -67,10 +69,10 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
     if (item?.modifiers) normalized.modifiers = item.modifiers
     return normalized
   })
-  const subtotal = Number(normalizedItems.reduce((sum, it) => sum + (Number(it.total) || ((it.rate || 0) * it.qty)), 0).toFixed(2))
+  const subtotal = Math.round(normalizedItems.reduce((sum, it) => sum + (Number(it.total) || ((it.rate || 0) * it.qty)), 0))
   const normalizedTaxRate = typeof taxRate === 'number' ? taxRate : (taxRate != null ? Number(taxRate) : null)
-  const normalizedTaxAmount = taxAmount != null ? Number(taxAmount) : (normalizedTaxRate != null ? Number((subtotal * normalizedTaxRate).toFixed(2)) : null)
-  const resolvedTotalAmount = totalAmount != null ? Number(totalAmount) : Number((subtotal + (normalizedTaxAmount || 0)).toFixed(2))
+  const normalizedTaxAmount = taxAmount != null ? Math.round(Number(taxAmount)) : (normalizedTaxRate != null ? Math.round(subtotal * normalizedTaxRate) : null)
+  const resolvedTotalAmount = totalAmount != null ? Math.round(Number(totalAmount)) : Math.round(subtotal + (normalizedTaxAmount || 0))
   const resolvedOrderNo = orderNo || await generateDailyOrderNo(orderType, userId || customer?.servedBy || customer?.phone || null)
 
   const payment = (() => {
@@ -143,6 +145,8 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
   throw new Error('You need to sign in before placing an order.')
 }
 
+// ── Notifications ──
+
 // Send order notification to all order messenger phone numbers
 async function notifyOrderMessengers(orderPayload) {
   try {
@@ -202,6 +206,8 @@ async function notifyOrderMessengers(orderPayload) {
   }
 }
 
+// ── WhatsApp messaging ──
+
 // Optional WhatsApp sender
 export async function sendWhatsAppInvoice(phone, payload) {
   try {
@@ -230,6 +236,8 @@ export async function sendWhatsAppInvoice(phone, payload) {
     return errObj
   }
 }
+
+// ── Order mutations ──
 
 // Update order status/payment
 export async function updateOrder(userId, orderId, data = {}, actor = null) {
@@ -278,6 +286,8 @@ export async function updateOrder(userId, orderId, data = {}, actor = null) {
     }
   })
 }
+
+// ── Order queries ──
 
 // Fetch single order
 export async function fetchOrder(userId, orderId) {

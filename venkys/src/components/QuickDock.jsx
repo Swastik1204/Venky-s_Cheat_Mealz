@@ -1,8 +1,10 @@
+// QuickDock — Bottom navigation dock for mobile
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { useCart } from '../context/CartContext'
-import { useAuth } from '../context/AuthContext'
-import { useUI } from '../context/UIContext'
 import { MdHome, MdRestaurantMenu, MdShoppingCart, MdPerson, MdReceiptLong, MdLogin } from 'react-icons/md'
+
+import { useAuth } from '../context/AuthContext'
+import { useCart } from '../context/CartContext'
+import { useUI } from '../context/UIContext'
 
 /* DaisyUI dock: appears fixed bottom on mobile, side-floating on desktop */
 export default function QuickDock() {

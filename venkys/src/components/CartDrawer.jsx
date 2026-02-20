@@ -1,6 +1,8 @@
-import { useCart } from '../context/CartContext'
-import { MdDelete, MdShoppingCart, MdClose, MdAdd, MdRemove } from 'react-icons/md'
+// CartDrawer — Slide-out cart panel with item list and totals
 import { Link } from 'react-router-dom'
+import { MdDelete, MdShoppingCart, MdClose, MdAdd, MdRemove } from 'react-icons/md'
+
+import { useCart } from '../context/CartContext'
 import { formatINR } from '../lib/formatCurrency'
 
 export default function CartDrawer({ children }) {

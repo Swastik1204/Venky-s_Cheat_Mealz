@@ -1,22 +1,27 @@
-import { useCart } from '../context/CartContext'
-import { createOrder, fetchAddresses, addAddress, setDefaultAddress, createRazorpayOrder, verifyRazorpayPayment, BRAND_LONG, fetchUserProfile, updateAddress, fetchOrder, getRazorpayKeyId } from '../lib/data'
-import { sendBillToCustomer } from '../lib/whatsapp'
-import { useAuth } from '../context/AuthContext'
+// Checkout — Order checkout flow with address, payment, and confirmation
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { reverseGeocode, geocodeAddress } from '../lib/google'
-import { MdPlace, MdLocalPhone, MdEmail, MdGpsFixed, MdLocationCity, MdPinDrop, MdPerson, MdApartment, MdMap, MdPayment, MdCreditCard, MdQrCode, MdBookmark, MdAdd, MdArrowForward, MdCheck, MdEdit } from 'react-icons/md'
-import useDeliveryLocation from '../hooks/useDeliveryLocation'
-import usePlacesAutocomplete from '../hooks/usePlacesAutocomplete'
-import { useUI } from '../context/UIContext'
-import { db } from '../lib/firebase'
+
 import { doc, onSnapshot } from 'firebase/firestore'
 import { useNavigate } from 'react-router-dom'
+import { MdPlace, MdLocalPhone, MdEmail, MdGpsFixed, MdLocationCity, MdPinDrop, MdPerson, MdApartment, MdMap, MdPayment, MdCreditCard, MdQrCode, MdBookmark, MdAdd, MdArrowForward, MdCheck, MdEdit } from 'react-icons/md'
+
+import { useAuth } from '../context/AuthContext'
+import { useCart } from '../context/CartContext'
+import { useUI } from '../context/UIContext'
+import useDeliveryLocation from '../hooks/useDeliveryLocation'
+import usePlacesAutocomplete from '../hooks/usePlacesAutocomplete'
+import { createOrder, fetchAddresses, addAddress, setDefaultAddress, createRazorpayOrder, verifyRazorpayPayment, BRAND_LONG, fetchUserProfile, updateAddress, fetchOrder, getRazorpayKeyId } from '../lib/data'
+import { db } from '../lib/firebase'
+import { reverseGeocode, geocodeAddress } from '../lib/google'
+import { sendBillToCustomer } from '../lib/whatsapp'
 
 const CHECKOUT_PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash on Delivery', helper: 'Pay when the order arrives.', icon: MdPayment },
   { key: 'upi', label: 'UPI (Razorpay)', helper: 'PhonePe, Google Pay, BHIM, etc.', icon: MdQrCode },
   { key: 'card', label: 'Card (Razorpay)', helper: 'Debit & credit cards via Razorpay.', icon: MdCreditCard }
 ]
+
+// ── Helpers ──
 
 function checkoutTimestampToDate(value) {
   if (!value) return null
@@ -65,6 +70,8 @@ export default function Checkout() {
   const { user } = useAuth()
   const { pushToast } = useUI()
   const navigate = useNavigate()
+
+  // ── State & refs ──
   const [addresses, setAddresses] = useState({ list: [], defaultId: null })
   const [profileInfo, setProfileInfo] = useState(null)
   const [form, setForm] = useState({
@@ -105,6 +112,7 @@ export default function Checkout() {
   const [showLocationAnimation, setShowLocationAnimation] = useState(false)
   const gpsButtonRef = useRef(null)
 
+  // ── Side-effects ──
   useEffect(() => {
     if (!orderId) return
     navigate(`/active-orders?id=${encodeURIComponent(orderId)}`, { replace: true })
@@ -462,6 +470,7 @@ export default function Checkout() {
     })
   }, [form.phone])
 
+  // ── Handlers ──
   const handleAutoFillLocation = useCallback(async () => {
     setLocationVerifiedByButton(true)
     if (typeof window === 'undefined' || !('geolocation' in navigator)) {
@@ -1127,6 +1136,7 @@ export default function Checkout() {
   })
   const hasSavedAddresses = user && sortedAddresses.length > 0
 
+  // ── Render ──
   return (
     <div className="min-h-[90vh] flex items-center justify-center py-8 px-4 bg-base-200/30">
       {orderId ? (
@@ -1200,21 +1210,21 @@ export default function Checkout() {
                             <label className="label py-1"><span className="label-text text-xs uppercase font-bold opacity-60">Full Name</span></label>
                             <div className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border ${fieldError === 'name' ? 'border-error' : 'border-transparent'} focus-within:border-primary/50 focus-within:bg-base-100 transition-all`}>
                                 <MdPerson className="w-5 h-5 opacity-50" />
-                                <input ref={nameRef} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="Enter your name" value={form.name} onChange={(e)=>update('name', e.target.value)} />
+                                <input ref={nameRef} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Enter your name" value={form.name} onChange={(e)=>update('name', e.target.value)} />
                             </div>
                         </div>
                         <div className="form-control w-full">
                             <label className="label py-1"><span className="label-text text-xs uppercase font-bold opacity-60">Phone Number</span></label>
                             <div className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border ${fieldError === 'phone' || (form.phone && !phoneOk) ? 'border-error' : 'border-transparent'} focus-within:border-primary/50 focus-within:bg-base-100 transition-all`}>
                                 <MdLocalPhone className="w-5 h-5 opacity-50" />
-                                <input ref={phoneRef} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="10-digit mobile number" type="tel" value={form.phone} onChange={(e)=>update('phone', e.target.value)} />
+                                <input ref={phoneRef} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="10-digit mobile number" type="tel" value={form.phone} onChange={(e)=>update('phone', e.target.value)} />
                             </div>
                         </div>
                         <div className="form-control w-full">
                             <label className="label py-1"><span className="label-text text-xs uppercase font-bold opacity-60">Email (Optional)</span></label>
                             <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                                 <MdEmail className="w-5 h-5 opacity-50" />
-                                <input className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="For order receipt" type="email" value={form.email} onChange={(e)=>update('email', e.target.value)} />
+                                <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="For order receipt" type="email" value={form.email} onChange={(e)=>update('email', e.target.value)} />
                             </div>
                         </div>
                         <div className="form-control w-full">
@@ -1278,21 +1288,21 @@ export default function Checkout() {
                                 <div className="form-control w-full">
                                     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border ${fieldError === 'landmark' ? 'border-error' : 'border-transparent'} focus-within:border-primary/50 focus-within:bg-base-100 transition-all`}>
                                         <MdPlace className="w-5 h-5 opacity-50" />
-                                        <input ref={landmarkRef} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="Nearby Landmark (Optional)" value={form.landmark} onChange={(e)=>update('landmark', e.target.value)} />
+                                        <input ref={landmarkRef} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Nearby Landmark (Optional)" value={form.landmark} onChange={(e)=>update('landmark', e.target.value)} />
                                     </div>
                                 </div>
 
                                 <div className="form-control w-full">
                                     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border ${fieldError === 'addressLine1' ? 'border-error' : 'border-transparent'} focus-within:border-primary/50 focus-within:bg-base-100 transition-all`}>
                                         <MdApartment className="w-5 h-5 opacity-50" />
-                                        <input ref={addressLine1Ref} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="House / Flat No., Building" value={form.addressLine1} onChange={(e)=>update('addressLine1', e.target.value)} />
+                                        <input ref={addressLine1Ref} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="House / Flat No., Building" value={form.addressLine1} onChange={(e)=>update('addressLine1', e.target.value)} />
                                     </div>
                                 </div>
 
                                 <div className="form-control w-full">
                                     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border ${fieldError === 'addressLine2' ? 'border-error' : 'border-transparent'} focus-within:border-primary/50 focus-within:bg-base-100 transition-all`}>
                                         <MdMap className="w-5 h-5 opacity-50" />
-                                    <input ref={addressLine2Ref} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="Search Area / Locality (pick a suggestion)" value={form.addressLine2} onChange={(e)=>handleAddressLine2Change(e.target.value)} />
+                                    <input ref={addressLine2Ref} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Search Area / Locality (pick a suggestion)" value={form.addressLine2} onChange={(e)=>handleAddressLine2Change(e.target.value)} />
                                     </div>
                                     <label className="label py-1"><span className="label-text-alt opacity-60">Select from suggestions for best accuracy</span></label>
                                 </div>
@@ -1300,11 +1310,11 @@ export default function Checkout() {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border ${fieldError === 'pin' ? 'border-error' : 'border-transparent'} focus-within:border-primary/50 focus-within:bg-base-100 transition-all`}>
                                         <MdPinDrop className="w-5 h-5 opacity-50" />
-                                        <input ref={pinRef} className="bg-transparent w-full outline-none placeholder:opacity-50" placeholder="PIN Code" value={form.pin} onChange={(e)=>update('pin', e.target.value)} />
+                                        <input ref={pinRef} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="PIN Code" value={form.pin} onChange={(e)=>update('pin', e.target.value)} />
                                     </div>
                                     <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent opacity-70 cursor-not-allowed">
                                         <MdLocationCity className="w-5 h-5 opacity-50" />
-                                        <input className="bg-transparent w-full outline-none" value="Durgapur" readOnly />
+                                        <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0" value="Durgapur" readOnly />
                                     </div>
                                 </div>
 

@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Email notification API for log events
 // POST body: { type: string, message: string, metadata: object }
 // Uses Nodemailer with Gmail SMTP (free, unlimited)
@@ -24,7 +25,7 @@ export default async function handler(req, res) {
   }
   res.setHeader('Access-Control-Allow-Origin', allowOrigin)
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   
   if (req.method === 'OPTIONS') {
     return res.status(200).end()
@@ -44,12 +45,12 @@ export default async function handler(req, res) {
   try {
     const emailUser = process.env.EMAIL_USER
     const emailPass = process.env.EMAIL_PASS
-    const emailRecipient = process.env.LOG_EMAIL_RECIPIENT || 'swastiksaha1204@gmail.com'
+    const emailRecipient = process.env.LOG_EMAIL_RECIPIENT
     
-    if (!emailUser || !emailPass) {
+    if (!emailUser || !emailPass || !emailRecipient) {
       return res.status(200).json({ 
         __skipped: 'missing_server_config', 
-        message: 'EMAIL_USER or EMAIL_PASS not configured' 
+        message: 'EMAIL_USER, EMAIL_PASS, or LOG_EMAIL_RECIPIENT not configured' 
       })
     }
 
@@ -66,10 +67,13 @@ export default async function handler(req, res) {
     if (String(message).length > 5000) {
       return res.status(400).json({ error: 'message_too_long', maxLength: 5000 })
     }
+    const metadataStr = metadata ? JSON.stringify(metadata, null, 2) : ''
+    if (metadataStr.length > 10000) {
+      return res.status(400).json({ error: 'metadata_too_large', maxLength: 10000 })
+    }
 
     // Format email body
     const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
-    const metadataStr = metadata ? JSON.stringify(metadata, null, 2) : ''
     
     const emailBody = `
 <h2>🔔 New Log Entry</h2>

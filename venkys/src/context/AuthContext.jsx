@@ -1,19 +1,20 @@
+// AuthContext — Firebase authentication state and helpers
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
-import { auth } from '../lib/firebase'
+
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
   updateProfile,
-} from 'firebase/auth'
-import { ensureUserDocument } from '../lib/userData'
-import {
   GoogleAuthProvider,
   signInWithPopup,
   RecaptchaVerifier,
   signInWithPhoneNumber,
 } from 'firebase/auth'
+
+import { auth } from '../lib/firebase'
+import { ensureUserDocument } from '../lib/userData'
 
 const AuthContext = createContext(null)
 

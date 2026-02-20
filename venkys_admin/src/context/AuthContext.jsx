@@ -1,7 +1,10 @@
+// AuthContext — Firebase auth with role-based access control
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
-import { auth, db } from '../lib/firebase'
+
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, GoogleAuthProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
+
+import { auth, db } from '../lib/firebase'
 import { ensureUserDocument } from '../lib/userData'
 
 const AuthContext = createContext(null)
@@ -50,15 +53,15 @@ export function AuthProvider({ children }) {
           defaultPage: data.defaultPage || null,
           isAdmin: userRole === 'admin',
           isStaff: userRole === 'staff',
-				isDelivery: userRole === 'delivery'
+        isDelivery: userRole === 'delivery'
         })
       } else {
         // No role document = no access
-			setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
+      setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
       }
     } catch (err) {
       console.error('[AuthContext] Role check failed:', err)
-		setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
+    setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
     } finally {
       setRoleLoading(false)
     }
@@ -126,8 +129,8 @@ export function AuthProvider({ children }) {
     isStaffMember: role?.isStaffMember || false, // Has any role (admin or staff)
     isAdmin: role?.isAdmin || false,             // Is admin (full access)
     isStaff: role?.isStaff || false,             // Is staff (limited access)
-		isDelivery: role?.isDelivery || false,
-		canAccess,
+    isDelivery: role?.isDelivery || false,
+    canAccess,
     refreshRole: () => refreshRole(user?.email),
     signup, 
     login, 

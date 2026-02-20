@@ -1,13 +1,16 @@
-import { Outlet } from 'react-router-dom'
+// Layout — Main page layout wrapper with nav, footer, and outlet
 import { useEffect } from 'react'
-import NavBar from '../components/NavBar'
-import CartDrawer from '../components/CartDrawer'
-import ItemModal from '../components/ItemModal'
-import Dock from '../components/QuickDock'
-import AuthModal from '../components/AuthModal'
-import InstallPWA from '../components/InstallPWA'
-import FloatingCartBar from '../components/FloatingCartBar'
+
+import { Outlet } from 'react-router-dom'
+
 import { useUI } from '../context/UIContext'
+import AuthModal from '../components/AuthModal'
+import CartDrawer from '../components/CartDrawer'
+import FloatingCartBar from '../components/FloatingCartBar'
+import InstallPWA from '../components/InstallPWA'
+import ItemModal from '../components/ItemModal'
+import NavBar from '../components/NavBar'
+import Dock from '../components/QuickDock'
 // Removed custom hook to avoid invalid hook call caused by duplicate React resolution in some setups.
 
 export default function Layout() {

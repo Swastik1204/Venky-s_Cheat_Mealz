@@ -1,3 +1,4 @@
+// Privacy — Privacy policy page
 export default function Privacy() {
   return (
     <div className="page-wrap py-10">

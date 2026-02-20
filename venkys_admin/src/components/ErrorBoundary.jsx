@@ -1,9 +1,7 @@
+// ErrorBoundary — React error boundary with fallback UI
 import { Component } from 'react'
 
-/**
- * React Error Boundary - catches JavaScript errors in child component tree
- * and displays a fallback UI instead of crashing the entire app.
- */
+// Catches JS errors in the child tree and shows a recovery screen.
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props)

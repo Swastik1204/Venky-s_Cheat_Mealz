@@ -1,6 +1,9 @@
-import { MdPhone, MdEmail, MdLocationOn, MdAccessTime, MdSend, MdStar, MdRefresh } from 'react-icons/md'
-import { FaWhatsapp, FaGoogle } from 'react-icons/fa'
+// Contact — Contact information and inquiry form
 import { useState, useEffect } from 'react'
+
+import { FaWhatsapp, FaGoogle } from 'react-icons/fa'
+import { MdPhone, MdEmail, MdLocationOn, MdAccessTime, MdSend, MdStar, MdRefresh } from 'react-icons/md'
+
 import { fetchBusinessProfile, fetchAppSettings } from '../lib/data'
 
 export default function Contact() {

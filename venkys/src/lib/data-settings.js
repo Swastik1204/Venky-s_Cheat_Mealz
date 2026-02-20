@@ -3,7 +3,7 @@ import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
 import { DEFAULT_SPOTLIGHT, normalizeSpotlight, isPermissionDenied } from './data-common'
 
-// --- Appearance / miscellaneous helpers --- //
+// ── Appearance / miscellaneous helpers ──
 export async function fetchAppearanceSettings() {
   try {
     const ref = doc(db, 'miscellaneous', 'appearance')
@@ -50,7 +50,7 @@ export async function saveCategoriesOrder(orderIds) {
   return true
 }
 
-// --- Store open/closed status --- //
+// ── Store open/closed status ──
 export async function fetchStoreStatus() {
   try {
     const settingsRef = doc(db, 'miscellaneous', 'settings')
@@ -81,11 +81,11 @@ export async function setStoreOpen(open) {
   return true
 }
 
-// --- App Settings (GST rate, admin mobile, etc) --- //
+// ── App Settings (GST rate, admin mobile, etc) ──
 export async function fetchAppSettings() {
   try {
     const snap = await getDoc(doc(db, 'miscellaneous', 'settings'))
-    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', cashManagerPhone: '', cashManagerPhones: [], orderMessengerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
+    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', cashManagerPhones: [], orderMessengerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
     const d = snap.data()
     const normalize10 = (p) => {
       let digits = String(p || '').replace(/\D/g, '')
@@ -95,17 +95,14 @@ export async function fetchAppSettings() {
     const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
     const adminMobile = d.adminMobile || ''
     let cashManagerPhones = Array.isArray(d.cashManagerPhones) ? d.cashManagerPhones.map(normalize10).filter(Boolean) : []
-    const legacyCashManager = normalize10(d.cashManagerPhone)
-    if (!cashManagerPhones.length && legacyCashManager) cashManagerPhones = [legacyCashManager]
-    const cashManagerPhone = cashManagerPhones[0] || legacyCashManager || ''
     const orderMessengerPhones = Array.isArray(d.orderMessengerPhones) ? d.orderMessengerPhones.map(normalize10).filter(Boolean) : []
     const shopAddress = d.shopAddress || ''
     const shopPhone = d.shopPhone || ''
     const chefName = d.chefName || ''
     const googlePlaceId = d.googlePlaceId || ''
-    return { gstRate, adminMobile, cashManagerPhone, cashManagerPhones, orderMessengerPhones, shopAddress, shopPhone, chefName, googlePlaceId }
+    return { gstRate, adminMobile, cashManagerPhones, orderMessengerPhones, shopAddress, shopPhone, chefName, googlePlaceId }
   } catch {
-    return { gstRate: 0.05, adminMobile: '', cashManagerPhone: '', cashManagerPhones: [], orderMessengerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
+    return { gstRate: 0.05, adminMobile: '', cashManagerPhones: [], orderMessengerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
   }
 }
 
@@ -121,7 +118,7 @@ export async function saveAppSettings(partial) {
   return true
 }
 
-// --- Business Profile (synced from Google Places) --- //
+// ── Business Profile (synced from Google Places) ──
 export async function fetchBusinessProfile() {
   try {
     const snap = await getDoc(doc(db, 'miscellaneous', 'businessProfile'))

@@ -1,3 +1,5 @@
+// RawBT thermal-printer helpers (ESC/POS receipt builder)
+
 function isAndroid() {
   if (typeof navigator === 'undefined') return false
   return /Android/i.test(navigator.userAgent || '')

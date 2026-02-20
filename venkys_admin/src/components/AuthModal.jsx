@@ -1,10 +1,13 @@
+// AuthModal — Admin login modal with email & Google auth
 import { useEffect, useState } from 'react'
-import { useUI } from '../context/UIContext'
-import { useAuth } from '../context/AuthContext'
-import { auth } from '../lib/firebase'
+
 import { sendPasswordResetEmail } from 'firebase/auth'
 import { FcGoogle } from 'react-icons/fc'
 import { MdAlternateEmail, MdLock, MdPerson } from 'react-icons/md'
+
+import { useAuth } from '../context/AuthContext'
+import { useUI } from '../context/UIContext'
+import { auth } from '../lib/firebase'
 
 export default function AuthModal() {
   const { authMode, closeAuth, openAuth } = useUI()
@@ -68,10 +71,11 @@ export default function AuthModal() {
                   <input
                     type="text"
                     placeholder="Full Name"
-                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
+                    aria-label="Full Name"
                   />
                 </div>
                 {/* Email */}
@@ -80,10 +84,11 @@ export default function AuthModal() {
                   <input
                     type="email"
                     placeholder="Email"
-                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    aria-label="Email"
                   />
                 </div>
                 {emailInvalid && (
@@ -95,10 +100,11 @@ export default function AuthModal() {
                   <input
                     type="password"
                     placeholder="Password"
-                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
+                    aria-label="Password"
                   />
                 </div>
                 <button
@@ -124,10 +130,11 @@ export default function AuthModal() {
                   <input
                     type="email"
                     placeholder="Email"
-                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    aria-label="Email"
                   />
                 </div>
                 {/* Password */}
@@ -136,10 +143,11 @@ export default function AuthModal() {
                   <input
                     type="password"
                     placeholder="Password"
-                    className="w-full bg-transparent outline-none py-2 placeholder:opacity-70"
+                    className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
+                    aria-label="Password"
                   />
                 </div>
               <div className="text-right -mt-2">

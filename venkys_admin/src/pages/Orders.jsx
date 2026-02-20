@@ -1,18 +1,23 @@
+// Orders — Order management and fulfilment dashboard
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import AdminLayout from '../layouts/AdminLayout'
-import { db } from '../lib/firebase'
+
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore'
-import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, sendWhatsAppInvoice, sendOtpViaWhatsApp, sendOrderMessengerViaWhatsApp, isCounterDocId } from '../lib/data'
-import { printOrderReceiptViaRawBT, shouldUseRawBT } from '../lib/rawbtPrint'
-import { useUI } from '../context/UIContext'
-import { useAuth } from '../context/AuthContext'
+import { useLocation } from 'react-router-dom'
 import { MdWarningAmber, MdPrint } from 'react-icons/md'
+
+import AdminLayout from '../layouts/AdminLayout'
+import { useAuth } from '../context/AuthContext'
+import { useUI } from '../context/UIContext'
+import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, sendWhatsAppInvoice, sendOtpViaWhatsApp, sendOrderMessengerViaWhatsApp, isCounterDocId } from '../lib/data'
+import { db } from '../lib/firebase'
+import { printOrderReceiptViaRawBT, shouldUseRawBT } from '../lib/rawbtPrint'
 
 export default function Orders() {
   const location = useLocation()
   const { confirmState, resolveConfirm, pushToast } = useUI()
   const { user, roleLoading, isStaffMember } = useAuth()
+
+  // ── State & refs ──
   const [orders, setOrders] = useState([])
   const [liveEnabled] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
@@ -26,6 +31,7 @@ export default function Orders() {
   const [orderMessengerPhones, setOrderMessengerPhones] = useState([])
   const notifiedRef = useRef(new Set())
 
+  // ── Helpers ──
   function normalizeWhatsappPhone(phone) {
     const raw = String(phone || '').trim()
     if (!raw) return ''
@@ -88,6 +94,7 @@ export default function Orders() {
   const [otpBusy, setOtpBusy] = useState(false)
   const [otpResendBusy, setOtpResendBusy] = useState(false)
 
+  // ── OTP verification ──
   function isDineInCod(o) {
     const type = String(o?.orderType || '').toLowerCase()
     const method = String(o?.payment?.method || o?.customer?.payment?.method || '').toLowerCase()
@@ -358,6 +365,7 @@ export default function Orders() {
     w.document.close()
   }
 
+  // ── Side-effects ──
   useEffect(() => {
     fetchAppSettings().then(s => {
       const to10 = (v) => {
@@ -368,8 +376,7 @@ export default function Orders() {
 
       const cm = Array.isArray(s?.cashManagerPhones) ? s.cashManagerPhones : []
       const cmList = cm.map(to10).filter(Boolean)
-      const legacy = to10(s?.cashManagerPhone)
-      setCashManagerPhones(cmList.length ? cmList : (legacy ? [legacy] : []))
+      setCashManagerPhones(cmList)
 
       const list = Array.isArray(s?.orderMessengerPhones) ? s.orderMessengerPhones : []
       setOrderMessengerPhones(list.map(to10).filter(Boolean))
@@ -428,6 +435,7 @@ export default function Orders() {
     } finally { setLoadingOrders(false) }
   }
 
+  // ── Filtering & metrics ──
   const statusFlow = ['placed', 'preparing', 'ready', 'delivered']
   function statusColor(s) { return s==='placed'?'badge-info':s==='preparing'?'badge-warning':s==='ready'?'badge-success':s==='delivered'?'badge-neutral':s==='rejected'?'badge-error':'badge-ghost' }
   const baseFiltered = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter)
@@ -495,6 +503,7 @@ export default function Orders() {
     setOrderModalOpen(true)
   }, [location, orders])
 
+  // ── Render ──
   return (
     <AdminLayout section="orders">
       {otpModalOpen && otpModalOrder && (

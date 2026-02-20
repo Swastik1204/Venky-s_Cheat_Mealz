@@ -10,11 +10,11 @@ const rateLimiter = createRateLimiter({ routeName: 'wa-webhook' })
 
 /**
  * Verify the X-Hub-Signature-256 header from Meta/WhatsApp webhook events.
- * Returns true if signature is valid or if no app secret is configured (graceful fallback).
+ * Returns false if no app secret is configured (fail-closed for security).
  */
 function verifyWebhookSignature(req) {
   const appSecret = process.env.WA_APP_SECRET
-  if (!appSecret) return true // Skip verification if not configured
+  if (!appSecret) return false // Fail-closed: reject if not configured
 
   const signature = req.headers['x-hub-signature-256']
   if (!signature) return false
@@ -70,10 +70,11 @@ export default async function handler(req, res) {
           const messages = v.messages || []
           const statuses = v.statuses || []
           if (messages.length) {
-            console.log('[wa-webhook] messages', JSON.stringify(messages))
+            // Log count only — no PII
+            console.log(`[wa-webhook] received ${messages.length} message(s)`)
           }
           if (statuses.length) {
-            console.log('[wa-webhook] statuses', JSON.stringify(statuses))
+            console.log(`[wa-webhook] received ${statuses.length} status update(s)`)
           }
         }
       }

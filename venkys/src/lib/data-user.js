@@ -1,16 +1,26 @@
 // User profile, addresses, and theme preferences
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
-import { safeRandomId } from './data-common'
+import { safeRandomId, normalizeTextKey } from './data-common'
 
-// --- Users --- //
+function addressSignature(address = {}) {
+  return [
+    normalizeTextKey(address?.line1),
+    normalizeTextKey(address?.line2),
+    normalizeTextKey(address?.city),
+    normalizeTextKey(address?.zip),
+    normalizeTextKey(address?.placeId),
+  ].join('|')
+}
+
+// ── Users ──
 export async function getUser(uid) {
   const ref = doc(db, 'users', uid)
   const snap = await getDoc(ref)
   return snap.exists() ? { id: snap.id, ...snap.data() } : null
 }
 
-// --- User preferences (theme) --- //
+// ── User preferences (theme) ──
 export async function getUserTheme(uid) {
   if (!uid) return null
   try {
@@ -29,7 +39,7 @@ export async function setUserTheme(uid, theme) {
   await setDoc(doc(db, 'users', uid), { theme: normalized, updatedAt: serverTimestamp() }, { merge: true })
 }
 
-// --- User Profile --- //
+// ── User Profile ──
 export async function fetchUserProfile(uid) {
   if (!uid) return null
   try {
@@ -52,7 +62,7 @@ export async function updateUserProfile(uid, data) {
   await setDoc(doc(db, 'users', uid), { ...out, updatedAt: serverTimestamp() }, { merge: true })
 }
 
-// --- Addresses --- //
+// ── Addresses ──
 export async function addAddress(uid, address) {
   if (!uid) return
   const ref = doc(db, 'users', uid, 'meta', 'addresses')
@@ -77,6 +87,9 @@ export async function addAddress(uid, address) {
     }
     return obj
   })()
+  const signature = addressSignature(normalized)
+  const existing = list.find(a => addressSignature(a) === signature)
+  if (existing) return existing.id
   const next = [...list, normalized]
   const payload = { list: next, updatedAt: serverTimestamp() }
   if (list.length === 0) payload.defaultId = id
@@ -121,6 +134,12 @@ export async function updateAddress(uid, id, patch) {
     }
     return base
   })
+  const updated = next.find(a => a.id === id)
+  if (updated) {
+    const sig = addressSignature(updated)
+    const duplicate = next.find(a => a.id !== id && addressSignature(a) === sig)
+    if (duplicate) throw new Error('Duplicate address entry is not allowed')
+  }
   await setDoc(ref, { list: next, updatedAt: serverTimestamp() }, { merge: true })
 }
 

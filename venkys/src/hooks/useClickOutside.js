@@ -1,3 +1,4 @@
+// useClickOutside — Hook to detect clicks outside a ref element
 import { useEffect, useRef } from 'react'
 
 /**

@@ -1,10 +1,14 @@
+// Inventory — Menu item and category management
 import { useEffect, useRef, useState } from 'react'
-import AdminLayout from '../layouts/AdminLayout'
-import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, removeMenuItem, fetchImagesByIds, saveBase64Image, deleteImageById, removeCategoryImage, fetchRawMaterials } from '../lib/data'
+
 import { MdDelete, MdAdd, MdKeyboardArrowDown, MdWarningAmber, MdEdit, MdError, MdFlag } from 'react-icons/md'
+
+import AdminLayout from '../layouts/AdminLayout'
 import { useUI } from '../context/UIContext'
+import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, removeMenuItem, fetchImagesByIds, saveBase64Image, deleteImageById, removeCategoryImage, fetchRawMaterials } from '../lib/data'
 
 export default function Inventory() {
+  // ── State & refs ──
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -55,6 +59,7 @@ export default function Inventory() {
   const allItemNames = categories.flatMap(c => (c.items || []).map(i => i.name)).filter(Boolean).sort()
   const uniqueItemNames = [...new Set(allItemNames)]
 
+  // ── Side-effects ──
   useEffect(() => {
     if (error) {
       pushToast(error, 'error')
@@ -94,6 +99,7 @@ export default function Inventory() {
     return () => { active = false }
   }, [categories])
 
+  // ── Bulk-edit logic ──
   function bulkKey(categoryId, itemIndex) {
     return `${categoryId}::${itemIndex}`
   }
@@ -127,51 +133,49 @@ export default function Inventory() {
     setBulkDraft(next)
   }, [bulkEditModalOpen, bulkCategory])
 
+  // ── Pricing helpers ──
   function parseAmount(value) {
     if (value === '' || value === null || value === undefined) return null
     const num = Number(value)
     if (!Number.isFinite(num) || num < 0) return null
-    return Math.round(num * 100) / 100
+    return Math.round(num)
   }
 
   function parsePercent(value) {
     if (value === '' || value === null || value === undefined) return null
     const num = Number(value)
     if (!Number.isFinite(num)) return null
-    const clamped = Math.max(0, Math.min(100, num))
-    return Math.round(clamped * 10) / 10
+    const clamped = Math.max(0, Math.min(99, num))
+    return Math.round(clamped)
   }
 
   function formatAmount(value) {
     if (value === null || value === undefined || value === '') return ''
     const num = Number(value)
     if (!Number.isFinite(num)) return ''
-    const rounded = Math.round(num * 100) / 100
-    const fixed = rounded.toFixed(2)
-    return fixed.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
+    return String(Math.round(num))
   }
 
   function formatPercent(value) {
     if (value === null || value === undefined || value === '') return ''
     const num = Number(value)
     if (!Number.isFinite(num)) return ''
-    const rounded = Math.round(num * 10) / 10
-    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace(/\.0$/, '')
+    return String(Math.round(num))
   }
 
   function computeDiscountPercent(mrp, rate) {
     if (!Number.isFinite(mrp) || mrp <= 0 || !Number.isFinite(rate) || rate < 0) return null
     const raw = ((mrp - rate) / mrp) * 100
     if (!Number.isFinite(raw) || raw < 0) return null
-    const clamped = Math.max(0, Math.min(100, raw))
-    return Math.round(clamped * 10) / 10
+    const clamped = Math.max(0, Math.min(99, raw))
+    return Math.round(clamped)
   }
 
   function recomputePricing(form, changedField) {
     const mrpNumber = parseAmount(form.mrp)
     const rateNumber = parseAmount(form.rate)
     const discountNumberRaw = parsePercent(form.discountPercent)
-    const discountNormalized = discountNumberRaw !== null ? Math.min(99.9, discountNumberRaw) : null
+    const discountNormalized = discountNumberRaw !== null ? Math.min(99, discountNumberRaw) : null
 
     const calcRateFromMrpAndDiscount = (mrp, discount) => {
       if (!Number.isFinite(mrp) || mrp <= 0 || !Number.isFinite(discount) || discount <= 0) return null
@@ -271,6 +275,7 @@ export default function Inventory() {
     return form
   }
 
+  // ── Edit modal logic ──
   function openEditModal(categoryId, itemIndex) {
     const cat = categories.find(c => c.id === categoryId)
     if (!cat) return
@@ -397,6 +402,7 @@ export default function Inventory() {
     }
   }
 
+  // ── Category / item handlers ──
   function displayCategory(c) { return c?.id || c?.name || '' }
   function toggleCat(id, el) {
     const headerEl = el || headerRefs.current[id]
@@ -465,6 +471,7 @@ export default function Inventory() {
     } catch (e) { setError(e.message || 'Save failed') } finally { setLoading(false) }
   }
 
+  // ── Render ──
   return (
   <AdminLayout>
   <div className="flex items-center justify-between mb-4">

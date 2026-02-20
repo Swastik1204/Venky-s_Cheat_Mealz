@@ -54,7 +54,5 @@ export { INR_FORMATTER, INR_FORMATTER_DECIMAL }
 export function formatMoney(value) {
   const num = Number(value)
   if (!Number.isFinite(num)) return '0'
-  const rounded = Math.round(num * 100) / 100
-  const str = rounded.toFixed(2)
-  return str.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
+  return String(Math.round(num))
 }

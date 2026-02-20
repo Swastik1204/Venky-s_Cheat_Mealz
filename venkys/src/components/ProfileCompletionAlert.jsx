@@ -1,3 +1,4 @@
+// ProfileCompletionAlert — Banner prompting users to complete their profile
 import { useMemo } from 'react'
 import { MdCheckCircle, MdEdit, MdPerson, MdPhone, MdHome } from 'react-icons/md'
 

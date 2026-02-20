@@ -1,3 +1,4 @@
+// whatsapp — WhatsApp message formatting and delivery
 import { sendWhatsAppInvoice } from './data'
 
 // Internal helper for formatting bill messages
