@@ -1,14 +1,23 @@
 // AuthSkeleton — Loading skeleton for auth initialisation
 import { useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 
 export default function AuthSkeleton() {
   const { openAuth } = useUI()
+  const { user, loading } = useAuth()
 
   useEffect(() => {
     document.body.classList.add('auth-loading')
     return () => { document.body.classList.remove('auth-loading') }
   }, [])
+
+  // Auto-open login modal once loading finishes and there is no user
+  useEffect(() => {
+    if (!loading && !user) {
+      openAuth('login')
+    }
+  }, [loading, user, openAuth])
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-base-200/50 text-base-content p-4">

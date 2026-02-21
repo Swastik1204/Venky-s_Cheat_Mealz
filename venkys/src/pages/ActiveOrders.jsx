@@ -276,7 +276,7 @@ export default function ActiveOrders() {
             <p className="text-sm opacity-70">Log in to see your active orders and live updates.</p>
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
-            <button className="btn btn-primary" onClick={openAuth}>Login</button>
+            <button className="btn btn-primary" onClick={() => openAuth('login')}>Login</button>
             <Link to="/" className="btn btn-ghost">Go home</Link>
           </div>
         </div>

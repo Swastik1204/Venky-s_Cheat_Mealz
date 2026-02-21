@@ -81,44 +81,44 @@ export function AuthProvider({ children }) {
     return () => unsub()
   }, [refreshRole])
 
-  async function signup(email, password, displayName) {
+  const signup = useCallback(async (email, password, displayName) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     if (displayName) await updateProfile(cred.user, { displayName })
     await ensureUserDocument(cred.user)
     return cred.user
-  }
+  }, [])
 
-  async function login(email, password) {
+  const login = useCallback(async (email, password) => {
     const cred = await signInWithEmailAndPassword(auth, email, password)
     return cred.user
-  }
+  }, [])
 
-  async function logout() {
+  const logout = useCallback(async () => {
     await signOut(auth)
-  }
+  }, [])
 
-  async function loginWithGoogle() {
+  const loginWithGoogle = useCallback(async () => {
     const provider = new GoogleAuthProvider()
     const cred = await signInWithPopup(auth, provider)
     return cred.user
-  }
+  }, [])
 
-  function getRecaptchaVerifier(containerId = 'recaptcha-container') {
+  const getRecaptchaVerifier = useCallback((containerId = 'recaptcha-container') => {
     if (window.recaptchaVerifier) return window.recaptchaVerifier
     const verifier = new RecaptchaVerifier(auth, containerId, { size: 'invisible' })
     window.recaptchaVerifier = verifier
     return verifier
-  }
+  }, [])
 
-  async function sendOtp(e164Phone, containerId = 'recaptcha-container') {
+  const sendOtp = useCallback(async (e164Phone, containerId = 'recaptcha-container') => {
     const verifier = getRecaptchaVerifier(containerId)
     return signInWithPhoneNumber(auth, e164Phone, verifier)
-  }
+  }, [getRecaptchaVerifier])
 
-  async function verifyOtp(confirmationResult, code) {
+  const verifyOtp = useCallback(async (confirmationResult, code) => {
     const cred = await confirmationResult.confirm(code)
     return cred.user
-  }
+  }, [])
 
   const value = useMemo(() => ({ 
     user, 
@@ -138,7 +138,7 @@ export function AuthProvider({ children }) {
     loginWithGoogle, 
     sendOtp, 
     verifyOtp 
-  }), [user, loading, role, roleLoading, canAccess, refreshRole])
+  }), [user, loading, role, roleLoading, canAccess, refreshRole, signup, login, logout, loginWithGoogle, sendOtp, verifyOtp])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

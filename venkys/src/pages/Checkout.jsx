@@ -68,7 +68,7 @@ function paymentStatusBadgeClass(status) {
 export default function Checkout() {
   const { entries, subtotal, setQty, remove, clear } = useCart()
   const { user } = useAuth()
-  const { pushToast } = useUI()
+  const { pushToast, openAuth } = useUI()
   const navigate = useNavigate()
 
   // ── State & refs ──
@@ -420,36 +420,63 @@ export default function Checkout() {
   }, [addresses, user, form.addressLine1, showAddressForm, fillFromAddress, setActiveAddressId, setShowAddressForm])
   const prevUserRef = useRef(user?.uid || null)
 
+  // Handle auth transitions (login / logout / account-switch) without
+  // wiping address data the user already entered before signing in.
   useEffect(() => {
     const currentUid = user?.uid || null
     if (prevUserRef.current === currentUid) return
+    const wasLoggedIn = !!prevUserRef.current
     prevUserRef.current = currentUid
-    setForm({
-      name: profileInfo?.displayName || user?.displayName || '',
-      phone: profileInfo?.phone || user?.phoneNumber || '',
-      email: profileInfo?.email || user?.email || '',
-      addressLine1: '',
-      addressLine2: '',
-      city: 'Durgapur',
-      state: 'West Bengal',
-      pin: '',
-      landmark: '',
-      addressTag: 'Home',
-      addressPhone: profileInfo?.phone || user?.phoneNumber || '',
-      lat: null,
-      lng: null,
-      placeId: '',
-      mapUrl: '',
-      paymentMethod: 'cod',
-      note: '',
-    })
+    const isNowLoggedIn = !!currentUid
+    const isLogin = !wasLoggedIn && isNowLoggedIn   // guest → user
+    const isLogout = wasLoggedIn && !isNowLoggedIn   // user → guest
+
+    // Snapshot whether the guest had already typed an address
+    const hadAddress = !!(form.addressLine1 || form.addressLine2 || form.pin || form.landmark)
+
+    setForm(prev => ({
+      // Contact: prefer profile / auth data, fall back to what was typed
+      name: profileInfo?.displayName || user?.displayName || (isLogin ? prev.name : '') || '',
+      phone: profileInfo?.phone || user?.phoneNumber || (isLogin ? prev.phone : '') || '',
+      email: profileInfo?.email || user?.email || (isLogin ? prev.email : '') || '',
+      // Address: preserve on login, clear on logout / account-switch
+      addressLine1: isLogin ? prev.addressLine1 : '',
+      addressLine2: isLogin ? prev.addressLine2 : '',
+      city: prev.city || 'Durgapur',
+      state: prev.state || 'West Bengal',
+      pin: isLogin ? prev.pin : '',
+      landmark: isLogin ? prev.landmark : '',
+      addressTag: isLogin ? (prev.addressTag || 'Home') : 'Home',
+      addressPhone: profileInfo?.phone || user?.phoneNumber || (isLogin ? (prev.addressPhone || prev.phone) : '') || '',
+      lat: isLogin ? prev.lat : null,
+      lng: isLogin ? prev.lng : null,
+      placeId: isLogin ? prev.placeId : '',
+      mapUrl: isLogin ? prev.mapUrl : '',
+      paymentMethod: prev.paymentMethod || 'cod',
+      note: isLogin ? prev.note : '',
+    }))
+
     setOrderId(null)
-  setLatestOrderSummary(null)
+    setLatestOrderSummary(null)
     setGeoError('')
-    setSetAsDefault(false)
-    setActiveAddressId(null)
-    setShowAddressForm(!currentUid)
-  }, [user, profileInfo])
+
+    if (isLogout) {
+      // Full reset — guest needs a blank slate
+      setSetAsDefault(false)
+      setActiveAddressId(null)
+      setShowAddressForm(true)
+    } else if (isLogin && hadAddress) {
+      // User entered address before signing in — keep form visible
+      setShowAddressForm(true)
+    } else if (!isLogin) {
+      // Account switch — show saved-addresses list for the new account
+      setSetAsDefault(false)
+      setActiveAddressId(null)
+      setShowAddressForm(false)
+    }
+    // Login without pre-entered address: leave showAddressForm unchanged
+    // so the pre-select-default-address effect can populate from saved addresses.
+  }, [user, profileInfo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!profileInfo) return
@@ -629,6 +656,7 @@ export default function Checkout() {
 
     if (!user?.uid) {
       pushToast('Please sign in to place an order.', 'error', 5000)
+      openAuth('login')
       return
     }
 
