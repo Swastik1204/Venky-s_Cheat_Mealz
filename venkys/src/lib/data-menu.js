@@ -1,5 +1,5 @@
 // Menu-related data functions
-import { collection, doc, getDocs, getDoc, setDoc, serverTimestamp, deleteDoc, arrayUnion } from 'firebase/firestore'
+import { collection, doc, getDocs, getDoc, setDoc, deleteDoc, arrayUnion } from 'firebase/firestore'
 import { db } from './firebase'
 import { toMoney, toDiscount, isPermissionDenied, normalizeTextKey, dedupeByTextKey } from './data-common'
 

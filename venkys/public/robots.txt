@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+Sitemap: https://venkys.vercel.app/sitemap.xml

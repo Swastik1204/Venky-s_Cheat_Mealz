@@ -71,6 +71,7 @@ export async function verifyAuth(req) {
     return { user: decoded }
   } catch (err) {
     // Token was provided but is invalid/expired
+    console.error('[verifyAuth] Token verification error:', err)
     return { error: 'Invalid or expired authentication token', status: 401 }
   }
 }

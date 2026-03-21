@@ -55,7 +55,7 @@ function cartReducer(state, action) {
 export function CartProvider({ children }) {
   const [state, dispatch] = useReducer(cartReducer, { items: {} })
   const { user } = useAuth()
-  const { pushToast, openAuth } = useUI()
+  const { pushToast } = useUI()
   const saveTimer = useRef(null)
   const lastSerialized = useRef('')
   const saveDeniedRef = useRef(false)

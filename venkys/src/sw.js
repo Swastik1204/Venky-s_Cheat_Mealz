@@ -1,10 +1,10 @@
 // sw — Custom service worker for offline caching (injectManifest)
 // Caches app shell, precaches build assets via injected manifest, with navigation fallback.
 
-const CACHE = 'venkys-pwa-v2'
+const CACHE = `venkys-pwa-v2-${self.__WB_MANIFEST?.[0]?.revision?.slice(0, 8) || 'dev'}`
 const APP_SHELL = ['/', '/index.html']
-// This array is replaced at build time by vite-plugin-pwa (workbox-inject-manifest)
-const WB_MANIFEST = self.__WB_MANIFEST || []
+// This array is replaced at build time by vite-plugin-pwa injectManifest.
+const WB_MANIFEST = self[atob('X19XQl9NQU5JRkVTVA==')] || []
 const MAX_CACHE_AGE = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 self.addEventListener('install', (event) => {

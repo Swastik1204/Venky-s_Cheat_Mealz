@@ -1,13 +1,13 @@
 // ActiveOrders — Live order tracking dashboard
 import { useEffect, useMemo, useState } from 'react'
 
-import { doc, onSnapshot } from 'firebase/firestore'
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { MdArrowBack, MdLocalShipping, MdPlace, MdReceiptLong, MdRefresh } from 'react-icons/md'
+import { MdArrowBack, MdLocalShipping, MdPlace, MdReceiptLong } from 'react-icons/md'
 
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchOrder, fetchUserOrders } from '../lib/data'
+import { fetchOrder } from '../lib/data'
 import { db } from '../lib/firebase'
 
 // ── Constants & helpers ──
@@ -25,6 +25,11 @@ function isCompletedStatus(status) {
 
 function isActiveStatus(status) {
   return !isCompletedStatus(status)
+}
+
+function isCancelledOrRejected(status) {
+  const s = normalizeStatus(status)
+  return s === 'cancelled' || s === 'rejected'
 }
 
 function statusBadgeClass(status) {
@@ -47,6 +52,10 @@ function statusBadgeClass(status) {
 function statusLabel(status) {
   const s = normalizeStatus(status)
   return s.replace(/_/g, ' ')
+}
+
+function statusLabelCapitalized(status) {
+  return statusLabel(status).replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
 function toDate(value) {
@@ -100,9 +109,10 @@ export default function ActiveOrders() {
   // ── State ──
   const selectedIdFromUrl = params.get('id') || ''
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [activeOrders, setActiveOrders] = useState([])
   const [selectedOrder, setSelectedOrder] = useState(null)
+  const [completedOrder, setCompletedOrder] = useState(null)
+  const [completionProgress, setCompletionProgress] = useState(0)
 
   const resolvedSelectedId = selectedOrder?.id || selectedIdFromUrl || ''
 
@@ -116,6 +126,25 @@ export default function ActiveOrders() {
     return list
   }, [activeOrders])
 
+  const selectedOrderTimeline = useMemo(() => {
+    if (!selectedOrder) return []
+    const history = Array.isArray(selectedOrder.statusHistory) ? selectedOrder.statusHistory.filter(Boolean) : []
+    if (!history.length) {
+      return [{ status: 'placed', at: selectedOrder.createdAt, actor: selectedOrder.customer?.name || 'system' }]
+    }
+    return [...history]
+      .map((entry) => ({
+        status: entry?.status || selectedOrder.status || 'placed',
+        at: entry?.at || selectedOrder.updatedAt || selectedOrder.createdAt,
+        actor: entry?.actor || 'system',
+      }))
+      .sort((a, b) => {
+        const ta = toDate(a?.at)?.getTime() ?? 0
+        const tb = toDate(b?.at)?.getTime() ?? 0
+        return ta - tb
+      })
+  }, [selectedOrder])
+
   const itemCountFor = (order) => {
     const items = Array.isArray(order?.items) ? order.items : []
     return items.reduce((sum, it) => sum + (Number(it?.qty) || 0), 0)
@@ -128,32 +157,27 @@ export default function ActiveOrders() {
     return items.reduce((sum, it) => sum + (Number(it?.rate ?? it?.price) || 0) * (Number(it?.qty) || 0), 0)
   }
 
-  const refreshActiveOrders = async () => {
+  // ── Side-effects ──
+  useEffect(() => {
     if (!user?.uid) {
       setActiveOrders([])
       setLoading(false)
       return
     }
-    setRefreshing(true)
-    try {
-      const list = await fetchUserOrders(user.uid)
-      const filtered = (list || []).filter((o) => isActiveStatus(o?.status))
-      setActiveOrders(filtered)
-    } finally {
-      setRefreshing(false)
+    setLoading(true)
+    const qy = query(
+      collection(db, 'orders'),
+      where('userId', '==', user.uid),
+      where('status', 'not-in', ['delivered', 'rejected', 'cancelled']),
+    )
+    const unsub = onSnapshot(qy, (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      setActiveOrders(list.filter((o) => isActiveStatus(o?.status)))
       setLoading(false)
-    }
-  }
-
-  // ── Side-effects ──
-  useEffect(() => {
-    refreshActiveOrders().catch(() => {
+    }, () => {
       setLoading(false)
     })
-    // small polling to keep list fresh without heavy listeners
-    const id = setInterval(() => refreshActiveOrders().catch(() => {}), 20000)
-    return () => clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => unsub()
   }, [user?.uid])
 
   // Resolve initial selection
@@ -215,16 +239,27 @@ export default function ActiveOrders() {
     if (!user?.uid) return
 	// Orders are stored at top-level `orders/{orderId}`.
 	const ref = doc(db, 'orders', resolvedSelectedId)
+    let redirectTimeout = null
+    let completionHandled = false
 
     const unsub = onSnapshot(ref, (snap) => {
       if (!snap.exists()) return
       const data = snap.data() || {}
       const next = { id: snap.id, ...data }
       if (isCompletedStatus(next.status)) {
+        if (completionHandled) return
+        completionHandled = true
         pushToast('Order completed. Thanks for ordering!', 'success', 3500)
-        navigate('/', { replace: true })
+        setCompletedOrder(next)
+        setCompletionProgress(0)
+        setTimeout(() => setCompletionProgress(100), 40)
+        redirectTimeout = setTimeout(() => {
+          navigate('/', { replace: true })
+        }, 4000)
         return
       }
+      setCompletedOrder(null)
+      setCompletionProgress(0)
       setSelectedOrder(next)
       setActiveOrders((prev) => {
         const list = Array.isArray(prev) ? [...prev] : []
@@ -239,7 +274,10 @@ export default function ActiveOrders() {
       })
     }, () => {})
 
-    return () => unsub()
+    return () => {
+      if (redirectTimeout) clearTimeout(redirectTimeout)
+      unsub()
+    }
   }, [navigate, pushToast, resolvedSelectedId, user?.uid])
 
   const handleSelect = (order) => {
@@ -264,9 +302,6 @@ export default function ActiveOrders() {
             <p className="text-xs opacity-60">Only ongoing orders show up here.</p>
           </div>
         </div>
-        <button type="button" className="btn btn-sm btn-ghost btn-circle" title="Refresh" onClick={refreshActiveOrders} disabled={refreshing}>
-          <MdRefresh className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
-        </button>
       </div>
 
       {!user ? (
@@ -332,9 +367,15 @@ export default function ActiveOrders() {
                         <div className="text-right text-xs opacity-60">Tap to view</div>
                       </div>
                       <div className="mt-3">
-                        <div className="h-1.5 w-full rounded-full bg-base-300/50 overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-primary to-secondary transition-all" style={{ width: `${orderProgressPercent(status)}%` }} />
-                        </div>
+                        {isCancelledOrRejected(status) ? (
+                          <div className="inline-flex items-center gap-2 rounded-2xl border border-error/40 bg-error/10 px-3 py-1 text-xs font-semibold text-error">
+                            Order {normalizeStatus(status)}
+                          </div>
+                        ) : (
+                          <div className="h-1.5 w-full rounded-full bg-base-300/50 overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-primary to-secondary transition-all" style={{ width: `${orderProgressPercent(status)}%` }} />
+                          </div>
+                        )}
                       </div>
                     </button>
                   )
@@ -344,7 +385,36 @@ export default function ActiveOrders() {
           </div>
 
           <div className="rounded-3xl border border-base-300/60 bg-base-100/80 backdrop-blur p-5 shadow-sm">
-            {selectedOrder ? (
+            {completedOrder ? (
+              <div className="min-h-[420px] flex flex-col items-center justify-center text-center px-4 py-6">
+                <div className={`text-6xl ${normalizeStatus(completedOrder.status) === 'delivered' ? '' : 'text-error'}`}>
+                  {normalizeStatus(completedOrder.status) === 'delivered' ? '✅' : '❌'}
+                </div>
+                <h2 className="mt-5 text-2xl font-bold">
+                  Order {orderIdentifier(completedOrder)} {statusLabel(completedOrder.status)}
+                </h2>
+                <p className="mt-2 text-sm opacity-75">
+                  {normalizeStatus(completedOrder.status) === 'delivered'
+                    ? 'Thank you for ordering! 🍗 Redirecting you home...'
+                    : 'Sorry about that. Redirecting you home...'}
+                </p>
+                <div className="w-full max-w-md mt-6">
+                  <progress
+                    className={`progress w-full ${normalizeStatus(completedOrder.status) === 'delivered' ? 'progress-success' : 'progress-error'}`}
+                    value={completionProgress}
+                    max="100"
+                    style={{ transition: 'all 4s linear' }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary mt-6"
+                  onClick={() => navigate('/', { replace: true })}
+                >
+                  Go home now
+                </button>
+              </div>
+            ) : selectedOrder ? (
               <div className="space-y-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -372,12 +442,35 @@ export default function ActiveOrders() {
                 </div>
 
                 <div className="space-y-2">
-                  <div className="h-2 w-full rounded-full bg-base-300/50 overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-primary to-secondary transition-all" style={{ width: `${orderProgressPercent(selectedOrder.status)}%` }} />
-                  </div>
-                  <div className="flex justify-between text-[10px] uppercase tracking-[0.22em] opacity-60">
-                    {ORDER_STATUS_FLOW.map((step) => (
-                      <span key={step} className={normalizeStatus(selectedOrder.status) === step ? 'text-primary font-semibold' : ''}>{step}</span>
+                  {isCancelledOrRejected(selectedOrder.status) ? (
+                    <div className="rounded-2xl border border-error/40 bg-error/10 px-4 py-3">
+                      <span className="badge badge-error">Order {normalizeStatus(selectedOrder.status)}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="h-2 w-full rounded-full bg-base-300/50 overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-primary to-secondary transition-all" style={{ width: `${orderProgressPercent(selectedOrder.status)}%` }} />
+                      </div>
+                      <div className="flex justify-between text-[10px] uppercase tracking-[0.22em] opacity-60">
+                        {ORDER_STATUS_FLOW.map((step) => (
+                          <span key={step} className={normalizeStatus(selectedOrder.status) === step ? 'text-primary font-semibold' : ''}>{step}</span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-base-300/60 bg-base-100 p-4">
+                  <div className="text-xs uppercase tracking-[0.22em] opacity-60 font-bold">Order timeline</div>
+                  <div className="mt-3 space-y-3">
+                    {selectedOrderTimeline.map((entry, idx) => (
+                      <div key={`${selectedOrder.id}-${entry.status}-${idx}`} className="flex items-start gap-3">
+                        <div className="mt-1.5 h-2.5 w-2.5 rounded-full bg-primary/70" />
+                        <div className="min-w-0">
+                          <span className={statusBadgeClass(entry.status)}>{statusLabelCapitalized(entry.status)}</span>
+                          <div className="text-xs opacity-70 mt-1">{formatDateTime(entry.at) || '—'}</div>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>

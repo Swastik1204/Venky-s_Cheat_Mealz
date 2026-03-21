@@ -300,6 +300,9 @@ service cloud.firestore {
     // -----------------------------------------
     // MISCELLANEOUS CONFIG
     // -----------------------------------------
+    // NOTE: miscellaneous/settings is intentionally public-read.
+    // It contains delivery geofence config needed before auth.
+    // Do NOT store payment secrets or API keys in this document.
     match /miscellaneous/{docId} {
       // Public read - needed for app settings, appearance, store status
       allow read: if true;
@@ -316,7 +319,7 @@ service cloud.firestore {
         (docId == 'dailyCounter' && (isAdmin() || isStaff()))
       );
     }
-
+                (!isSignedIn() && request.resource.data.userId == null && request.resource.data.customer.phone is string)
     // -----------------------------------------
     // AUDIT LOGS
     // -----------------------------------------

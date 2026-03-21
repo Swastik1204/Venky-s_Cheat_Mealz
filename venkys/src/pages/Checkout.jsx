@@ -20,6 +20,12 @@ const CHECKOUT_PAYMENT_OPTIONS = [
   { key: 'upi', label: 'UPI (Razorpay)', helper: 'PhonePe, Google Pay, BHIM, etc.', icon: MdQrCode },
   { key: 'card', label: 'Card (Razorpay)', helper: 'Debit & credit cards via Razorpay.', icon: MdCreditCard }
 ]
+const CHECKOUT_ORDER_STATUS_FLOW = ['placed', 'preparing', 'ready', 'delivered']
+const CHECKOUT_PHONE_REGEX = /^\+?[0-9]{7,15}$/
+const CHECKOUT_PIN_REGEX = /^[0-9]{4,8}$/
+const CHECKOUT_CONTACT_FIELDS = ['name', 'phone', 'email', 'note']
+const CHECKOUT_ADDRESS_FIELDS = ['addressLine1', 'addressLine2', 'city', 'state', 'pin', 'landmark', 'addressTag', 'addressPhone', 'lat', 'lng', 'placeId', 'mapUrl']
+const CHECKOUT_PAYMENT_FIELDS = ['paymentMethod']
 
 // ── Helpers ──
 
@@ -50,19 +56,6 @@ function buildOrderStatusTimeline(order) {
   }
   const fallbackAt = checkoutTimestampToDate(order.updatedAt) || checkoutTimestampToDate(order.createdAt) || new Date()
   return [{ status: order.status || 'placed', at: fallbackAt, actor: order.customer?.name || 'system' }]
-}
-
-function paymentStatusBadgeClass(status) {
-  switch ((status || '').toLowerCase()) {
-    case 'paid':
-      return 'badge-success'
-    case 'pending':
-      return 'badge-warning'
-    case 'failed':
-      return 'badge-error'
-    default:
-      return 'badge-ghost'
-  }
 }
 
 export default function Checkout() {
@@ -96,6 +89,7 @@ export default function Checkout() {
   const [placing, setPlacing] = useState(false)
   const [orderId, setOrderId] = useState(null)
   const [latestOrderSummary, setLatestOrderSummary] = useState(null)
+  const [showOrderPlacedSuccess, setShowOrderPlacedSuccess] = useState(false)
   const [setAsDefault, setSetAsDefault] = useState(false)
   const [showAddressForm, setShowAddressForm] = useState(false)
   const [activeAddressId, setActiveAddressId] = useState(null)
@@ -114,9 +108,12 @@ export default function Checkout() {
 
   // ── Side-effects ──
   useEffect(() => {
-    if (!orderId) return
-    navigate(`/active-orders?id=${encodeURIComponent(orderId)}`, { replace: true })
-  }, [navigate, orderId])
+    if (!showOrderPlacedSuccess || !orderId) return
+    const timer = setTimeout(() => {
+      navigate(`/active-orders?id=${encodeURIComponent(orderId)}`, { replace: true })
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [navigate, orderId, showOrderPlacedSuccess])
   // Refs for auto-scrolling to form sections
   const nameRef = useRef(null)
   const phoneRef = useRef(null)
@@ -142,19 +139,17 @@ export default function Checkout() {
   }, [])
 
   // Guided form-filling: detect next incomplete field
-  const phoneRegex = /^\+?[0-9]{7,15}$/
-  const pinRegex = /^[0-9]{4,8}$/
   const getNextIncompleteField = useCallback(() => {
     const usingSavedAddress = !!activeAddressId && !showAddressForm
     // Step 1: Contact details
     if (!form.name) return { step: 1, field: 'name', ref: nameRef, label: 'Full Name', hint: 'Enter your full name' }
     if (!form.phone) return { step: 1, field: 'phone', ref: phoneRef, label: 'Phone Number', hint: 'Enter your phone number' }
-    if (form.phone && !phoneRegex.test(form.phone)) return { step: 1, field: 'phone', ref: phoneRef, label: 'Phone Number', hint: 'Enter a valid phone number' }
+    if (form.phone && !CHECKOUT_PHONE_REGEX.test(form.phone)) return { step: 1, field: 'phone', ref: phoneRef, label: 'Phone Number', hint: 'Enter a valid phone number' }
     // Step 2: Address details (required fields first)
     if (!usingSavedAddress && !form.addressLine1) return { step: 2, field: 'addressLine1', ref: addressLine1Ref, label: 'House/Flat + Street', hint: 'Enter your house number and street' }
     if (!form.addressLine2) return { step: 2, field: 'addressLine2', ref: addressLine2Ref, label: 'Area/Locality', hint: 'Type your area and pick a Google suggestion' }
     if (!form.pin) return { step: 2, field: 'pin', ref: pinRef, label: 'PIN Code', hint: 'Enter your PIN code' }
-    if (form.pin && !pinRegex.test(form.pin)) return { step: 2, field: 'pin', ref: pinRef, label: 'PIN Code', hint: 'Enter a valid PIN code' }
+    if (form.pin && !CHECKOUT_PIN_REGEX.test(form.pin)) return { step: 2, field: 'pin', ref: pinRef, label: 'PIN Code', hint: 'Enter a valid PIN code' }
     if (typeof form.lat !== 'number' || typeof form.lng !== 'number') return { step: 2, field: 'location', ref: addressSectionRef, label: 'Location', hint: 'Use "Current location" or pick from Google suggestions' }
     // Landmark is optional - suggest it after required fields if still empty
     if (!form.landmark) return { step: 2, field: 'landmark', ref: landmarkRef, label: 'Landmark (optional)', hint: 'Add a nearby landmark for faster delivery', optional: true }
@@ -185,25 +180,20 @@ export default function Checkout() {
     if (ref) scrollToRef(ref)
   }, [scrollToRef, pushToast])
 
-  // Auto-track current step based on field being edited
-  const contactFields = ['name', 'phone', 'email', 'note']
-  const addressFields = ['addressLine1', 'addressLine2', 'city', 'state', 'pin', 'landmark', 'addressTag', 'addressPhone', 'lat', 'lng', 'placeId', 'mapUrl']
-  const paymentFields = ['paymentMethod']
-
   const update = useCallback((k, v) => {
     setForm((s) => ({ ...s, [k]: v }))
     // Clear targeted error as user edits that field
     setFieldError((prev) => (prev === k ? null : prev))
     // Auto-update current step indicator
-    if (contactFields.includes(k)) {
+    if (CHECKOUT_CONTACT_FIELDS.includes(k)) {
       setCurrentStep(1)
       setConfirmedSteps((prev) => (prev.contact ? { ...prev, contact: false } : prev))
     }
-    else if (addressFields.includes(k)) {
+    else if (CHECKOUT_ADDRESS_FIELDS.includes(k)) {
       setCurrentStep(2)
       setConfirmedSteps((prev) => (prev.address ? { ...prev, address: false } : prev))
     }
-    else if (paymentFields.includes(k)) setCurrentStep(3)
+    else if (CHECKOUT_PAYMENT_FIELDS.includes(k)) setCurrentStep(3)
   }, [])
   const handleAutocompleteSelect = useCallback((parts, place) => {
     if (!parts) return
@@ -458,6 +448,7 @@ export default function Checkout() {
 
     setOrderId(null)
     setLatestOrderSummary(null)
+    setShowOrderPlacedSuccess(false)
     setGeoError('')
 
     if (isLogout) {
@@ -641,7 +632,7 @@ export default function Checkout() {
         }
         setGettingLocation(false)
       },
-      (error) => {
+      () => {
         setGettingLocation(false)
         pushToast('Could not get GPS location. Please ensure location is enabled.', 'error', 5000)
       },
@@ -831,6 +822,42 @@ export default function Checkout() {
         ? { method: form.paymentMethod, gateway: 'razorpay', status: 'initiated' }
         : { method: 'cod', status: 'pending' }
 
+      const orderIdValue = await createOrder({
+        userId: user?.uid || null,
+        customer: {
+          name: form.name,
+          phone: form.phone,
+          email: form.email,
+          address: {
+            tag: addressTagValue,
+            name: addressTagValue,
+            line: addressLineCombined,
+            line1: form.addressLine1,
+            line2: form.addressLine2,
+            city: form.city,
+            state: form.state,
+            pin: form.pin,
+            landmark: form.landmark,
+            phone: form.addressPhone || form.phone,
+            lat,
+            lng,
+            ...(geoParts?.placeId || form.placeId ? { placeId: geoParts?.placeId || form.placeId } : {}),
+            ...(geoParts?.mapUrl || form.mapUrl ? { mapUrl: geoParts?.mapUrl || form.mapUrl } : {}),
+          },
+          note: form.note,
+          payment: paymentInfo,
+        },
+        items: entries.map(({ item, qty }) => ({
+          id: item.id,
+          name: item.name,
+          rate: item?.rate ?? item?.price ?? 0,
+          qty,
+        })),
+        totalAmount: Number(subtotal)
+      })
+
+      const firestoreOrderDocId = orderIdValue
+
       let razorpayOrderId = null
       if (isOnlinePayment) {
         // Use Vite-exposed public key (VITE_RAZORPAY_KEY_ID). Server-side secret remains in RAZORPAY_KEY_SECRET.
@@ -868,7 +895,9 @@ export default function Checkout() {
               contact: form.phone || ''
             },
             notes: {
-              cartSize: String(entries.length)
+              firestoreOrderId: firestoreOrderDocId, // the Firestore doc ID saved after placeOrder()
+              customerName: form.name,
+              customerPhone: form.phone,
             },
             theme: {
               color: '#F97316'
@@ -935,41 +964,8 @@ export default function Checkout() {
         paymentInfo.currency = razorpayOrder.currency
         paymentInfo.verified = true
       }
-
-      const orderIdValue = await createOrder({
-        userId: user?.uid || null,
-        customer: {
-          name: form.name,
-          phone: form.phone,
-          email: form.email,
-          address: {
-            tag: addressTagValue,
-            name: addressTagValue,
-            line: addressLineCombined,
-            line1: form.addressLine1,
-            line2: form.addressLine2,
-            city: form.city,
-            state: form.state,
-            pin: form.pin,
-            landmark: form.landmark,
-            phone: form.addressPhone || form.phone,
-            lat,
-            lng,
-            ...(geoParts?.placeId || form.placeId ? { placeId: geoParts?.placeId || form.placeId } : {}),
-            ...(geoParts?.mapUrl || form.mapUrl ? { mapUrl: geoParts?.mapUrl || form.mapUrl } : {}),
-          },
-          note: form.note,
-          payment: paymentInfo,
-        },
-        items: entries.map(({ item, qty }) => ({
-          id: item.id,
-          name: item.name,
-          rate: item?.rate ?? item?.price ?? 0,
-          qty,
-        })),
-        totalAmount: Number(subtotal)
-      })
       setOrderId(orderIdValue)
+      setShowOrderPlacedSuccess(true)
 
       // Send WhatsApp Bill
       try {
@@ -1013,12 +1009,14 @@ export default function Checkout() {
           setLatestOrderSummary({
             id: summary.orderNo || orderIdValue,
             payment: summary.payment || paymentInfo,
+            status: summary.status || 'placed',
             statusHistory: buildOrderStatusTimeline(summary),
           })
         } else {
           setLatestOrderSummary({
             id: orderIdValue,
             payment: paymentInfo,
+            status: 'placed',
             statusHistory: [{ status: 'placed', at: new Date(), actor: user?.uid ? `user:${user.uid}` : 'guest' }],
           })
         }
@@ -1026,6 +1024,7 @@ export default function Checkout() {
         setLatestOrderSummary({
           id: orderIdValue,
           payment: paymentInfo,
+          status: 'placed',
           statusHistory: [{ status: 'placed', at: new Date(), actor: user?.uid ? `user:${user.uid}` : 'guest' }],
         })
       }
@@ -1065,28 +1064,15 @@ export default function Checkout() {
   const step2Done = confirmedSteps.address
 
   const paymentOptions = CHECKOUT_PAYMENT_OPTIONS
-  const describePaymentMethod = (method) => {
-    const found = paymentOptions.find((opt) => opt.key === method)
-    return found ? found.label : (method ? method.toUpperCase() : 'Not set')
-  }
-  const paymentIsOnline = form.paymentMethod !== 'cod'
-  const locationOutsideRegion = (typeof form.lat === 'number') && (typeof form.lng === 'number') && !withinCheck.ok
   const addressSummary = [form.addressLine1, form.addressLine2, form.city, form.state, form.pin].filter(Boolean).join(', ')
-
-  const invalidHint = (() => {
-    if (isValid) return null
-    if (!form.name) return 'Add your full name to continue.'
-    if (!form.phone) return 'Add your phone number to continue.'
-    if (!phoneOk) return 'Phone number looks invalid. Please re-check it.'
-    if (!form.addressLine1) return 'Fill Address line 1 (House/Flat + Street).'
-    if (!form.addressLine2) return 'Fill Address line 2 (Area/Locality) and pick a suggestion.'
-    if (!form.pin) return 'Enter your PIN code to continue.'
-    if (!pinOk) return 'PIN code looks invalid. Please re-check it.'
-    if (typeof form.lat !== 'number' || typeof form.lng !== 'number') return 'Select your location: use “Use current location” or pick a suggestion in Address line 2.'
-    if (!withinRegion) return `Outside delivery area: we deliver within ${withinCheck.radiusKm} km of Durgapur. Please choose a closer address.`
-    if (!addressPhoneOk) return 'Address phone number looks invalid. Please re-check it.'
-    return 'Please check the highlighted fields.'
-  })()
+  const latestOrderStatus = String(latestOrderSummary?.status || 'placed').toLowerCase()
+  const latestOrderStatusLabel = latestOrderStatus.replace(/_/g, ' ')
+  const latestOrderDisplayId = latestOrderSummary?.id || orderId
+  const isCancelledOrRejected = latestOrderStatus === 'cancelled' || latestOrderStatus === 'rejected'
+  const latestOrderStatusIndex = CHECKOUT_ORDER_STATUS_FLOW.indexOf(latestOrderStatus)
+  const latestOrderProgressPercent = latestOrderStatusIndex === -1
+    ? 0
+    : Math.max(0, Math.min(100, Math.round((latestOrderStatusIndex / (CHECKOUT_ORDER_STATUS_FLOW.length - 1)) * 100)))
 
   const handleNext = async () => {
     if (currentStep === 1) {
@@ -1106,7 +1092,7 @@ export default function Checkout() {
             // Scroll to the lower button
             try {
                 gpsButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            } catch(e){/*ignore*/}
+            } catch {/*ignore*/}
             
             // Humble message
             pushToast('Please help us locate you better for hassle-free delivery!', 'info', 4000)
@@ -1167,17 +1153,41 @@ export default function Checkout() {
   // ── Render ──
   return (
     <div className="min-h-[90vh] flex items-center justify-center py-8 px-4 bg-base-200/30">
-      {orderId ? (
+      {showOrderPlacedSuccess && orderId ? (
         <div className="w-full max-w-md text-center space-y-4 animate-in zoom-in duration-300">
           <div className="rounded-2xl border border-base-300/60 bg-base-100/90 p-8 shadow-lg">
-            <div className="flex justify-center">
-              <span className="loading loading-spinner loading-lg text-primary" />
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 rounded-full bg-success/20 text-success flex items-center justify-center">
+                <MdCheck className="w-8 h-8" />
+              </div>
             </div>
-            <h3 className="font-bold text-lg mt-4">Taking you to your active order…</h3>
-            <div className="text-sm opacity-80 mt-1">Order ID: <span className="font-mono font-bold">{orderId}</span></div>
+            <h3 className="font-bold text-lg">Order placed successfully</h3>
+            <div className="text-sm opacity-80 mt-1">Order ID: <span className="font-mono font-bold">{latestOrderDisplayId}</span></div>
+            {isCancelledOrRejected ? (
+              <div className="mt-4 rounded-xl border border-error/30 bg-error/10 p-3">
+                <span className="badge badge-error capitalize">Order cancelled / rejected</span>
+                <p className="text-xs mt-2 opacity-80">Current status: {latestOrderStatusLabel}</p>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="uppercase tracking-[0.2em] opacity-60">Current status</span>
+                  <span className="badge badge-primary capitalize">{latestOrderStatusLabel}</span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-base-300/50 overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-primary to-secondary transition-all" style={{ width: `${latestOrderProgressPercent}%` }} />
+                </div>
+                <div className="flex justify-between text-[10px] uppercase tracking-[0.2em] opacity-60">
+                  {CHECKOUT_ORDER_STATUS_FLOW.map((step) => (
+                    <span key={step} className={latestOrderStatus === step ? 'text-primary font-semibold' : ''}>{step}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="text-xs opacity-70 mt-4">Redirecting to order tracking…</p>
           </div>
           <button className="btn btn-primary btn-wide rounded-xl" onClick={() => navigate(`/active-orders?id=${encodeURIComponent(orderId)}`, { replace: true })}>
-            View order status
+            View order status now
           </button>
         </div>
       ) : entries.length === 0 ? (
@@ -1372,6 +1382,12 @@ export default function Checkout() {
                                     </div>
                                   )}
                                 </div>
+                                {(fieldError === 'location' || geoError) && (
+                                  <div className="space-y-1">
+                                    {fieldError === 'location' && <p className="text-error text-xs mt-1">Please share your current location.</p>}
+                                    {geoError && <p className="text-error text-xs mt-1">{geoError}</p>}
+                                  </div>
+                                )}
                                 
                                 {hasSavedAddresses && (
                                     <button type="button" className="btn btn-xs btn-link text-base-content no-underline opacity-60 hover:opacity-100 mx-auto block" onClick={() => setShowAddressForm(false)}>
@@ -1399,12 +1415,20 @@ export default function Checkout() {
                             </div>
                             <div className="collapse-content text-xs space-y-3">
                                 {entries.map(({ item, qty }) => (
-                                    <div key={item.id} className="flex justify-between items-center">
-                                        <div className="flex items-center gap-2">
+                                    <div key={item.id} className="flex justify-between items-center gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
                                             <span className="font-bold bg-base-200 px-1.5 py-0.5 rounded">{qty}x</span>
-                                            <span>{item.name}</span>
+                                            <span className="truncate">{item.name}</span>
                                         </div>
-                                    <span>₹{Number(item?.rate ?? item?.price ?? 0) * qty}</span>
+                                        <div className="flex items-center gap-1">
+                                            <div className="join join-horizontal">
+                                                <button type="button" className="btn btn-xs join-item" onClick={() => qty > 1 ? setQty(item.id, qty - 1) : remove(item.id)}>{qty > 1 ? '-' : 'x'}</button>
+                                                <span className="btn btn-xs join-item no-animation pointer-events-none min-w-[1.8rem]">{qty}</span>
+                                                <button type="button" className="btn btn-xs join-item" onClick={() => setQty(item.id, qty + 1)}>+</button>
+                                            </div>
+                                            <button type="button" className="btn btn-ghost btn-xs text-error" onClick={() => remove(item.id)}>Remove</button>
+                                        </div>
+                                        <span className="min-w-[4.5rem] text-right">₹{Number(item?.rate ?? item?.price ?? 0) * qty}</span>
                                     </div>
                                 ))}
                                 <div className="divider my-1"></div>

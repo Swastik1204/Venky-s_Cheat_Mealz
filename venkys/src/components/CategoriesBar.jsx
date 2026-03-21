@@ -1,11 +1,10 @@
 // CategoriesBar — Horizontal scrollable category navigation strip
 import { useRef, useState, useEffect, memo, useCallback } from 'react'
 
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 
 function CategoriesBarInner({ items = [] }) {
   const scrollerRef = useRef(null)
-  const navigate = useNavigate()
   const location = useLocation()
   const [showLeft, setShowLeft] = useState(false)
   const [showRight, setShowRight] = useState(false)
@@ -52,7 +51,7 @@ function CategoriesBarInner({ items = [] }) {
     window.addEventListener('resize', onScroll)
     const t = setTimeout(() => setPulse(false), 2600)
     return () => { el.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); clearTimeout(t) }
-  }, [])
+  }, [updateArrows])
 
   // Center active category when the hash changes (from search or nav)
   useEffect(() => {
