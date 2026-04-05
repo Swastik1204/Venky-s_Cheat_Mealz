@@ -172,3 +172,27 @@ export async function setDefaultAddress(uid, id) {
   const ref = doc(db, 'users', uid, 'meta', 'addresses')
   await setDoc(ref, { defaultId: id, updatedAt: serverTimestamp() }, { merge: true })
 }
+
+export function getProfileCompletion(profile) {
+  const p = profile && typeof profile === 'object' ? profile : {}
+  const addresses = (() => {
+    if (Array.isArray(p.addresses)) return p.addresses
+    if (p.addresses && Array.isArray(p.addresses.list)) return p.addresses.list
+    if (Array.isArray(p.savedAddresses)) return p.savedAddresses
+    return []
+  })()
+
+  const checks = [
+    { ok: !!String(p.displayName || '').trim(), label: 'Display name' },
+    { ok: !!String(p.phone || '').replace(/\D/g, '').trim(), label: 'Phone number' },
+    { ok: !!String(p.email || '').trim(), label: 'Email address' },
+    { ok: !!String(p.photoURL || '').trim(), label: 'Profile photo' },
+    { ok: addresses.length > 0, label: 'Saved address' },
+  ]
+
+  const filled = checks.filter((c) => c.ok).length
+  return {
+    percent: Math.max(0, Math.min(100, filled * 20)),
+    missing: checks.filter((c) => !c.ok).map((c) => c.label),
+  }
+}

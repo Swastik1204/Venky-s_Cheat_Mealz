@@ -9,6 +9,13 @@ import { verifyAuth } from './lib/verifyAuth.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'send-order-messenger' })
 
+function maskPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (!digits) return 'unknown'
+  if (digits.length <= 4) return digits
+  return `***${digits.slice(-4)}`
+}
+
 export default async function handler(req, res) {
   const allow = process.env.CORS_ORIGIN || ''
   const origin = req.headers?.origin || ''
@@ -59,6 +66,7 @@ export default async function handler(req, res) {
 
     const digits = String(phone || '').replace(/\D/g, '')
     if (digits.length !== 10) {
+      console.warn('[WA_TRIGGER_B_ORDER_MESSENGER] invalid_phone', { receivedLength: digits.length })
       res.status(400).json({ error: 'invalid_phone', expected: '10_digits', receivedLength: digits.length })
       return
     }
@@ -74,6 +82,12 @@ export default async function handler(req, res) {
 
     const templateName = (process.env.WA_TEMPLATE_ORDER_MESSENGER_NAME || 'venkys_order_messenger').trim()
     const templateLang = (process.env.WA_TEMPLATE_ORDER_MESSENGER_LANG || 'en').trim()
+    console.info('[WA_TRIGGER_B_ORDER_MESSENGER] start', {
+      to: maskPhone(to),
+      customerName: name,
+      templateName,
+      templateLang,
+    })
 
     const url = `https://graph.facebook.com/${waApiVersion}/${phoneNumberId}/messages`
     const body = {
@@ -108,6 +122,7 @@ export default async function handler(req, res) {
     const data = await r.json().catch(() => ({}))
 
     if (!r.ok) {
+      console.error('[WA_TRIGGER_B_ORDER_MESSENGER] failed', { to: maskPhone(to), status: r.status })
       res.status(r.status || 400).json({
         __error: 'wa_http_error',
         status: r.status,
@@ -117,6 +132,7 @@ export default async function handler(req, res) {
       return
     }
 
+    console.info('[WA_TRIGGER_B_ORDER_MESSENGER] success', { to: maskPhone(to), templateName })
     res.status(200).json({ ok: true, data })
   } catch (e) {
     console.error('[send-order-messenger] Error:', e)

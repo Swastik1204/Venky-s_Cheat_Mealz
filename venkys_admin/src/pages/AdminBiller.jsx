@@ -2,11 +2,11 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 
 import { useNavigate } from 'react-router-dom'
-import { MdPayment, MdQrCode, MdCreditCard, MdHistory, MdSearch, MdKeyboardReturn, MdRestaurantMenu } from 'react-icons/md'
+import { MdPayment, MdQrCode, MdSearch, MdKeyboardReturn, MdRestaurantMenu } from 'react-icons/md'
 
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, fetchAllOrders, updateOrder, sendWhatsAppInvoice, fetchAppSettings, getRandomOtp, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
+import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, updateOrder, sendWhatsAppInvoice, getRandomOtp, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
 
 const PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash', helper: 'Collect cash at counter', icon: MdPayment },
@@ -23,59 +23,6 @@ function normalizePaymentMethod(method) {
 
 function formatPaymentMethod(method) {
   return PAYMENT_LABELS[method] || (method ? method.toUpperCase() : 'Unknown')
-}
-
-function timestampToDate(value) {
-  if (!value) return null
-  if (typeof value.toDate === 'function') return value.toDate()
-  if (typeof value === 'number') return new Date(value)
-  if (typeof value === 'string') {
-    const parsed = Date.parse(value)
-    return Number.isNaN(parsed) ? null : new Date(parsed)
-  }
-  if (typeof value === 'object' && typeof value.seconds === 'number') {
-    return new Date(value.seconds * 1000)
-  }
-  return null
-}
-
-function getStatusHistory(order) {
-  if (!order || !Array.isArray(order.statusHistory)) return []
-  const sorted = [...order.statusHistory].sort((a, b) => {
-    const da = timestampToDate(a?.at)?.getTime() ?? 0
-    const db = timestampToDate(b?.at)?.getTime() ?? 0
-    return da - db
-  })
-  return sorted.map((entry) => ({
-    status: entry?.status || order.status || 'placed',
-    at: timestampToDate(entry?.at) || timestampToDate(order.updatedAt) || timestampToDate(order.createdAt) || new Date(),
-    actor: entry?.actor || 'system',
-  }))
-}
-
-function getLatestStatus(order) {
-  const history = getStatusHistory(order)
-  if (history.length) return history[history.length - 1]
-  return {
-    status: order?.status || 'placed',
-    at: timestampToDate(order?.updatedAt) || timestampToDate(order?.createdAt) || null,
-    actor: order?.customer?.servedBy || 'system',
-  }
-}
-
-function statusBadgeClass(status) {
-  switch ((status || '').toLowerCase()) {
-    case 'ready':
-      return 'badge-success'
-    case 'preparing':
-      return 'badge-warning'
-    case 'delivered':
-      return 'badge-primary'
-    case 'rejected':
-      return 'badge-error'
-    default:
-      return 'badge-ghost'
-  }
 }
 
 function paymentStatusBadge(status) {
@@ -102,8 +49,6 @@ export default function AdminBiller() {
   const [q, setQ] = useState('')
   const [bill, setBill] = useState({})
   const [payMethod, setPayMethod] = useState('cod')
-  const [loading, setLoading] = useState(true)
-  const [openCats, setOpenCats] = useState(() => new Set())
   const [guestMode, setGuestMode] = useState(false)
   const [activeContactField, setActiveContactField] = useState(null) // 'name' | 'phone' | null
   const [contactSuggestions, setContactSuggestions] = useState([])
@@ -152,13 +97,9 @@ export default function AdminBiller() {
   const [recent, setRecent] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(null)
-  const [successPhone, setSuccessPhone] = useState('')
   const [editOrder, setEditOrder] = useState(null)
-  const [showAllOrders, setShowAllOrders] = useState(false)
-  const [allOrders, setAllOrders] = useState([])
-  const [viewOrder, setViewOrder] = useState(null)
-  const [confettiActive, setConfettiActive] = useState(false)
-  const [appSettings, setAppSettings] = useState({ adminMobile: '' })
+  const [razorpayMode, setRazorpayMode] = useState('unknown')
+  const [razorpayKeyHint, setRazorpayKeyHint] = useState('')
 
   const [showCalc, setShowCalc] = useState(false)
   const [calcExpr, setCalcExpr] = useState('')
@@ -173,7 +114,6 @@ export default function AdminBiller() {
   // ── Data loading ──
   useEffect(() => {
     let mounted = true
-    fetchAppSettings().then((s) => { if (mounted) setAppSettings(s) }).catch(()=>{})
     fetchMenuCategories().then((cats) => {
       if (!mounted) return
       const flat = cats.flatMap((c) => (Array.isArray(c.items) ? c.items : []).map((it, idx) => ({
@@ -246,7 +186,7 @@ export default function AdminBiller() {
           setImageMap(map || {})
         }).catch(err => console.warn('Failed to fetch images', err))
       }
-    }).finally(() => mounted && setLoading(false))
+    })
     return () => { mounted = false }
   }, [])
 
@@ -261,6 +201,28 @@ export default function AdminBiller() {
     setRecent(list)
   }
   useEffect(() => { refreshRecent() }, [])
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const keyId = String((await getRazorpayKeyId()) || '').trim()
+        if (!mounted) return
+        if (!keyId) {
+          setRazorpayMode('missing')
+          setRazorpayKeyHint('')
+          return
+        }
+        setRazorpayMode(keyId.startsWith('rzp_test_') ? 'test' : 'live')
+        setRazorpayKeyHint(keyId.slice(0, 12))
+      } catch {
+        if (!mounted) return
+        setRazorpayMode('missing')
+        setRazorpayKeyHint('')
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
 
   // Contact suggestions (from recent POS orders) driven by the active input
   useEffect(() => {
@@ -300,16 +262,6 @@ export default function AdminBiller() {
     setContactSuggestions(matches)
     setShowContactDropdown(matches.length > 0)
   }, [activeContactField, customerDetails.name, customerDetails.phone, recent])
-
-  useEffect(() => {
-    if (success) {
-      setConfettiActive(true)
-      const t = setTimeout(() => setConfettiActive(false), 3000)
-      return () => clearTimeout(t)
-    } else {
-      setConfettiActive(false)
-    }
-  }, [success])
 
   const toDataUrl = (str) => {
     const clean = String(str || '').trim()
@@ -389,13 +341,6 @@ export default function AdminBiller() {
     return groups
   }, [filtered, catsMeta, q])
 
-  useEffect(() => {
-    const term = q.trim()
-    if (!term) { setOpenCats(new Set()); return }
-    const first = grouped.length ? grouped[0].id : null
-    setOpenCats(first ? new Set([first]) : new Set())
-  }, [q, grouped])
-
   // ── Bill handlers ──
   function addLine(it) {
     setBill((prev) => {
@@ -404,7 +349,6 @@ export default function AdminBiller() {
       const qty = (cur?.qty || 0) + 1
       return { ...prev, [key]: { item: it, qty } }
     })
-    if (q.trim()) setOpenCats(new Set())
   }
   function decLine(key) {
     setBill((prev) => {
@@ -464,6 +408,10 @@ export default function AdminBiller() {
            const otpDoc = await getRandomOtp()
            const code = otpDoc?.code || String(Math.floor(1000 + Math.random() * 9000))
            setExpectedOtp(code)
+           console.info('[WA_TRIGGER_C_BILLER_OTP] generated_for_order', {
+             orderRef: editOrder?.orderNo || 'new_order',
+             otpLength: String(code).length,
+           })
 
            // Place order immediately; OTP will be sent to Cash Manager and verified in Orders page.
            await submitBill({ otpVerified: false, navigateToOrders: true, otpValue: code })
@@ -532,7 +480,7 @@ export default function AdminBiller() {
              orderId: razorpayOrder.orderId,
            }
 
-           await submitBill({ otpVerified: true, navigateToOrders: true, paymentOverride })
+           await submitBill({ otpVerified: true, navigateToOrders: false, paymentOverride })
          } catch (e) {
            console.error('Online payment failed', e)
            pushToast(e.message || 'Online payment failed', 'error')
@@ -577,6 +525,12 @@ export default function AdminBiller() {
 
         const effectiveOtp = otpValue || expectedOtp
         const shouldAttachOtp = payMethod === 'cod' && !!effectiveOtp
+        if (shouldAttachOtp) {
+          console.info('[WA_TRIGGER_C_BILLER_OTP] attached_to_order_payload', {
+            orderRef: createdOrderNo,
+            otpVerified,
+          })
+        }
         const otpMeta = shouldAttachOtp ? {
           cashManagerOtp: effectiveOtp,
           cashManagerOtpFor: 'dine-in-cod',
@@ -599,7 +553,15 @@ export default function AdminBiller() {
           ...guestMeta,
           ...otpMeta,
         })
-        setSuccess({ id, orderNo: createdOrderNo, items: orderItems, subtotal, total: grandTotal, payment })
+        setSuccess({
+          id,
+          orderNo: createdOrderNo,
+          items: orderItems,
+          subtotal,
+          totalAmount: grandTotal,
+          payment,
+          createdAt: new Date().toISOString(),
+        })
         pushToast(`Bill created #${createdOrderNo}`, 'success')
         await refreshRecent()
 
@@ -635,13 +597,29 @@ export default function AdminBiller() {
             ]
           }
           try { 
+            console.info('[WA_TRIGGER_BILLER_CUSTOMER_INVOICE] start', {
+              orderRef: finalOrderNo || editOrder?.id || 'unknown',
+              phoneLast4: String(phoneRaw || '').replace(/\D/g, '').slice(-4),
+            })
             const res = await sendWhatsAppInvoice(phoneRaw, payload)
             if (res?.__error) {
                console.warn('WhatsApp invoice failed', res)
+               console.warn('[WA_TRIGGER_BILLER_CUSTOMER_INVOICE] failed_non_blocking', {
+                 orderRef: finalOrderNo || editOrder?.id || 'unknown',
+                 reason: res.message || res.__error,
+               })
                pushToast('WhatsApp invoice failed: ' + (res.message || res.__error), 'warning')
+            } else {
+               console.info('[WA_TRIGGER_BILLER_CUSTOMER_INVOICE] success', {
+                 orderRef: finalOrderNo || editOrder?.id || 'unknown',
+               })
             }
           } catch (e) { 
             console.warn('WhatsApp invoice failed', e)
+            console.warn('[WA_TRIGGER_BILLER_CUSTOMER_INVOICE] error_non_blocking', {
+              orderRef: finalOrderNo || editOrder?.id || 'unknown',
+              error: e?.message || String(e),
+            })
             pushToast('WhatsApp invoice failed', 'warning')
           }
       }
@@ -649,17 +627,11 @@ export default function AdminBiller() {
       setCheckoutStep(0)
       setCustomerDetails({ name: '', phone: '' })
       setExpectedOtp(null)
-      clearBill(); setQ(''); setSuccessPhone('')
+      clearBill(); setQ('')
     } catch (e) {
       console.error('submitBill failed', e)
       pushToast(e.message || 'Failed to create bill', 'error')
     } finally { setSubmitting(false) }
-  }
-
-  async function loadAllOrders() {
-    const res = await fetchAllOrders()
-    const list = Array.isArray(res?.orders) ? res.orders : Array.isArray(res) ? res : []
-    setAllOrders(list)
   }
 
   // ── Calculator ──
@@ -708,8 +680,19 @@ export default function AdminBiller() {
     } catch { setCalcExpr('Err') }
   }
 
-  const viewOrderHistory = viewOrder ? getStatusHistory(viewOrder) : []
-  const viewOrderPayment = viewOrder?.payment || null
+  function startNewBill() {
+    setSuccess(null)
+    setCheckoutStep(0)
+    setExpectedOtp(null)
+    setCustomerDetails({ name: '', phone: '' })
+    setGuestMode(false)
+    setPayMethod('cod')
+    setSelectedCategory(null)
+    setActiveContactField(null)
+    setShowContactDropdown(false)
+    clearBill()
+    setQ('')
+  }
 
   // ── Render ──
   return (
@@ -721,6 +704,22 @@ export default function AdminBiller() {
           <button className="btn btn-ghost btn-sm" onClick={() => setShowCalc(s => !s)} title="Calculator">🧮</button>
         </div>
       </div>
+
+      {success && (
+        <div className="alert alert-success mb-4 shadow-sm">
+          <div className="w-full flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="font-semibold">Bill created successfully</div>
+              <div className="text-sm opacity-80">Order #{success.orderNo} | Total: ₹{success.totalAmount ?? success.subtotal ?? 0} | Payment: {formatPaymentMethod(success.payment?.method || payMethod)}</div>
+              <div className="mt-1"><span className={`badge badge-sm ${paymentStatusBadge(success.payment?.status || 'paid')}`}>{(success.payment?.status || 'paid').toUpperCase()}</span></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button className="btn btn-sm" onClick={() => navigate('/admin/orders', { state: { highlightOrderId: success.orderNo, autoOpen: true } })}>View Order</button>
+              <button className="btn btn-sm btn-primary" onClick={startNewBill}>New Bill</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div className="mb-4 relative">
@@ -1043,6 +1042,14 @@ export default function AdminBiller() {
                         <div className="text-left">
                            <div className="font-bold">{opt.label}</div>
                            <div className="text-xs font-normal opacity-70">{opt.helper}</div>
+                      {opt.key === 'online' && (
+                        <div className="mt-1 flex items-center gap-2">
+                         <span className={`badge badge-xs ${razorpayMode === 'test' ? 'badge-warning' : razorpayMode === 'live' ? 'badge-success' : 'badge-error'}`}>
+                          {razorpayMode === 'test' ? 'TEST MODE' : razorpayMode === 'live' ? 'LIVE MODE' : 'NOT CONFIGURED'}
+                         </span>
+                         {razorpayKeyHint ? <span className="text-[10px] opacity-70">{razorpayKeyHint}...</span> : null}
+                        </div>
+                      )}
                         </div>
                      </button>
                   ))}
@@ -1057,79 +1064,6 @@ export default function AdminBiller() {
             </div>
           </div>
         </dialog>
-      )}
-
-      {/* Success Modal */}
-      {success && (
-        <div className="fixed inset-0 z-[80]">
-          {confettiActive && (
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <div className="confetti">
-                {Array.from({ length: 120 }).map((_, i) => {
-                  const left = Math.random() * 100
-                  const delay = Math.random() * 0.6
-                  const duration = 2.6 + Math.random() * 2
-                  const colors = ['#f59e0b','#ef4444','#22c55e','#3b82f6','#eab308']
-                  const bg = colors[i % colors.length]
-                  const style = { left: `${left}%`, backgroundColor: bg, animationDuration: `${duration}s`, animationDelay: `${delay}s` }
-                  return <span key={i} style={style}></span>
-                })}
-              </div>
-            </div>
-          )}
-          <div className="absolute inset-0 bg-black/50" onClick={()=>setSuccess(null)} />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="bg-base-100 rounded-xl shadow-2xl w-full max-w-md border border-primary/40">
-              <div className="p-4 border-b flex items-center justify-between">
-                <div className="font-semibold">Order Placed</div>
-                <button className="btn btn-ghost btn-xs" onClick={()=>setSuccess(null)}>✕</button>
-              </div>
-              <div className="p-4">
-                <div className="text-center mb-3">
-                  <div className="text-lg font-bold">{BRAND_LONG}</div>
-                  <div className="text-xs opacity-70">Dine-in | POS</div>
-                </div>
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <div>Order #</div>
-                  <div className="font-mono font-semibold">{success.orderNo}</div>
-                </div>
-                <div className="flex items-center justify-between text-xs opacity-70 mb-3">
-                  <div>{new Date().toLocaleDateString()}</div>
-                  <div>{new Date().toLocaleTimeString()}</div>
-                </div>
-                <div className="divider my-2" />
-                <div className="space-y-1 mb-2">
-                  {(success.items && success.items.length > 0) ? success.items.map((it, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-sm">
-                      <div className="truncate mr-2">{it.name} <span className="opacity-60">× {it.qty}</span></div>
-                      <div>₹{(Number(it.rate ?? it.price) || 0) * Number(it.qty||0)}</div>
-                    </div>
-                  )) : (
-                    <div className="text-xs opacity-70">Items saved with order.</div>
-                  )}
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="opacity-80">Subtotal</div>
-                  <div>₹{success.subtotal ?? 0}</div>
-                </div>
-                <div className="flex items-center justify-between font-semibold">
-                  <div>Total</div>
-                  <div>₹{success.total ?? success.subtotal ?? 0}</div>
-                </div>
-                <div className="mt-3 flex items-center justify-between">
-                  <div>
-                    <div className="text-xs uppercase opacity-70">Payment</div>
-                    <div className="font-semibold">{formatPaymentMethod(success.payment?.method || payMethod)}</div>
-                  </div>
-                  <span className={`badge ${paymentStatusBadge(success.payment?.status || 'paid')}`}>{(success.payment?.status || 'paid').toUpperCase()}</span>
-                </div>
-                <div className="mt-4 text-center">
-                  <button className="btn btn-primary" onClick={()=>setSuccess(null)}>Done</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   )

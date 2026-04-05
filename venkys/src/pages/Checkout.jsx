@@ -1,7 +1,7 @@
 // Checkout — Order checkout flow with address, payment, and confirmation
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore'
 import { useNavigate } from 'react-router-dom'
 import { MdPlace, MdLocalPhone, MdEmail, MdGpsFixed, MdLocationCity, MdPinDrop, MdPerson, MdApartment, MdMap, MdPayment, MdCreditCard, MdQrCode, MdBookmark, MdAdd, MdArrowForward, MdCheck, MdEdit } from 'react-icons/md'
 
@@ -28,6 +28,24 @@ const CHECKOUT_ADDRESS_FIELDS = ['addressLine1', 'addressLine2', 'city', 'state'
 const CHECKOUT_PAYMENT_FIELDS = ['paymentMethod']
 
 // ── Helpers ──
+
+function normalizeLocationSource(source) {
+  return source === 'gps' || source === 'places' ? source : 'manual'
+}
+
+function buildGooglePinUrl(lat, lng) {
+  return typeof lat === 'number' && typeof lng === 'number'
+    ? `https://www.google.com/maps?q=${lat},${lng}`
+    : ''
+}
+
+function inferAddressLocationSource(address) {
+  const explicit = normalizeLocationSource(address?.locationSource)
+  if (explicit !== 'manual') return explicit
+  if (address?.placeId) return 'places'
+  if (typeof address?.lat === 'number' && typeof address?.lng === 'number') return 'gps'
+  return 'manual'
+}
 
 function checkoutTimestampToDate(value) {
   if (!value) return null
@@ -99,6 +117,8 @@ export default function Checkout() {
   const [currentStep, setCurrentStep] = useState(1) // 1=contact, 2=address, 3=payment
   const [confirmedSteps, setConfirmedSteps] = useState({ contact: false, address: false })
   const [highlightGPSButton, setHighlightGPSButton] = useState(false)
+  const [locationSource, setLocationSource] = useState('manual')
+  const [locationPermissionDenied, setLocationPermissionDenied] = useState(false)
 
   // Location share enforcement
   const [locationVerifiedByButton, setLocationVerifiedByButton] = useState(false)
@@ -211,6 +231,8 @@ export default function Checkout() {
     if (typeof parts.lng === 'number') update('lng', parts.lng)
     if (parts.placeId) update('placeId', parts.placeId)
     if (parts.mapUrl) update('mapUrl', parts.mapUrl)
+    setLocationSource('places')
+    setLocationPermissionDenied(false)
     // Clear GPS button highlight since location is now set
     setHighlightGPSButton(false)
   }, [update])
@@ -228,6 +250,8 @@ export default function Checkout() {
       placeId: '',
       mapUrl: '',
     }))
+    setLocationSource('manual')
+    setLocationPermissionDenied(false)
     setFieldError((prev) => (prev === 'addressLine2' ? null : prev))
     setCurrentStep(2)
   }, [])
@@ -249,6 +273,8 @@ export default function Checkout() {
       placeId: a.placeId || '',
       mapUrl: a.mapUrl || '',
     }))
+    setLocationSource(inferAddressLocationSource(a))
+    setLocationPermissionDenied(false)
     setActiveAddressId(a.id || null)
     setShowAddressForm(false)
     setSetAsDefault(false)
@@ -290,6 +316,8 @@ export default function Checkout() {
       placeId: '',
       mapUrl: '',
     }))
+    setLocationSource('manual')
+    setLocationPermissionDenied(false)
   }, [addresses, setGeoError, setForm, setActiveAddressId, setShowAddressForm, setSetAsDefault])
   const ensureRazorpay = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -491,6 +519,7 @@ export default function Checkout() {
   // ── Handlers ──
   const handleAutoFillLocation = useCallback(async () => {
     setLocationVerifiedByButton(true)
+    setLocationPermissionDenied(false)
     if (typeof window === 'undefined' || !('geolocation' in navigator)) {
       setShowAddressForm(true)
       setFieldError('location')
@@ -520,9 +549,8 @@ export default function Checkout() {
       setGettingLocation(false)
       setShowAddressForm(true)
       setFieldError('location')
-      const msg = 'Location permission is OFF. Turn it ON in browser settings, then tap “Use current location” again.'
-      setGeoError(msg)
-      pushToast(msg, 'error', 5000)
+      setLocationPermissionDenied(true)
+      setGeoError('')
       if (addressSectionRef.current) {
         try { addressSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch { void 0 }
       }
@@ -535,6 +563,9 @@ export default function Checkout() {
         const { latitude, longitude } = pos.coords
         update('lat', latitude)
         update('lng', longitude)
+        update('mapUrl', buildGooglePinUrl(latitude, longitude))
+        setLocationSource('gps')
+        setLocationPermissionDenied(false)
         setGeoError('')
         setHighlightGPSButton(false)
         
@@ -578,26 +609,22 @@ export default function Checkout() {
       },
       (error) => {
         setGettingLocation(false)
-        if (error.code === error.PERMISSION_DENIED) {
+        if (error?.code === 1) {
           setFieldError('location')
-          const msg = 'Location permission was denied. Please allow location access or type your address manually.'
+          setLocationPermissionDenied(true)
+          setGeoError('')
+        } else if (error?.code === 2 || error?.code === 3) {
+          setFieldError('location')
+          const msg = 'Could not get your location. Please try again or pick from the map.'
           setGeoError(msg)
           pushToast(msg, 'error', 5000)
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          setFieldError('location')
-          const msg = 'Could not get your location. Please check GPS/location settings or type your address manually.'
-          setGeoError(msg)
-          pushToast(msg, 'error', 5000)
-        } else if (error.code === error.TIMEOUT) {
-          setFieldError('location')
-          const msg = 'Location request timed out. Please try again.'
-          setGeoError(msg)
-          pushToast(msg, 'error', 5000)
+          setLocationPermissionDenied(false)
         } else {
           setFieldError('location')
-          const msg = 'Could not fetch your location. Please type your address manually.'
+          const msg = 'Could not get your location. Please try again or pick from the map.'
           setGeoError(msg)
           pushToast(msg, 'error', 5000)
+          setLocationPermissionDenied(false)
         }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -606,6 +633,7 @@ export default function Checkout() {
 
   const handleGPSOnly = useCallback(async () => {
     setLocationVerifiedByButton(true)
+    setLocationPermissionDenied(false)
     if (typeof window === 'undefined' || !('geolocation' in navigator)) {
       pushToast('Location is not available in this browser.', 'error', 5000)
       return
@@ -619,6 +647,9 @@ export default function Checkout() {
         const { latitude, longitude } = pos.coords
         update('lat', latitude)
         update('lng', longitude)
+        update('mapUrl', buildGooglePinUrl(latitude, longitude))
+        setLocationSource('gps')
+        setLocationPermissionDenied(false)
         setHighlightGPSButton(false)
         
         // Check if within delivery region
@@ -632,9 +663,16 @@ export default function Checkout() {
         }
         setGettingLocation(false)
       },
-      () => {
+      (error) => {
         setGettingLocation(false)
-        pushToast('Could not get GPS location. Please ensure location is enabled.', 'error', 5000)
+        if (error?.code === 1) {
+          setFieldError('location')
+          setLocationPermissionDenied(true)
+          setGeoError('')
+          return
+        }
+        pushToast('Could not get your location. Please try again or pick from the map.', 'error', 5000)
+        setLocationPermissionDenied(false)
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     )
@@ -682,6 +720,10 @@ export default function Checkout() {
         console.warn('[checkout] geocode fallback failed', err)
       }
     }
+
+    const generatedMapUrl = buildGooglePinUrl(lat, lng)
+    const resolvedAddressMapUrl = (geoParts?.mapUrl || form.mapUrl || generatedMapUrl || '').trim()
+    const resolvedLocationSource = normalizeLocationSource(locationSource)
 
     const phoneRegex = /^\+?[0-9]{7,15}$/
     const pinRegex = /^[0-9]{4,8}$/
@@ -762,7 +804,7 @@ export default function Checkout() {
           lng,
         }
         const placeIdSource = geoParts?.placeId || form.placeId
-        const mapUrlSource = geoParts?.mapUrl || form.mapUrl
+        const mapUrlSource = resolvedAddressMapUrl
         const normalized = (value) => (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
         const match = (addresses?.list || []).find(a => {
           if (placeIdSource && a.placeId && a.placeId === placeIdSource) return true
@@ -842,7 +884,8 @@ export default function Checkout() {
             lat,
             lng,
             ...(geoParts?.placeId || form.placeId ? { placeId: geoParts?.placeId || form.placeId } : {}),
-            ...(geoParts?.mapUrl || form.mapUrl ? { mapUrl: geoParts?.mapUrl || form.mapUrl } : {}),
+            ...(resolvedAddressMapUrl ? { mapUrl: resolvedAddressMapUrl } : {}),
+            locationSource: resolvedLocationSource,
           },
           note: form.note,
           payment: paymentInfo,
@@ -855,6 +898,17 @@ export default function Checkout() {
         })),
         totalAmount: Number(subtotal)
       })
+
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        const orderMapUrl = resolvedAddressMapUrl || buildGooglePinUrl(lat, lng)
+        if (orderMapUrl) {
+          try {
+            await updateDoc(doc(db, 'orders', orderIdValue), { mapUrl: orderMapUrl })
+          } catch (err) {
+            console.warn('[checkout] Failed to persist root order mapUrl', err)
+          }
+        }
+      }
 
       const firestoreOrderDocId = orderIdValue
 
@@ -982,12 +1036,22 @@ export default function Checkout() {
           totalAmount: Number(subtotal),
           orderType: 'delivery'
         }
+        console.info('[WA_TRIGGER_A_CHECKOUT_BILL] queued', {
+          orderRef: orderIdValue,
+          phone: String(form.phone || '').replace(/\D/g, '').slice(-4),
+        })
         sendBillToCustomer(billOrder)
           .then(res => {
-             if (res?.__error) pushToast('WhatsApp confirmation failed: ' + (res.message || res.__error), 'warning')
+             if (res?.__error) {
+               console.warn('[WA_TRIGGER_A_CHECKOUT_BILL] failed_non_blocking', { orderRef: orderIdValue, reason: res.message || res.__error })
+               pushToast('WhatsApp confirmation failed: ' + (res.message || res.__error), 'warning')
+               return
+             }
+             console.info('[WA_TRIGGER_A_CHECKOUT_BILL] success', { orderRef: orderIdValue })
           })
           .catch(err => {
              console.warn('Failed to send WhatsApp bill', err)
+             console.warn('[WA_TRIGGER_A_CHECKOUT_BILL] error_non_blocking', { orderRef: orderIdValue, error: err?.message || String(err) })
              pushToast('WhatsApp confirmation failed', 'warning')
           })
       } catch (e) {
@@ -1291,6 +1355,19 @@ export default function Checkout() {
                                         <div className="flex justify-between items-end">
                                             <p className="text-xs opacity-70 leading-relaxed pl-6 flex-1 cursor-pointer" onClick={() => { fillFromAddress(a); setShowAddressForm(true); }}>{[a.line1, a.line2, a.city, a.pin].filter(Boolean).join(', ')}</p>
                                         </div>
+                                        {typeof a.lat === 'number' && typeof a.lng === 'number' && (
+                                          <div className="pl-6 pt-2">
+                                            <a
+                                              href={buildGooglePinUrl(a.lat, a.lng)}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="btn btn-xs btn-ghost"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              📍 View on map
+                                            </a>
+                                          </div>
+                                        )}
                                     </div>
                                 ))}
                                 <button onClick={handleStartNewAddress} className="btn btn-outline btn-block border-dashed border-base-300 hover:border-primary hover:bg-primary/5 normal-case gap-2 rounded-xl mt-2">
@@ -1322,6 +1399,21 @@ export default function Checkout() {
                                         <MdGpsFixed className="animate-bounce" /> Press to Auto-fill via GPS
                                     </span>
                                 </button>
+                                {locationPermissionDenied && (
+                                  <div className="alert alert-warning mt-3">
+                                    <div className="flex-1">
+                                      <div className="font-semibold">Location access blocked</div>
+                                      <div className="text-sm mt-1">To share your location, tap the 🔒 icon in your browser's address bar, go to Site settings → Location, and set it to Allow. Then refresh the page.</div>
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-warning mt-3"
+                                        onClick={() => location.reload()}
+                                      >
+                                        I've enabled it — try again
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
                                 
                                 <div className="form-control w-full">
                                     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border ${fieldError === 'landmark' ? 'border-error' : 'border-transparent'} focus-within:border-primary/50 focus-within:bg-base-100 transition-all`}>

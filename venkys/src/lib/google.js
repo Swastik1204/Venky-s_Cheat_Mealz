@@ -1,6 +1,13 @@
 // Google Maps/Places helpers (graceful fallback when API key not set)
 
 let mapsLoading = null
+let missingApiKeyWarned = false
+
+export function warnMissingGoogleMapsApiKey(context = 'Google Maps') {
+  if (missingApiKeyWarned) return
+  missingApiKeyWarned = true
+  console.warn(`[${context}] VITE_GOOGLE_MAPS_API_KEY is missing. Location autocomplete is disabled.`)
+}
 
 export function getGoogleApiKey() {
   try {
@@ -15,6 +22,7 @@ export function loadGoogleMaps(apiKey = getGoogleApiKey()) {
     return Promise.resolve(window.google)
   }
   if (!apiKey) {
+    warnMissingGoogleMapsApiKey('Google Maps loader')
     return Promise.resolve(null)
   }
   if (mapsLoading) return mapsLoading
@@ -62,7 +70,11 @@ export function extractAddressFromPlace(place) {
 
 export async function initAutocomplete(inputEl, onPlaceSelected) {
   const key = getGoogleApiKey()
-  if (!inputEl || !key) return null
+  if (!inputEl) return null
+  if (!key) {
+    warnMissingGoogleMapsApiKey('Google Places')
+    return null
+  }
   const g = await loadGoogleMaps(key).catch(() => null)
   if (!g || !g.maps?.places) return null
 
@@ -101,7 +113,11 @@ export async function initAutocomplete(inputEl, onPlaceSelected) {
 
 export async function reverseGeocode(lat, lng) {
   const key = getGoogleApiKey()
-  if (!key || lat == null || lng == null) return null
+  if (!key) {
+    warnMissingGoogleMapsApiKey('Reverse geocode')
+    return null
+  }
+  if (lat == null || lng == null) return null
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${key}`
     const res = await fetch(url)
@@ -121,7 +137,11 @@ export async function reverseGeocode(lat, lng) {
 export async function geocodeAddress(address) {
   const key = getGoogleApiKey()
   const query = typeof address === 'string' ? address.trim() : ''
-  if (!key || !query) return null
+  if (!key) {
+    warnMissingGoogleMapsApiKey('Geocode address')
+    return null
+  }
+  if (!query) return null
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${key}`
     const res = await fetch(url)

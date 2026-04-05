@@ -1,5 +1,5 @@
 // Profile — User profile, addresses, and order history
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
@@ -12,24 +12,12 @@ import { useCart } from '../context/CartContext'
 import { useUI } from '../context/UIContext'
 import useDeliveryLocation from '../hooks/useDeliveryLocation'
 import usePlacesAutocomplete from '../hooks/usePlacesAutocomplete'
-import ProfileCompletionAlert from '../components/ProfileCompletionAlert'
 import { fetchUserOrders, fetchUserProfile, updateUserProfile, fetchAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress, isCounterDocId } from '../lib/data'
+import { getProfileCompletion } from '../lib/data-user'
 import { db } from '../lib/firebase'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
 
 // ── Helpers ──
-
-// Helper to compute profile completion (shared by components)
-function getProfileCompletion(user, profileForm, addrState) {
-  if (!user) return 0;
-  const checks = [];
-  const nameOk = !!(profileForm.displayName || '').trim();
-  const phoneOk = /\d{10}/.test((profileForm.phone || '').replace(/\D/g, ''));
-  const hasAnyAddr = (addrState.list || []).length > 0;
-  checks.push(nameOk, phoneOk, hasAnyAddr);
-  const pct = Math.round((checks.filter(Boolean).length / checks.length) * 100);
-  return Math.max(0, Math.min(100, pct));
-}
 
 export default function Profile() {
   const { user, logout } = useAuth();
@@ -446,6 +434,20 @@ export default function Profile() {
     pushToast(`Added ${items.length} item${items.length > 1 ? 's' : ''} to cart`, 'success')
   }, [addToCart, pushToast])
 
+  const profileInfo = useMemo(() => {
+    if (!profile) return null
+    return {
+      ...profile,
+      displayName: profileForm.displayName || profile.displayName || user?.displayName || '',
+      phone: profileForm.phone || profile.phone || user?.phoneNumber || '',
+      email: profileForm.email || profile.email || user?.email || '',
+      photoURL: profile.photoURL || user?.photoURL || '',
+      addresses: Array.isArray(addrState?.list) ? addrState.list : [],
+    }
+  }, [profile, profileForm, user, addrState])
+
+  const profileCompletion = profileInfo ? getProfileCompletion(profileInfo) : null
+
 
   if (!user) {
     return (
@@ -469,8 +471,26 @@ export default function Profile() {
         </button>
       </div>
 
-    {/* Profile completion alert (inline) */}
-    <ProfileCompletionAlert user={user} profileForm={profileForm} addrState={addrState} onEdit={openEditModal} />
+    {profileCompletion && (
+      <div className="card bg-base-100 shadow-sm border border-base-300/60">
+        <div className="card-body p-5 gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold">Profile completion</h2>
+            <span className="text-2xl font-bold">{profileCompletion.percent}%</span>
+          </div>
+          <progress className="progress progress-primary w-full" value={profileCompletion.percent} max="100" />
+          {profileCompletion.percent < 100 ? (
+            <div className="flex flex-wrap gap-2">
+              {profileCompletion.missing.map((item) => (
+                <span key={item} className="badge badge-outline badge-sm">{item}</span>
+              ))}
+            </div>
+          ) : (
+            <div className="badge badge-success">Profile complete ✓</div>
+          )}
+        </div>
+      </div>
+    )}
 
 
       <div className="grid lg:grid-cols-12 gap-8 items-start">
@@ -1032,13 +1052,11 @@ function getOrderSubtotal(order, items) {
 }
 
 function getOrderTotal(order, items) {
-  const explicit = safeNumber(order?.totalAmount ?? order?.grandTotal ?? order?.total)
+  const explicit = safeNumber(order?.totalAmount) // schema: matches data-orders.js canonical write
   if (explicit !== null) return explicit
   const subtotal = getOrderSubtotal(order, items)
   const tax = safeNumber(order?.taxAmount) || 0
-  const delivery = safeNumber(order?.deliveryFee ?? order?.shippingFee) || 0
-  const discount = safeNumber(order?.discount) || 0
-  return subtotal + tax + delivery - discount
+  return subtotal + tax
 }
 
 function getOrderIdentifier(order) {

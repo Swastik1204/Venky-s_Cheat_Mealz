@@ -45,6 +45,7 @@ export default async function handler(req, res) {
   try {
     const token = (process.env.WA_TOKEN || '').trim()
     const phoneNumberId = (process.env.WA_PHONE_NUMBER_ID || '').trim()
+    const waApiVersion = (process.env.WA_API_VERSION || 'v21.0').trim()
     if (!token || !phoneNumberId) {
       res.status(200).json({ __skipped: 'missing_server_config', missing: { WA_TOKEN: !token, WA_PHONE_NUMBER_ID: !phoneNumberId } })
       return
@@ -88,7 +89,7 @@ export default async function handler(req, res) {
       },
     }
 
-    const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`
+    const url = `https://graph.facebook.com/${waApiVersion}/${phoneNumberId}/messages`
     const r = await fetch(url, {
       method: 'POST',
       headers: {

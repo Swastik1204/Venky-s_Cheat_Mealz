@@ -103,6 +103,9 @@ export default async function handler(req, res) {
   // Apply rate limiting
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return // Rate limit exceeded
+  if (!(process.env.RAZORPAY_KEY_SECRET || '').trim()) {
+    return res.status(500).json({ error: 'Server misconfigured: RAZORPAY_KEY_SECRET not set' })
+  }
   // CORS: Allow origins from CORS_ORIGIN env (comma-separated), or reflect the request origin if not set
   const allow = process.env.CORS_ORIGIN || ''
   const origin = req.headers?.origin || ''

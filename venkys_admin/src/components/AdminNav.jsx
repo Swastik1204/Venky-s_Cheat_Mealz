@@ -1,14 +1,12 @@
 // AdminNav — Top navigation bar with drawer and store controls
 import { useEffect, useMemo, useState } from 'react'
 
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { Link, useLocation } from 'react-router-dom'
 import { MdLogin, MdPerson, MdMenu, MdClose, MdPrint } from 'react-icons/md'
 
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { getUserTheme, setUserTheme } from '../lib/data'
-import { db } from '../lib/firebase'
 import { fetchStoreStatus, setStoreOpen } from '../lib/storeStatus'
 
 // ── AdminLinks sub-component ──

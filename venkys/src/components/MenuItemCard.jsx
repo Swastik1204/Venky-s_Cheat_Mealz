@@ -218,11 +218,6 @@ function MenuItemCardInner({ item }) {
               </span>
             )}
           </div>
-          {discountLabel && (
-            <span className="absolute bottom-3 left-3 inline-flex items-center rounded-full bg-secondary/95 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-base-100 shadow">
-              {discountLabel}
-            </span>
-          )}
           {item.storeClosed && (
             <div className="pointer-events-none absolute inset-0 grid place-items-center bg-base-content/80 text-sm font-semibold uppercase tracking-[0.22em] text-base-100">
               Closed

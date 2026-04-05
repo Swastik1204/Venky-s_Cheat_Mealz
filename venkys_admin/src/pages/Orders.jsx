@@ -8,7 +8,7 @@ import { MdWarningAmber, MdPrint } from 'react-icons/md'
 import AdminLayout from '../layouts/AdminLayout'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, sendWhatsAppInvoice, sendOtpViaWhatsApp, sendOrderMessengerViaWhatsApp, isCounterDocId } from '../lib/data'
+import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, sendWhatsAppInvoice, sendOtpViaWhatsApp, isCounterDocId } from '../lib/data'
 import { db } from '../lib/firebase'
 import { printOrderReceiptViaRawBT, shouldUseRawBT } from '../lib/rawbtPrint'
 
@@ -32,22 +32,6 @@ export default function Orders() {
   const notifiedRef = useRef(new Set())
 
   // ── Helpers ──
-  function normalizeWhatsappPhone(phone) {
-    const raw = String(phone || '').trim()
-    if (!raw) return ''
-    const digits = raw.replace(/\D/g, '')
-    if (digits.length === 10) return `91${digits}`
-    if (digits.length === 12 && digits.startsWith('91')) return digits
-    return digits
-  }
-
-  function isOnlineOrder(o) {
-    const source = String(o?.source || '').toLowerCase()
-    if (source === 'pos') return false
-    const method = String(o?.payment?.method || o?.customer?.payment?.method || '').toLowerCase()
-    return method === 'online' || method === 'razorpay'
-  }
-
   const buildOrderAddressString = useCallback((o) => {
     const raw = o?.address ?? o?.customer?.address ?? o?.deliveryAddress ?? ''
     if (!raw) return '-'
@@ -63,7 +47,7 @@ export default function Orders() {
 
   const buildOrderMessengerData = useCallback((o) => {
     const customerName = String(o?.customer?.name || o?.name || 'Customer').trim() || 'Customer'
-    const totalAmount = Number(o?.totalAmount ?? o?.subtotal ?? 0)
+    const totalAmount = Number(o?.totalAmount ?? o?.subtotal ?? 0) // schema: matches data-orders.js canonical write
     const address = buildOrderAddressString(o)
     return { customerName, totalAmount, address }
   }, [buildOrderAddressString])
@@ -176,6 +160,10 @@ export default function Orders() {
     try {
       const orderRef = o.orderNo || o.id
       const otp = String(o.cashManagerOtp).trim()
+      console.info('[WA_TRIGGER_C_BILLER_OTP] resend_start', {
+        orderRef,
+        targets: cashManagerPhones.length,
+      })
 
       // Send the same OTP to all cash-manager phones simultaneously
       const results = await Promise.allSettled(
@@ -184,8 +172,17 @@ export default function Orders() {
       const successCount = results.filter(r => r.status === 'fulfilled' && !r.value?.__error).length
       if (successCount === 0) {
         const firstErr = results.find(r => r.status === 'fulfilled' && r.value?.__error)?.value
+        console.warn('[WA_TRIGGER_C_BILLER_OTP] resend_failed_all', {
+          orderRef,
+          firstError: firstErr?.message || firstErr?.__error || 'unknown',
+        })
         throw new Error(firstErr?.message || firstErr?.__error || 'WhatsApp send failed')
       }
+      console.info('[WA_TRIGGER_C_BILLER_OTP] resend_success_partial_or_full', {
+        orderRef,
+        successCount,
+        totalTargets: cashManagerPhones.length,
+      })
 
       const resentAt = new Date().toISOString()
       const nextCount = Number(o.cashManagerOtpResentCount || 0) + 1
@@ -477,13 +474,33 @@ export default function Orders() {
           const settings = await fetchAppSettings()
           const googlePlaceId = settings.googlePlaceId
           if (googlePlaceId) {
+            console.info('[WA_TRIGGER_D_DELIVERED_REVIEW] start', {
+              orderRef: o.orderNo || o.id,
+              phoneLast4: String(phone).replace(/\D/g, '').slice(-4),
+            })
             const reviewUrl = `https://search.google.com/local/writereview?placeid=${googlePlaceId}`
             const message = `Thank you for your order at Venky's Cheat Mealz! 🍽️\n\nWe hope you enjoyed your meal. Your feedback helps us improve! Please take a moment to share your experience:\n\n${reviewUrl}\n\nThank you! 😊`
-            await sendWhatsAppInvoice(phone, { text: message })
+            const waRes = await sendWhatsAppInvoice(phone, { text: message })
+            if (waRes?.__error) {
+              console.warn('[WA_TRIGGER_D_DELIVERED_REVIEW] failed_non_blocking', {
+                orderRef: o.orderNo || o.id,
+                reason: waRes.message || waRes.__error,
+              })
+              return
+            }
+            console.info('[WA_TRIGGER_D_DELIVERED_REVIEW] success', { orderRef: o.orderNo || o.id })
+          } else {
+            console.warn('[WA_TRIGGER_D_DELIVERED_REVIEW] skipped_missing_google_place_id', { orderRef: o.orderNo || o.id })
           }
         } catch (err) {
           console.error('[Orders] Failed to send review request:', err)
+          console.error('[WA_TRIGGER_D_DELIVERED_REVIEW] failed_non_blocking', {
+            orderRef: o.orderNo || o.id,
+            error: err?.message || String(err),
+          })
         }
+      } else {
+        console.warn('[WA_TRIGGER_D_DELIVERED_REVIEW] skipped_missing_phone', { orderRef: o.orderNo || o.id })
       }
     }
   }
@@ -639,7 +656,7 @@ export default function Orders() {
                       <div className="text-[11px] opacity-60 flex gap-2">
                         {time24 && <span>{time24}</span>}
                         <span>{o.items?.length || 0} items</span>
-                        <span>₹{o.subtotal}</span>
+                        <span>₹{Number(o.totalAmount ?? o.subtotal ?? 0)}</span>{/* schema: matches data-orders.js canonical write */}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
@@ -755,7 +772,13 @@ export default function Orders() {
                     const addr = selectedOrder.address || selectedOrder.customer?.address || {}
                     const addressParts = [addr?.line1, addr?.line2, addr?.city, addr?.pin].filter(Boolean)
                     const hasAddress = addressParts.length > 0
-                    const hasCoords = addr?.lat && addr?.lng
+                    const lat = Number(addr?.lat)
+                    const lng = Number(addr?.lng)
+                    const hasCoords = Number.isFinite(lat) && Number.isFinite(lng)
+                    const explicitMapUrl = [selectedOrder?.mapUrl, addr?.mapUrl]
+                      .find((value) => typeof value === 'string' && value.trim())
+                    const coordsMapUrl = hasCoords ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` : ''
+                    const pinUrl = explicitMapUrl || coordsMapUrl
                     return (
                       <>
                         <div className="font-bold text-xs uppercase opacity-50 mb-1">Delivery Address</div>
@@ -770,13 +793,13 @@ export default function Orders() {
                           </div>
                         )}
 
-                        {hasCoords ? (
-                          <a href={`https://www.google.com/maps/search/?api=1&query=${addr.lat},${addr.lng}`} target="_blank" rel="noreferrer" className="btn btn-xs btn-outline btn-primary gap-1 w-full">
-                            Open in Google Maps ↗
+                        {pinUrl ? (
+                          <a href={pinUrl} target="_blank" rel="noreferrer" className="btn btn-xs btn-outline btn-primary gap-1 w-full">
+                            Open pin ↗
                           </a>
                         ) : (
                           <button disabled className="btn btn-xs btn-outline gap-1 w-full opacity-50">
-                            No Location Coordinates
+                            No map link available
                           </button>
                         )}
                       </>
@@ -810,7 +833,7 @@ export default function Orders() {
                 <div>
                   <div className="font-medium mb-1">Payment Details</div>
                   <div className="space-y-1 opacity-80">
-                    <div className="text-lg font-bold">₹{selectedOrder.subtotal}</div>
+                    <div className="text-lg font-bold">₹{Number(selectedOrder.totalAmount ?? selectedOrder.subtotal ?? 0)}</div>{/* schema: matches data-orders.js canonical write */}
                     <div className="badge badge-outline uppercase text-xs font-bold">{selectedOrder.payment?.method || 'COD'}</div>
                   </div>
                 </div>

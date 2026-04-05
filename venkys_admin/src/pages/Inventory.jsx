@@ -131,7 +131,7 @@ export default function Inventory() {
       }
     }
     setBulkDraft(next)
-  }, [bulkEditModalOpen, bulkCategory])
+  }, [bulkEditModalOpen, bulkCategory, categories])
 
   // ── Pricing helpers ──
   function parseAmount(value) {
@@ -505,7 +505,7 @@ export default function Inventory() {
                 <input className="input input-sm input-bordered w-48" placeholder="Category name" value={row.name} onChange={(e) => { const v = [...newCats]; v[idx] = { ...v[idx], name: e.target.value }; setNewCats(v) }} />
                 {idx === newCats.length - 1 && (
                   <button className="btn btn-ghost btn-sm px-1 min-h-0 h-auto hover:bg-base-200/70 transition" title="Add category" onClick={() => setNewCats((v) => [...v, { name: '' }])}>
-                    <MdAdd className="w-8 h-8 text-black" />
+                    <MdAdd className="w-8 h-8 text-base-content" />
                   </button>
                 )}
                 {newCats.length > 1 && (
@@ -785,9 +785,9 @@ export default function Inventory() {
                                   <td className="text-right text-xs tabular-nums">{it.variants?.length ? '—' : (discountDisplay || '—')}</td>
                                   <td className="text-center">
                                     {it.veg !== false ? (
-                                      <span className="inline-flex items-center justify-center w-5 h-5" aria-label="Vegetarian" title="Vegetarian"><span className="w-3.5 h-3.5 rounded-sm border-2 border-green-600 relative"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-green-600" /></span></span>
+                                        <span className="inline-flex items-center justify-center w-5 h-5" aria-label="Vegetarian" title="Vegetarian"><span className="w-3.5 h-3.5 rounded-sm border-2 border-success relative"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-success" /></span></span>
                                     ) : (
-                                      <span className="inline-flex items-center justify-center w-5 h-5" aria-label="Non-Vegetarian" title="Non-Vegetarian"><span className="w-3.5 h-3.5 rounded-sm border-2 border-rose-600 relative"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-rose-600" /></span></span>
+                                        <span className="inline-flex items-center justify-center w-5 h-5" aria-label="Non-Vegetarian" title="Non-Vegetarian"><span className="w-3.5 h-3.5 rounded-sm border-2 border-error relative"><span className="absolute inset-0 m-auto w-2 h-2 rounded-full bg-error" /></span></span>
                                     )}
                                   </td>
                                   <td className="text-center">

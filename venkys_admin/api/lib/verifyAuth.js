@@ -47,6 +47,7 @@ function ensureAdmin() {
 export async function verifyAuth(req) {
   const authHeader = req.headers?.authorization || ''
   const isDisabled = process.env.AUTH_REQUIRED === '0' || process.env.AUTH_REQUIRED === 'false'
+  if (process.env.AUTH_REQUIRED === '0') console.warn('[verifyAuth] WARNING: Auth is disabled via AUTH_REQUIRED=0 - do not use in production')
   const isMandatory = !isDisabled
 
   if (!authHeader.startsWith('Bearer ')) {
@@ -71,6 +72,7 @@ export async function verifyAuth(req) {
     return { user: decoded }
   } catch (err) {
     // Token was provided but is invalid/expired
+    console.error('[verifyAuth] Token verification error:', err)
     return { error: 'Invalid or expired authentication token', status: 401 }
   }
 }

@@ -34,6 +34,12 @@ export default async function handler(req, res) {
   // Apply rate limiting
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return // Rate limit exceeded
+  if (!(process.env.WA_TOKEN || '').trim()) {
+    return res.status(500).json({ error: 'Server misconfigured: WA_TOKEN not set' })
+  }
+  if (!(process.env.WA_PHONE_NUMBER_ID || '').trim()) {
+    return res.status(500).json({ error: 'Server misconfigured: WA_PHONE_NUMBER_ID not set' })
+  }
   // Verify Firebase Auth token
   const auth = await verifyAuth(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
@@ -42,19 +48,16 @@ export default async function handler(req, res) {
     return
   }
   try {
-  const token = (process.env.WA_TOKEN || '').trim()
-  const phoneNumberId = (process.env.WA_PHONE_NUMBER_ID || '').trim()
-    if (!token || !phoneNumberId) {
-      res.status(200).json({ __skipped: 'missing_server_config', missing: { WA_TOKEN: !token, WA_PHONE_NUMBER_ID: !phoneNumberId } })
-      return
-    }
+    const token = (process.env.WA_TOKEN || '').trim()
+    const phoneNumberId = (process.env.WA_PHONE_NUMBER_ID || '').trim()
+    const waApiVersion = (process.env.WA_API_VERSION || 'v21.0').trim()
     const { phone, payload, text } = req.body || {}
     const to = String(phone || '').replace(/\D/g, '')
     if (!to) {
       res.status(400).json({ error: 'missing_phone' })
       return
     }
-    const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`
+    const url = `https://graph.facebook.com/${waApiVersion}/${phoneNumberId}/messages`
 
     async function doSend(body) {
       const r = await fetch(url, {

@@ -75,6 +75,8 @@ export default async function handler(req, res) {
           }
           if (statuses.length) {
             console.log(`[wa-webhook] received ${statuses.length} status update(s)`)
+            // TODO: update order delivery status in Firestore based on statuses array
+            // Each status contains: id (message id), timestamp, status (sent/delivered/read), recipient_id (phone)
           }
         }
       }

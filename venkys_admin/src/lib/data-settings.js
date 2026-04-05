@@ -233,7 +233,7 @@ export async function syncBusinessProfile(placeId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ placeId })
     })
-  } catch (e) {
+  } catch {
     throw new Error(
       `Sync failed: cannot reach the sync API. ` +
       `In dev, Vite doesn't serve /api routes. Run \`vercel dev\` (default http://localhost:3000) ` +

@@ -1,7 +1,27 @@
 // Order-related data functions (admin)
+// Canonical order document schema (aligned to customer data-orders.js writes):
+// {
+//   userId: string | null,
+//   customer: map,
+//   items: list,
+//   subtotal: number,
+//   orderType: string,
+//   source: string,
+//   orderNo: string,
+//   status: string,
+//   statusHistory: list,
+//   payment: map,
+//   totalAmount: number,
+//   revisionCount: number,
+//   createdAt: timestamp,
+//   updatedAt: timestamp,
+//   taxRate?: number,
+//   taxAmount?: number,
+//   // admin extensions may exist (guestOrder, cashManagerOtp, etc.)
+// }
 import { collection, doc, getDocs, getDoc, query, where, setDoc, serverTimestamp, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion } from 'firebase/firestore'
 import { db } from './firebase'
-import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment, normalizeWhatsappPhone, apiUrl, getAuthHeaders } from './data-common'
+import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment, normalizeWhatsappPhone } from './data-common'
 import { logOrderChange } from './auditLog'
 import { fetchAppSettings } from './data-settings'
 import { sendWhatsAppInvoice } from './data-whatsapp'
@@ -304,12 +324,16 @@ export async function fetchOrder(userId, orderId) {
   return null
 }
 
-export async function fetchAllOrders({ maxResults = 500, startDate = null, afterDoc = null } = {}) {
+export async function fetchAllOrders({ maxResults = 500, startDate = null, endDate = null, afterDoc = null } = {}) {
   try {
     const constraints = []
     if (startDate) {
       const ts = startDate instanceof Date ? Timestamp.fromDate(startDate) : startDate
       constraints.push(where('createdAt', '>=', ts))
+    }
+    if (endDate) {
+      const ts = endDate instanceof Date ? Timestamp.fromDate(endDate) : endDate
+      constraints.push(where('createdAt', '<=', ts))
     }
     constraints.push(orderBy('createdAt', 'desc'))
     if (afterDoc) constraints.push(startAfter(afterDoc))

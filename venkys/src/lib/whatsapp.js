@@ -1,6 +1,13 @@
 // whatsapp — WhatsApp message formatting and delivery
 import { sendWhatsAppInvoice } from './data'
 
+function maskPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (!digits) return 'unknown'
+  if (digits.length <= 4) return digits
+  return `***${digits.slice(-4)}`
+}
+
 // Internal helper for formatting bill messages
 function formatBillMessage(order) {
   if (!order) return ''
@@ -73,6 +80,8 @@ export async function sendBillToCustomer(order) {
   }
 
   const phone = order.customer.phone
+  const orderRef = order.orderNo || order.id || 'unknown'
+  console.info('[WA_TRIGGER_A_CHECKOUT_BILL] start', { orderRef, phone: maskPhone(phone) })
 
   // Use Template Message (Recommended for 24h window compliance)
   // Template Name: venkys_bill
@@ -99,13 +108,21 @@ export async function sendBillToCustomer(order) {
   // Use the existing data layer function which calls the API
   const templateRes = await sendWhatsAppInvoice(phone, payload)
   if (!templateRes?.__error && !templateRes?.__skipped) {
+    console.info('[WA_TRIGGER_A_CHECKOUT_BILL] template_success', { orderRef, phone: maskPhone(phone) })
     return templateRes
   }
+
+  console.warn('[WA_TRIGGER_A_CHECKOUT_BILL] template_failed_fallback_text', {
+    orderRef,
+    phone: maskPhone(phone),
+    reason: templateRes?.message || templateRes?.__error || templateRes?.__skipped || 'unknown',
+  })
 
   // Fallback to plain text (may work inside the 24h window; serverless also tries to open a session template when needed)
   const text = formatBillMessage(order)
   const textRes = await sendWhatsAppInvoice(phone, { text })
   if (!textRes?.__error && !textRes?.__skipped) {
+    console.info('[WA_TRIGGER_A_CHECKOUT_BILL] text_fallback_success', { orderRef, phone: maskPhone(phone) })
     return { ...textRes, __fallback: 'text' }
   }
 
@@ -122,5 +139,7 @@ export async function sendBillToCustomer(order) {
     templateRes?.__error ||
     textRes?.__error ||
     'unknown'
-  throw new Error(`WhatsApp failed: ${details}`)
+  const finalError = `WhatsApp failed: ${details}`
+  console.error('[WA_TRIGGER_A_CHECKOUT_BILL] failed', { orderRef, phone: maskPhone(phone), error: finalError })
+  return { ok: false, __error: 'wa_send_failed', message: finalError }
 }

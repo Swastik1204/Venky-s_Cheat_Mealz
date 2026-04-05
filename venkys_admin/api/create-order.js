@@ -15,6 +15,9 @@ export default async function handler(req, res) {
   // Apply rate limiting
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return // Rate limit exceeded
+  if (!(process.env.RAZORPAY_KEY_SECRET || '').trim()) {
+    return res.status(500).json({ error: 'Server misconfigured: RAZORPAY_KEY_SECRET not set' })
+  }
   // CORS: Allow origins from CORS_ORIGIN env (comma-separated), or reflect the request origin if not set
   const allow = process.env.CORS_ORIGIN || ''
   const origin = req.headers?.origin || ''
@@ -47,6 +50,7 @@ export default async function handler(req, res) {
     if (!keyId || !keySecret) {
       return res.status(500).json({ error: 'Payment gateway not configured' })
     }
+    const razorpayMode = keyId.startsWith('rzp_test_') ? 'test' : 'live'
 
     const { amount } = req.body || {}
     if (!amount || isNaN(amount) || amount <= 0) {
@@ -59,6 +63,8 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Amount exceeds maximum order limit', maxAmount: MAX_ORDER_AMOUNT })
     }
 
+    console.info(`[create-order] Razorpay mode=${razorpayMode} amount=${Number(amount)} source=admin_pos`)
+
     const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret })
 
     const options = {
@@ -69,6 +75,7 @@ export default async function handler(req, res) {
     }
 
     const order = await razorpay.orders.create(options)
+    console.info(`[create-order] Razorpay order created mode=${razorpayMode} orderId=${order.id}`)
     return res.status(200).json({ orderId: order.id, amount: order.amount, currency: order.currency })
   } catch (e) {
     console.error('create-order error', e)

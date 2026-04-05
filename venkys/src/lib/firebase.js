@@ -12,6 +12,10 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 }
 
+if (!firebaseConfig.apiKey) {
+  console.error('[Firebase] VITE_FIREBASE_API_KEY is not set - Firebase will not initialize')
+}
+
 // Fail fast if required envs are missing in development
 if (import.meta.env.DEV) {
   for (const [key, val] of Object.entries(firebaseConfig)) {

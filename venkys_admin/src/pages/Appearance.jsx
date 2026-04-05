@@ -28,9 +28,10 @@ export default function Appearance() {
   const headerRefs = useRef({})
   const [categoryImageMap, setCategoryImageMap] = useState({})
   const [itemImageMap, setItemImageMap] = useState({})
-  const scrollerRef = useRef(null)
   const [spotlightDragItem, setSpotlightDragItem] = useState(null)
   const [spotlightDragOver, setSpotlightDragOver] = useState(null)
+  const [categoryDragIndex, setCategoryDragIndex] = useState(null)
+  const [categoryDropIndex, setCategoryDropIndex] = useState(null)
 
   const makeSpotlightId = useCallback(() => (
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -174,7 +175,6 @@ export default function Appearance() {
   }, [categories])
 
   // ── Handlers ──
-  function moveAppearance(idx, delta) { setAppearanceOrder(o => { const next = [...o]; const ni = idx + delta; if (ni < 0 || ni >= next.length) return o; const tmp = next[idx]; next[idx] = next[ni]; next[ni] = tmp; return next }) }
   function moveAppearanceAbove(from, to) {
     if (from === to) return
     setAppearanceOrder(o => {
@@ -187,6 +187,16 @@ export default function Appearance() {
     })
   }
   function removeAppearance(id) { setAppearanceOrder(o => o.filter(x => x !== id)) }
+  function moveAppearanceByDelta(index, delta) {
+    setAppearanceOrder((order) => {
+      const to = index + delta
+      if (to < 0 || to >= order.length) return order
+      const next = [...order]
+      const [item] = next.splice(index, 1)
+      next.splice(to, 0, item)
+      return next
+    })
+  }
   async function saveAppearance() { 
     setAppearanceSaving(true); 
     try { 
@@ -445,24 +455,6 @@ export default function Appearance() {
     }
   }
 
-  // Apply small patches to spotlight (toggles) and auto-save immediately
-  const applySpotlightPatch = useCallback(async (partial) => {
-    const next = { ...spotlightDraft, ...partial }
-    try {
-      const saved = await saveAppearanceSpotlight(next)
-      const normalized = {
-        hotDeals: Array.isArray(saved.hotDeals) ? saved.hotDeals.map(entry => ({ ...entry, id: entry.id || makeSpotlightId() })) : [],
-        chefSpecials: Array.isArray(saved.chefSpecials) ? saved.chefSpecials.map(entry => ({ ...entry, id: entry.id || makeSpotlightId() })) : [],
-        hiddenHotDeals: !!saved.hiddenHotDeals,
-        hiddenChefSpecials: !!saved.hiddenChefSpecials,
-        hiddenSpotlight: !!saved.hiddenSpotlight
-      }
-      setSpotlightDraft(normalized)
-    } catch (e) {
-      pushToast(e.message || 'Failed to update spotlight.', 'error')
-    }
-  }, [spotlightDraft, makeSpotlightId, pushToast])
-
   return (
     <AdminLayout>
       <h2 className="text-3xl font-extrabold tracking-tight" style={{lineHeight:'1.1', color:'var(--color-base-content)'}}>
@@ -488,81 +480,95 @@ export default function Appearance() {
               {appearanceOrder.length === 0 && <div className="opacity-60 text-sm">No categories available.</div>}
               
               <div className="blend-panel strip-accent p-5 sm:p-6 md:p-7 relative border border-transparent overflow-hidden rounded-2xl bg-base-100/50">
-                 <div className="flex gap-4 sm:gap-6 overflow-x-auto pt-4 pb-3 snap-x snap-mandatory -mx-2 px-2 [scrollbar-width:none] [-ms-overflow-style:none] no-scrollbar scroll-smooth" style={{ WebkitOverflowScrolling: 'touch' }}>
-                    {appearanceOrder.map((catId, idx) => {
-                       const cat = categoryById.get(catId)
-                       const selected = rearrangeMode && rearrangeFromIndex === idx
-                       const imageUrl = cat?.imageId ? categoryImageMap[cat.imageId] : null
-                       const isDragOver = rearrangeMode ? false : (spotlightDragOver?.type === 'category' && spotlightDragOver?.index === idx)
-                       
-                       return (
-                         <div
-                            key={catId}
-                            draggable={!rearrangeMode}
-                            onDragStart={(e) => { 
-                              e.dataTransfer.setData('text/plain', String(idx)); 
-                              e.dataTransfer.effectAllowed = 'move'
-                              setSpotlightDragItem({ type: 'category', index: idx })
-                            }}
-                            onDragOver={(e) => { 
-                              e.preventDefault(); 
-                              e.dataTransfer.dropEffect = 'move'
-                              if (spotlightDragItem?.type === 'category' && spotlightDragItem.index !== idx) {
-                                setSpotlightDragOver({ type: 'category', index: idx })
-                              }
-                            }}
-                            onDragLeave={() => {
-                              if (spotlightDragOver?.type === 'category' && spotlightDragOver?.index === idx) {
-                                setSpotlightDragOver(null)
-                              }
-                            }}
-                            onDrop={(e) => { 
-                              e.preventDefault(); 
-                              setSpotlightDragOver(null)
-                              setSpotlightDragItem(null)
-                              const from = Number(e.dataTransfer.getData('text/plain')); 
-                              if (!Number.isNaN(from)) { 
-                                moveAppearanceAbove(from, idx); 
-                                setRearrangeFromIndex(null) 
-                              } 
-                            }}
-                            onClick={() => {
-                              if (!rearrangeMode) return
-                              if (rearrangeFromIndex === null) setRearrangeFromIndex(idx)
-                              else if (rearrangeFromIndex === idx) setRearrangeFromIndex(null)
-                              else { moveAppearanceAbove(rearrangeFromIndex, idx); setRearrangeFromIndex(null) }
-                            }}
-                            className={`
-                              flex flex-col items-center gap-2 min-w-24 sm:min-w-28 snap-start rounded-xl relative transition-all 
-                              ${selected ? 'ring-2 ring-primary scale-105' : ''} 
-                              ${rearrangeMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing hover:scale-105'}
-                              ${isDragOver ? 'translate-x-4' : ''}
-                            `}
-                         >
-                            {isDragOver && (
-                              <div className="absolute -left-3 top-0 bottom-0 w-1 bg-primary rounded-full z-20 animate-pulse" />
-                            )}
-                            <div className="avatar pointer-events-none">
-                              <div className="w-20 sm:w-24 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2 overflow-hidden bg-base-200 flex items-center justify-center shadow-md">
-                                {imageUrl ? (
-                                  <img src={imageUrl} alt={cat?.name} className="object-cover w-full h-full" loading="lazy" />
-                                ) : (
-                                  <span className="text-xl sm:text-2xl font-bold text-primary">
-                                    {(cat?.name || catId || '?').charAt(0).toUpperCase()}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="text-xs sm:text-sm font-medium text-center truncate w-24 sm:w-28 pointer-events-none">{cat?.name || catId}</div>
-                            <button 
-                                className="btn btn-circle btn-xs btn-error absolute -top-1 -right-1 shadow-sm z-10 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={(e) => { e.stopPropagation(); removeAppearance(catId) }}
-                                title="Remove"
-                            >✕</button>
-                         </div>
-                       )
-                    })}
-                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {appearanceOrder.map((catId, idx) => {
+                    const cat = categoryById.get(catId)
+                    const selected = rearrangeMode && rearrangeFromIndex === idx
+                    const imageUrl = cat?.imageId ? categoryImageMap[cat.imageId] : null
+                    const isDropTarget = !rearrangeMode && categoryDropIndex === idx && categoryDragIndex !== null && categoryDragIndex !== idx
+
+                    return (
+                      <div
+                        key={catId}
+                        draggable={!rearrangeMode}
+                        onDragStart={(e) => {
+                          if (rearrangeMode) return
+                          e.dataTransfer.setData('text/plain', String(idx))
+                          e.dataTransfer.effectAllowed = 'move'
+                          setCategoryDragIndex(idx)
+                        }}
+                        onDragOver={(e) => {
+                          if (rearrangeMode) return
+                          e.preventDefault()
+                          e.dataTransfer.dropEffect = 'move'
+                          if (categoryDragIndex !== null && categoryDragIndex !== idx) setCategoryDropIndex(idx)
+                        }}
+                        onDragLeave={() => {
+                          if (categoryDropIndex === idx) setCategoryDropIndex(null)
+                        }}
+                        onDrop={(e) => {
+                          if (rearrangeMode) return
+                          e.preventDefault()
+                          const from = Number(e.dataTransfer.getData('text/plain'))
+                          if (!Number.isNaN(from)) moveAppearanceAbove(from, idx)
+                          setCategoryDragIndex(null)
+                          setCategoryDropIndex(null)
+                        }}
+                        onDragEnd={() => {
+                          setCategoryDragIndex(null)
+                          setCategoryDropIndex(null)
+                        }}
+                        onClick={() => {
+                          if (!rearrangeMode) return
+                          if (rearrangeFromIndex === null) setRearrangeFromIndex(idx)
+                          else if (rearrangeFromIndex === idx) setRearrangeFromIndex(null)
+                          else {
+                            moveAppearanceAbove(rearrangeFromIndex, idx)
+                            setRearrangeFromIndex(null)
+                          }
+                        }}
+                        className={`group relative rounded-xl border bg-base-100/80 p-3 transition-all ${rearrangeMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} ${selected ? 'ring-2 ring-primary border-primary' : 'border-base-300'} ${isDropTarget ? 'border-primary shadow-lg shadow-primary/10' : ''}`}
+                      >
+                        {isDropTarget && <div className="absolute -top-1 left-4 right-4 h-1 rounded-full bg-primary" />}
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <MdDragIndicator className="opacity-50 shrink-0" />
+                            <div className="font-medium text-sm truncate">{cat?.name || catId}</div>
+                          </div>
+                          <button
+                            className="btn btn-ghost btn-xs btn-circle text-error"
+                            onClick={(e) => { e.stopPropagation(); removeAppearance(catId) }}
+                            title="Remove"
+                          >✕</button>
+                        </div>
+
+                        <div className="w-full aspect-[4/3] rounded-lg overflow-hidden bg-base-200 grid place-items-center">
+                          {imageUrl ? (
+                            <img src={imageUrl} alt={cat?.name || catId} className="w-full h-full object-cover" loading="lazy" />
+                          ) : (
+                            <span className="text-3xl font-bold text-primary/70">{(cat?.name || catId || '?').charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between">
+                          <span className="badge badge-outline badge-sm">#{idx + 1}</span>
+                          <div className="join">
+                            <button
+                              className="btn btn-xs join-item"
+                              disabled={idx === 0}
+                              onClick={(e) => { e.stopPropagation(); moveAppearanceByDelta(idx, -1) }}
+                            >↑</button>
+                            <button
+                              className="btn btn-xs join-item"
+                              disabled={idx === appearanceOrder.length - 1}
+                              onClick={(e) => { e.stopPropagation(); moveAppearanceByDelta(idx, 1) }}
+                            >↓</button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
               <div className="mt-6 flex flex-wrap gap-2">

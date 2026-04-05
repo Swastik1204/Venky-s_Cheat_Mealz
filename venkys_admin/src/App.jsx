@@ -47,6 +47,25 @@ function AccessDenied() {
   )
 }
 
+function PageRestricted({ pageName }) {
+  return (
+    <div className="min-h-[70vh] flex items-center justify-center">
+      <div className="card bg-base-100 shadow-xl border border-base-300 max-w-md w-full">
+        <div className="card-body text-center">
+          <div className="text-5xl">🔒</div>
+          <h3 className="text-xl font-bold mt-2">Restricted Page</h3>
+          <p className="text-sm opacity-70 mt-1">
+            You are not authorized to access {pageName}.
+          </p>
+          <p className="text-xs opacity-60 mt-2">
+            Contact an admin if this page should be enabled for your role.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const { authMode } = useUI()
   const { user, loading, roleLoading, isStaffMember, canAccess, role } = useAuth()
@@ -84,15 +103,15 @@ export default function App() {
   }
 
   const pageDefs = [
-    { key: 'analytics', path: '/admin/analytics', element: <Analytics /> },
-    { key: 'inventory', path: '/admin/inventory', element: <Inventory /> },
-    { key: 'stock', path: '/admin/stock', element: <StockManager /> },
-    { key: 'orders', path: '/admin/orders', element: <Orders /> },
-    { key: 'appearance', path: '/admin/appearance', element: <Appearance /> },
-    { key: 'settings', path: '/admin/settings', element: <Settings /> },
-    { key: 'logs', path: '/admin/logs', element: <AuditLogs /> },
-    { key: 'biller', path: '/admin/biller', element: <AdminBiller /> },
-    { key: 'delivery', path: '/admin/delivery', element: <Delivery /> },
+    { key: 'analytics', label: 'Analytics', path: '/admin/analytics', element: <Analytics /> },
+    { key: 'inventory', label: 'Inventory', path: '/admin/inventory', element: <Inventory /> },
+    { key: 'stock', label: 'Stock', path: '/admin/stock', element: <StockManager /> },
+    { key: 'orders', label: 'Orders', path: '/admin/orders', element: <Orders /> },
+    { key: 'appearance', label: 'Appearance', path: '/admin/appearance', element: <Appearance /> },
+    { key: 'settings', label: 'Settings', path: '/admin/settings', element: <Settings /> },
+    { key: 'logs', label: 'Logs', path: '/admin/logs', element: <AuditLogs /> },
+    { key: 'biller', label: 'Biller', path: '/admin/biller', element: <AdminBiller /> },
+    { key: 'delivery', label: 'Delivery', path: '/admin/delivery', element: <Delivery /> },
   ]
 
   const allowedPages = pageDefs.filter((p) => canAccess(p.key))
@@ -124,8 +143,12 @@ export default function App() {
                 <Route path="/" element={<Navigate to="/admin" replace />} />
 
                 <Route path="/admin" element={<Navigate to={firstAllowedPath} replace />} />
-                {allowedPages.map((p) => (
-                  <Route key={p.key} path={p.path} element={p.element} />
+                {pageDefs.map((p) => (
+                  <Route
+                    key={p.key}
+                    path={p.path}
+                    element={canAccess(p.key) ? p.element : <PageRestricted pageName={p.label} />}
+                  />
                 ))}
 
                 <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />

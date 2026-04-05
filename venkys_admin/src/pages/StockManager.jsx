@@ -9,7 +9,6 @@ import {
 } from 'react-icons/md'
 
 import AdminLayout from '../layouts/AdminLayout'
-import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { fetchRawMaterials, saveRawMaterial, deleteRawMaterial, updateRawMaterialStock, fetchMenuCategories } from '../lib/data'
 
@@ -60,7 +59,6 @@ export default function StockManager() {
   const [bulkApplying, setBulkApplying] = useState(false)
   const [bulkData, setBulkData] = useState({ unit: '', stockDelta: '', lowStockThreshold: '' })
   const { pushToast, confirm } = useUI()
-  const { user } = useAuth()
 
   const confirmAsync = useCallback((message, options = {}) => {
     return new Promise((resolve) => {
@@ -269,16 +267,6 @@ export default function StockManager() {
       } catch {
         pushToast('Failed to delete', 'error')
       }
-    }
-  }
-
-  async function quickUpdateStock(id, delta) {
-    try {
-      await updateRawMaterialStock(id, delta)
-      setMaterials(prev => prev.map(m => m.id === id ? { ...m, stock: (m.stock || 0) + delta } : m))
-    } catch {
-      pushToast('Update failed', 'error')
-      loadData()
     }
   }
 

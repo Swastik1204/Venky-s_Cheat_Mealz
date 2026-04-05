@@ -10,7 +10,7 @@ function isStandalonePwa() {
   // Android/Chrome
   if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true
   // iOS Safari (not relevant for RawBT, but harmless)
-  // eslint-disable-next-line no-unsafe-optional-chaining
+   
   return window.navigator?.standalone === true
 }
 

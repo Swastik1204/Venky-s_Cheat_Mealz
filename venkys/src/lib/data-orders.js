@@ -1,4 +1,23 @@
 // Order-related data functions
+// Canonical order document schema (source of truth for reads/writes):
+// {
+//   userId: string | null,
+//   customer: map,
+//   items: list,
+//   subtotal: number,
+//   orderType: string,
+//   source: string,
+//   orderNo: string,
+//   status: string,
+//   statusHistory: list,
+//   payment: map,
+//   totalAmount: number,
+//   revisionCount: number,
+//   createdAt: timestamp,
+//   updatedAt: timestamp,
+//   taxRate?: number,
+//   taxAmount?: number,
+// }
 import { collection, doc, getDocs, getDoc, query, where, setDoc, serverTimestamp, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion } from 'firebase/firestore'
 import { db } from './firebase'
 import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment, isPermissionDenied, apiUrl, getAuthHeaders } from './data-common'

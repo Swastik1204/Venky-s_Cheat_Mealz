@@ -114,6 +114,11 @@ service cloud.firestore {
       return data != null && data.orderType == 'delivery';
     }
 
+    function isVisibleDeliveryOrder(data) {
+      return isDeliveryOrder(data)
+        && !(data.status == 'cancelled' || data.status == 'rejected');
+    }
+
     function deliveryCanUpdateOrder() {
       // Delivery user can only update delivery orders, and only specific fields.
       return isDeliveryUser()
@@ -151,6 +156,26 @@ service cloud.firestore {
       );
     }
 
+    function hasCanonicalOrderShape(data) {
+      return data is map
+        && (data.userId == null || data.userId is string)
+        && data.customer is map
+        && data.items is list
+        && data.subtotal is number
+        && data.orderType is string
+        && data.source is string
+        && data.orderNo is string
+        && data.status is string
+        && data.statusHistory is list
+        && data.payment is map
+        && data.totalAmount is number
+        && data.revisionCount is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (data.taxRate == null || data.taxRate is number)
+        && (data.taxAmount == null || data.taxAmount is number);
+    }
+
     // =========================================
     // ORDER COUNTER HELPERS
     // =========================================
@@ -180,8 +205,11 @@ service cloud.firestore {
       
       // Only super admin and admins can create/update/delete roles
       // Super admin can manage all roles, admins cannot modify super admin's role
-      allow create: if isAdmin();
-      allow update: if isAdmin() && (isSuperAdmin() || email != superAdminEmail());
+      allow create: if isAdmin()
+        && request.resource.data.role in ['admin', 'staff', 'delivery'];
+      allow update: if isAdmin()
+        && (isSuperAdmin() || email != superAdminEmail())
+        && request.resource.data.role in ['admin', 'staff', 'delivery'];
       allow delete: if isAdmin() && email != superAdminEmail(); // Cannot delete super admin
     }
 
@@ -193,11 +221,12 @@ service cloud.firestore {
       // Admins can read/write all user documents
       // Billers can write to 'guest' user for POS orders
       allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
-      allow write: if isAdmin() || (isSignedIn() && request.auth.uid == uid) || (hasPageAccess('biller') && uid == 'guest');
+      allow create, update: if isAdmin() || (isSignedIn() && request.auth.uid == uid) || (hasPageAccess('biller') && uid == 'guest');
+      allow delete: if isAdmin() || ((isSignedIn() && request.auth.uid == uid) && !hasRoleDoc());
 
       // User's nested orders (legacy - prefer top-level orders collection)
       match /orders/{orderId} {
-        allow create: if isAdmin() || ((isSignedIn() && request.auth.uid == uid) && allowDeliveryFor(request.resource.data));
+        allow create: if isAdmin() || ((isSignedIn() && request.auth.uid == uid) && hasCanonicalOrderShape(request.resource.data) && allowDeliveryFor(request.resource.data));
         allow read: if isAdmin() || canManageOrders() || (isSignedIn() && request.auth.uid == uid);
         allow update: if isAdmin() || canManageOrders() || (isSignedIn() && request.auth.uid == uid);
         allow delete: if false; // Never delete orders
@@ -205,7 +234,9 @@ service cloud.firestore {
 
       // All other user subcollections (cart, addresses, meta, etc.)
       match /{subcollection}/{docId} {
-        allow read, write: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+        allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+        allow create, update: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+        allow delete: if isAdmin() || ((isSignedIn() && request.auth.uid == uid) && !hasRoleDoc());
       }
     }
 
@@ -223,7 +254,7 @@ service cloud.firestore {
               (
                 (isSignedIn() && request.auth.uid == request.resource.data.userId) ||
                 (!isSignedIn() && request.resource.data.userId == null)
-              ) && allowDeliveryFor(request.resource.data)
+              ) && hasCanonicalOrderShape(request.resource.data) && allowDeliveryFor(request.resource.data)
             )
           )
       );
@@ -233,7 +264,7 @@ service cloud.firestore {
         isOrderCounterDoc(orderId)
           ? (isAdmin() || hasPageAccess('biller'))
           : (
-            isAdmin() || canManageOrders() || (isDeliveryUser() && isDeliveryOrder(resource.data)) ||
+            isAdmin() || canManageOrders() || (isDeliveryUser() && isVisibleDeliveryOrder(resource.data)) ||
             (isSignedIn() && resource.data.userId == request.auth.uid)
           )
       );
@@ -254,7 +285,8 @@ service cloud.firestore {
     // -----------------------------------------
     match /menu/{categoryId} {
       allow read: if true; // Public - anyone can view menu
-      allow write: if isAdmin() || canManageInventory();
+      allow create, update: if isAdmin() || canManageInventory();
+      allow delete: if isAdmin();
     }
 
     // -----------------------------------------
@@ -266,11 +298,13 @@ service cloud.firestore {
     }
     match /menuItems/{doc} {
       allow read: if true;
-      allow write: if isAdmin() || canManageInventory();
+      allow create, update: if isAdmin() || canManageInventory();
+      allow delete: if isAdmin();
     }
     match /items/{doc} {
       allow read: if true;
-      allow write: if isAdmin() || canManageInventory();
+      allow create, update: if isAdmin() || canManageInventory();
+      allow delete: if isAdmin();
     }
 
     // -----------------------------------------
@@ -278,7 +312,8 @@ service cloud.firestore {
     // -----------------------------------------
     match /images/{imageId} {
       allow read: if true; // Public - needed to display menu
-      allow write: if isAdmin() || canManageInventory();
+      allow create, update: if isAdmin() || canManageInventory();
+      allow delete: if isAdmin();
     }
 
     // -----------------------------------------
@@ -286,7 +321,8 @@ service cloud.firestore {
     // -----------------------------------------
     match /raw_materials/{doc} {
       allow read: if isAdmin() || canManageInventory() || hasPageAccess('biller');
-      allow write: if isAdmin() || canManageInventory();
+      allow create, update: if isAdmin() || canManageInventory();
+      allow delete: if isAdmin();
     }
 
     // -----------------------------------------
@@ -308,7 +344,7 @@ service cloud.firestore {
       allow read: if true;
       
       // Write permissions vary by document
-      allow write: if (
+      allow create, update: if (
         // Settings - admin only (includes delivery geofence, payment config)
         (docId == 'settings' && isAdmin()) ||
         // Store status - admin only
@@ -318,8 +354,8 @@ service cloud.firestore {
         // Daily counter - staff/admin can write (for order number generation)
         (docId == 'dailyCounter' && (isAdmin() || isStaff()))
       );
+      allow delete: if isAdmin();
     }
-                (!isSignedIn() && request.resource.data.userId == null && request.resource.data.customer.phone is string)
     // -----------------------------------------
     // AUDIT LOGS
     // -----------------------------------------

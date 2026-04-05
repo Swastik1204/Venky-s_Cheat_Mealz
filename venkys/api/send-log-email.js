@@ -42,18 +42,15 @@ export default async function handler(req, res) {
     if (auth.error) return res.status(auth.status).json({ error: auth.error })
   }
 
-  try {
-    const emailUser = process.env.EMAIL_USER
-    const emailPass = process.env.EMAIL_PASS
-    const emailRecipient = process.env.LOG_EMAIL_RECIPIENT
-    
-    if (!emailUser || !emailPass || !emailRecipient) {
-      return res.status(200).json({ 
-        __skipped: 'missing_server_config', 
-        message: 'EMAIL_USER, EMAIL_PASS, or LOG_EMAIL_RECIPIENT not configured' 
-      })
-    }
+  const emailUser = (process.env.EMAIL_USER || '').trim()
+  const emailPass = (process.env.EMAIL_PASS || '').trim()
+  const emailRecipient = (process.env.LOG_EMAIL_RECIPIENT || '').trim()
+  if (!emailUser || !emailPass || !emailRecipient) {
+    console.error('[send-log-email] Missing email config - logs will not be sent')
+    return res.status(500).json({ error: 'Email not configured' })
+  }
 
+  try {
     const { type, message, metadata } = req.body || {}
     
     if (!type || !message) {
@@ -96,10 +93,11 @@ ${metadataStr ? `<p><strong>Details:</strong></p><pre>${esc(metadataStr)}</pre>`
     })
 
     // Send email
+    const testPrefix = process.env.NODE_ENV !== 'production' ? '[TEST] ' : ''
     const info = await transporter.sendMail({
       from: `"Venky's Logs" <${emailUser}>`,
       to: emailRecipient,
-      subject: `[${type.toUpperCase()}] Log Alert - ${message.substring(0, 50)}`,
+      subject: `${testPrefix}[${type.toUpperCase()}] Log Alert - ${message.substring(0, 50)}`,
       html: emailBody,
     })
 

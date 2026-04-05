@@ -19,11 +19,16 @@ export function AuthProvider({ children }) {
     const roleName = role?.role
     if (!role?.isStaffMember || !roleName) return false
     if (roleName === 'admin') return true
-    if (roleName === 'delivery') return pageKey === 'delivery'
-    // Staff: prefer explicit pages permissions if present
+
+    // Explicit per-page permission takes precedence for all non-admin roles.
     if (role?.pages && typeof role.pages === 'object') {
-      return !!role.pages[pageKey]
+      if (Object.prototype.hasOwnProperty.call(role.pages, pageKey)) {
+        return !!role.pages[pageKey]
+      }
     }
+
+    if (roleName === 'delivery') return pageKey === 'delivery'
+
     // Back-compat defaults (existing installs)
     if (roleName === 'staff') {
       return ['orders', 'biller', 'inventory', 'stock', 'analytics'].includes(pageKey)

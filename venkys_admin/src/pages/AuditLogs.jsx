@@ -53,9 +53,6 @@ function describeLog(log) {
     || log.after?.email || log.before?.email
     || ''
 
-  // Build a natural sentence
-  const parts = [`${who} ${actionLabel.toLowerCase()}`]
-
   if (log.collection === 'orders') {
     const orderNo = log.after?.orderNo || log.before?.orderNo || docShort.slice(-6)
     if (log.action === 'update') {

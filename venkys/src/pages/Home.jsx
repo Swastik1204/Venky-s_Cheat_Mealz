@@ -407,8 +407,6 @@ export default function Home() {
   const showChefSpecialsCard = !spotlight.hiddenChefSpecials
   const showSpotlightSection = showSpotlightParent && (showHotDealsCard || showChefSpecialsCard)
 
-  const totalActiveItems = useMemo(() => menu.filter((m) => m.active !== false).length, [menu])
-
   const activeOrderSummary = useMemo(() => {
     if (!activeOrder) return null
     const itemCount = Array.isArray(activeOrder.items)

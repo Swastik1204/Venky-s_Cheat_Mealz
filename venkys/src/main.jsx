@@ -48,5 +48,14 @@ if (import.meta.env.DEV && 'serviceWorker' in navigator) {
 
 // Only register the service worker in production
 if (import.meta.env.PROD) {
-  registerSW({ immediate: true })
+  registerSW({
+    immediate: false,
+    onNeedRefresh() {
+      // Dispatch a custom event that the UI can listen to
+      window.dispatchEvent(new CustomEvent('pwa-update-available'))
+    },
+    onOfflineReady() {
+      console.log('[PWA] App ready for offline use')
+    },
+  })
 }

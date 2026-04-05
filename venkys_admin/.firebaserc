@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "venky-s-chicken-xperience"
-  }
+    "default": "venky-s-chicken-xperience",
+    "admin": "venky-s-chicken-xperience"
+  },
+  "targets": {},
+  "etags": {}
 }

@@ -1,7 +1,7 @@
 // usePlacesAutocomplete — Google Places autocomplete hook
 import { useEffect, useRef } from 'react'
 
-import { initAutocomplete } from '../lib/google'
+import { getGoogleApiKey, initAutocomplete, warnMissingGoogleMapsApiKey } from '../lib/google'
 
 const INSTANCE_KEY = '__venkysPlacesAutocomplete'
 
@@ -26,6 +26,11 @@ export default function usePlacesAutocomplete(inputRef, onSelect, options = {}) 
   useEffect(() => {
     const el = inputRef?.current
     if (!enabled || !el) return undefined
+
+    if (!getGoogleApiKey()) {
+      warnMissingGoogleMapsApiKey('usePlacesAutocomplete')
+      return undefined
+    }
 
     // Reuse existing instance if already attached to avoid duplicate listeners.
     const existing = el[INSTANCE_KEY]

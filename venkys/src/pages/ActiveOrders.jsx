@@ -151,7 +151,7 @@ export default function ActiveOrders() {
   }
 
   const totalFor = (order) => {
-    const explicit = order?.totalAmount ?? order?.total ?? order?.grandTotal
+    const explicit = order?.totalAmount ?? order?.subtotal // schema: matches data-orders.js canonical write
     if (explicit != null && Number.isFinite(Number(explicit))) return Number(explicit)
     const items = Array.isArray(order?.items) ? order.items : []
     return items.reduce((sum, it) => sum + (Number(it?.rate ?? it?.price) || 0) * (Number(it?.qty) || 0), 0)
