@@ -15,8 +15,10 @@ export default function NavBar() {
 
   // ── State & refs ──
   const [scrolled, setScrolled] = useState(false)
+  const [hiddenOnScroll, setHiddenOnScroll] = useState(false)
   const [theme, setTheme] = useState('venkys_light')
   const { user /*, logout */ } = useAuth()
+  const navRef = useRef(null)
 
   // ── Side-effects ──
   useEffect(() => {
@@ -51,6 +53,52 @@ export default function NavBar() {
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  useEffect(() => {
+    let lastY = window.scrollY
+    const revealTop = 96
+    const hideThreshold = 20
+    const showThreshold = 10
+
+    const onScrollDirection = () => {
+      const y = window.scrollY
+      const delta = y - lastY
+
+      if (y <= revealTop) {
+        setHiddenOnScroll(false)
+        lastY = y
+        return
+      }
+
+      if (delta > hideThreshold) {
+        setHiddenOnScroll(true)
+      } else if (delta < -showThreshold) {
+        setHiddenOnScroll(false)
+      }
+
+      lastY = y
+    }
+
+    window.addEventListener('scroll', onScrollDirection, { passive: true })
+    return () => window.removeEventListener('scroll', onScrollDirection)
+  }, [])
+
+  useEffect(() => {
+    const cls = 'customer-nav-hidden'
+    if (hiddenOnScroll) document.body.classList.add(cls)
+    else document.body.classList.remove(cls)
+    return () => document.body.classList.remove(cls)
+  }, [hiddenOnScroll])
+
+  useEffect(() => {
+    const updateNavHeight = () => {
+      const height = navRef.current?.offsetHeight || 80
+      document.documentElement.style.setProperty('--customer-nav-height', `${height}px`)
+    }
+    updateNavHeight()
+    window.addEventListener('resize', updateNavHeight)
+    return () => window.removeEventListener('resize', updateNavHeight)
   }, [])
   const isDark = theme === 'venkys_dark'
   const { label: locLabel, loading: isLocating, locate } = useDeliveryLocation('Durgapur')
@@ -211,7 +259,7 @@ export default function NavBar() {
 
   // ── Render ──
   return (
-    <div className="nav-sticky w-full">
+    <div ref={navRef} className={`nav-sticky w-full transition-transform duration-300 ${hiddenOnScroll ? '-translate-y-full' : 'translate-y-0'}`}>
       <div className="flex justify-center px-2 sm:px-4">
   <nav className={`navbar mx-auto w-full max-w-6xl rounded-3xl border border-base-300/50 bg-base-100 shadow-[0_20px_50px_-24px_rgba(15,23,42,0.55)] transition-shadow duration-300 ${scrolled ? 'mt-0 shadow-[0_32px_60px_-26px_rgba(15,23,42,0.65)] border-base-300/60' : 'mt-1'}`}>
           <div className="flex w-full items-center gap-3 sm:gap-4">

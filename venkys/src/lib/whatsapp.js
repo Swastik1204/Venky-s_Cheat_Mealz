@@ -1,5 +1,7 @@
 // whatsapp — WhatsApp message formatting and delivery
 import { sendWhatsAppInvoice } from './data'
+import { apiUrl, getAuthHeaders } from './data-common'
+import { fetchAppSettings } from './data-settings'
 
 function maskPhone(value) {
   const digits = String(value || '').replace(/\D/g, '')
@@ -53,26 +55,6 @@ function formatBillMessage(order) {
   return message
 }
 
-function formatItemsList(items) {
-  if (!Array.isArray(items)) return 'No items'
-  // WhatsApp templates don't allow newlines in parameters, use comma separation
-  const lines = items.map(item => {
-    const qty = item.qty || 0
-    const total = item.total || (qty * Number(item?.rate ?? item?.price ?? 0))
-    let line = `${qty} x ${item.name} (₹${total})`
-    if (item.modifiers && Array.isArray(item.modifiers) && item.modifiers.length > 0) {
-       line += ` + ${item.modifiers.map(m => m.name).join(', ')}`
-    }
-    return line
-  })
-  
-  const joined = lines.join(', ')
-  if (joined.length > 1000) {
-    return joined.slice(0, 997) + '...'
-  }
-  return joined
-}
-
 export async function sendBillToCustomer(order) {
   if (!order || !order.customer || !order.customer.phone) {
     console.warn('Cannot send WhatsApp bill: Missing order or customer phone')
@@ -80,14 +62,39 @@ export async function sendBillToCustomer(order) {
   }
 
   const phone = order.customer.phone
-  const orderRef = order.orderNo || order.id || 'unknown'
+  const orderRef = String(order.orderNo || order.id || 'unknown')
   console.info('[WA_TRIGGER_A_CHECKOUT_BILL] start', { orderRef, phone: maskPhone(phone) })
 
   // Use Template Message (Recommended for 24h window compliance)
-  // Template Name: venkys_bill
-  // Variables: {{1}}=Name, {{2}}=OrderNo, {{3}}=Total, {{4}}=Items
+  // Template Name: venkys_bill with 4 parameters
+  // {{1}}=Name, {{2}}=OrderNo, {{3}}=Amount, {{4}}=PaymentMethod
 
-  const itemsList = formatItemsList(order.items)
+  const customerName = order.customer.name || 'Customer'
+  
+  // Format {{3}}: Total amount
+  const totalAmount = Number(order.totalAmount || order.subtotal || 0)
+  let formattedTotal = `₹${totalAmount.toFixed(0)}`
+  if (!Number.isFinite(totalAmount)) {
+    formattedTotal = `₹${String(order.totalAmount || order.subtotal || '0').trim() || '0'}`
+  }
+  
+  // Format {{4}}: Payment method
+  let paymentMethodText = 'Bank Transfer'
+  const paymentMethod = order.paymentMethod || order.payment?.method
+  if (paymentMethod === 'cod') {
+    paymentMethodText = 'Cash on Delivery'
+  } else if (paymentMethod === 'online' || paymentMethod === 'razorpay') {
+    paymentMethodText = 'Paid Online'
+  } else if (paymentMethod) {
+    paymentMethodText = String(paymentMethod).toUpperCase()
+  }
+
+  console.log('[WA_TRIGGER_A_CHECKOUT_BILL] bill_params', { 
+    p1: customerName, 
+    p2: orderRef, 
+    p3: formattedTotal, 
+    p4: paymentMethodText 
+  })
   
   const payload = {
     templateName: 'venkys_bill',
@@ -96,10 +103,10 @@ export async function sendBillToCustomer(order) {
       {
         type: 'body',
         parameters: [
-          { type: 'text', text: order.customer.name || 'Customer' },
-          { type: 'text', text: String(order.orderNo) },
-          { type: 'text', text: String(order.totalAmount) },
-          { type: 'text', text: itemsList },
+          { type: 'text', text: customerName },
+          { type: 'text', text: orderRef },
+          { type: 'text', text: formattedTotal },
+          { type: 'text', text: paymentMethodText },
         ]
       }
     ]
@@ -142,4 +149,71 @@ export async function sendBillToCustomer(order) {
   const finalError = `WhatsApp failed: ${details}`
   console.error('[WA_TRIGGER_A_CHECKOUT_BILL] failed', { orderRef, phone: maskPhone(phone), error: finalError })
   return { ok: false, __error: 'wa_send_failed', message: finalError }
+}
+
+export async function sendOrderMessengerForOnlineOrder({ orderRef, customerName, totalAmount, address } = {}) {
+  try {
+    const settings = await fetchAppSettings()
+    const phones = Array.isArray(settings?.orderMessengerPhones) ? settings.orderMessengerPhones : []
+    const normalizedPhones = Array.from(new Set(
+      phones
+        .map((p) => {
+          let digits = String(p || '').replace(/\D/g, '')
+          if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2)
+          return digits.length === 10 ? digits : ''
+        })
+        .filter(Boolean)
+    ))
+
+    if (!normalizedPhones.length) {
+      return { __skipped: 'no_order_messenger_phones' }
+    }
+
+    console.log('[WA_TRIGGER_B_ORDER_MESSENGER] sending_to', normalizedPhones)
+
+    const url = apiUrl('/api/send-order-messenger')
+    const authHeaders = await getAuthHeaders()
+    
+    // venkys_order_messenger requires 3 body parameters:
+    // {{1}} = customer name
+    // {{2}} = total amount formatted as "₹126"
+    // {{3}} = delivery address as a single string
+    
+    const customer = String(customerName || 'Customer').trim() || 'Customer'
+    const total = Number(totalAmount || 0)
+    const totalText = Number.isFinite(total)
+      ? `₹${total.toFixed(0)}`
+      : `₹${String(totalAmount || '').trim() || '0'}`
+    const addr = String(address || '-').trim() || '-'
+    
+    console.log('[send-order-messenger] params', { customer, total: totalText, address: addr })
+    
+    const jobs = normalizedPhones.map(async (phone) => {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          phone,
+          customerName: customer,
+          totalAmount: totalText,
+          address: addr,
+          orderId: String(orderRef || '').trim() || undefined,
+        }),
+      })
+      let body = null
+      try { body = await res.json() } catch { /* ignore */ }
+      if (!res.ok) {
+        return { phone, ok: false, error: body || { status: res.status } }
+      }
+      return { phone, ok: true, data: body || {} }
+    })
+
+    const settled = await Promise.allSettled(jobs)
+    const results = settled.map((r) => (r.status === 'fulfilled' ? r.value : { ok: false, error: String(r.reason || 'unknown') }))
+    const success = results.filter((r) => r.ok).length
+    const failed = results.length - success
+    return { ok: failed === 0, success, failed, results }
+  } catch (e) {
+    return { __error: 'order_messenger_failed', message: String(e) }
+  }
 }

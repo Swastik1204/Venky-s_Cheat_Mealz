@@ -119,6 +119,8 @@ export default async function handler(req, res) {
       // Fallback template send
       const fallbackName = process.env.WA_TEMPLATE_DEFAULT_NAME || 'hello_world'
       const fallbackLang = process.env.WA_TEMPLATE_DEFAULT_LANG || 'en_US'
+      // Default fallback template — hello_world is Meta's built-in test template
+      // Set WA_TEMPLATE_DEFAULT_NAME in env to override for production
       const tplBody = {
         messaging_product: 'whatsapp',
         to: textBody.to,
@@ -146,6 +148,17 @@ export default async function handler(req, res) {
       const defaultLang = process.env.WA_TEMPLATE_DEFAULT_LANG || 'en_US'
       const rawLang = String(payload.templateLanguage || defaultLang).replace('-', '_')
       const lang = rawLang // Use the language code as provided, don't auto-convert 'en' to 'en_US'
+      
+      // Log template-specific parameters for debugging
+      if (payload.templateName === 'venkys_bill' && Array.isArray(payload.components?.[0]?.parameters)) {
+        const params = payload.components[0].parameters
+        const p1 = params[0]?.text || ''
+        const p2 = params[1]?.text || ''
+        const p3 = params[2]?.text || ''
+        const p4 = params[3]?.text || ''
+        console.log('[send-whatsapp] bill_params', { p1, p2, p3, p4 })
+      }
+      
       body = {
         messaging_product: 'whatsapp',
         to: resolvedTo,

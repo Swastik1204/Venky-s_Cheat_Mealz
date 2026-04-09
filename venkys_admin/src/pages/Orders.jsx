@@ -15,7 +15,18 @@ import { printOrderReceiptViaRawBT, shouldUseRawBT } from '../lib/rawbtPrint'
 export default function Orders() {
   const location = useLocation()
   const { confirmState, resolveConfirm, pushToast } = useUI()
-  const { user, roleLoading, isStaffMember } = useAuth()
+  const { user, roleLoading, isStaffMember, canAccess, role, adminUserDoc, isCashManager, isOrderMessenger } = useAuth()
+  const hasPageAccess = canAccess('orders')
+  const activeRole = adminUserDoc?.status === 'active'
+    ? String(adminUserDoc.role || '').toLowerCase()
+    : String(role?.role || '').toLowerCase()
+  const activePages = adminUserDoc?.status === 'active'
+    ? (adminUserDoc.pages && typeof adminUserDoc.pages === 'object' ? adminUserDoc.pages : {})
+    : (role?.pages && typeof role.pages === 'object' ? role.pages : {})
+  const hasCoreOrdersAccess = activeRole === 'admin' || !!activePages.orders || !!activePages.biller
+  const canHandlePlacedOrders = hasCoreOrdersAccess || isCashManager
+  const canAdvanceOrderStatus = hasCoreOrdersAccess
+  const isOrderMessengerOnly = isOrderMessenger && !hasCoreOrdersAccess && !isCashManager
 
   // ── State & refs ──
   const [orders, setOrders] = useState([])
@@ -92,6 +103,7 @@ export default function Orders() {
   }
 
   async function verifyOtpAndAccept(o, rawOtp) {
+    if (!canHandlePlacedOrders) return
     if (!o || o.status !== 'placed') return
     if (!isDineInCod(o)) return
     if (!o.cashManagerOtp) {
@@ -142,6 +154,7 @@ export default function Orders() {
   }
 
   async function resendOtpForOrder(o) {
+    if (!canHandlePlacedOrders) return
     if (!o) return
     if (!isDineInCod(o)) {
       pushToast('OTP resend only applies to dine-in COD orders', 'warning')
@@ -442,6 +455,7 @@ export default function Orders() {
   const metrics = statusFlow.reduce((acc, s) => { acc[s] = orders.filter(o => o.status === s).length; return acc }, { all: orders.length, rejected: orders.filter(o => o.status === 'rejected').length })
 
   async function acceptOrder(o) { 
+    if (!canHandlePlacedOrders) return
     if (o.status !== 'placed') return; 
     try {
       // For dine-in COD orders, OTP (if present) must be verified before accepting.
@@ -459,8 +473,14 @@ export default function Orders() {
       console.error('[Orders] Failed to accept order:', o.id, err)
     }
   }
-  async function rejectOrder(o) { if (o.status !== 'placed') return; await updateOrder(o.userId || null, o.id, { status: 'rejected' }, user?.email); setOrders(arr => arr.map(x => x.id === o.id ? { ...x, status: 'rejected' } : x)) }
+  async function rejectOrder(o) {
+    if (!canHandlePlacedOrders) return
+    if (o.status !== 'placed') return
+    await updateOrder(o.userId || null, o.id, { status: 'rejected' }, user?.email)
+    setOrders(arr => arr.map(x => x.id === o.id ? { ...x, status: 'rejected' } : x))
+  }
   async function advanceOrder(o) { 
+    if (!canAdvanceOrderStatus) return
     const next = nextOrderStatus(o.status); 
     if (next === o.status) return; 
     await updateOrder(o.userId || null, o.id, { status: next }, user?.email); 
@@ -521,6 +541,10 @@ export default function Orders() {
   }, [location, orders])
 
   // ── Render ──
+  if (!hasPageAccess) {
+    return <div className="p-8"><div className="alert alert-error">You don't have permission to access this page.</div></div>
+  }
+
   return (
     <AdminLayout section="orders">
       {otpModalOpen && otpModalOrder && (
@@ -546,6 +570,9 @@ export default function Orders() {
                 placeholder="Enter OTP"
                 autoFocus
               />
+              <p className="mt-2 text-xs opacity-70">
+                The OTP is displayed on the biller screen. Ask the biller to show you the code.
+              </p>
             </div>
 
             <div className="modal-action">
@@ -594,6 +621,11 @@ export default function Orders() {
         <h2 className="text-3xl font-extrabold tracking-tight" style={{lineHeight:'1.1', color:'var(--color-base-content)'}}>
           Orders
         </h2>
+        {isOrderMessengerOnly && (
+          <div className="alert alert-info py-2">
+            <span className="text-sm">Order Messenger access: view-only mode with no lifecycle status controls.</span>
+          </div>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="hidden md:block" />
           <div className="flex items-center gap-2 w-full md:w-auto">
@@ -661,13 +693,13 @@ export default function Orders() {
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <span className={`badge badge-sm ${statusColor(o.status)} capitalize`}>{o.status}</span>
-                      {o.status === 'placed' && (
+                      {o.status === 'placed' && canHandlePlacedOrders && (
                         <div className="flex gap-1" onClick={(e)=> e.stopPropagation()}>
                           <button className="btn btn-xs btn-success" onClick={() => acceptOrder(o)} disabled={frozen} title={frozen ? 'Actions disabled for past orders' : 'Accept'}>Accept</button>
                           <button className="btn btn-xs btn-error" onClick={() => rejectOrder(o)} disabled={frozen} title={frozen ? 'Actions disabled for past orders' : 'Reject'}>Reject</button>
                         </div>
                       )}
-                      {o.status !== 'placed' && o.status !== 'rejected' && (
+                      {o.status !== 'placed' && o.status !== 'rejected' && canAdvanceOrderStatus && (
                         <button className="btn btn-xs btn-primary" onClick={(e) => { e.stopPropagation(); if (!frozen) advanceOrder(o) }} disabled={advanceDisabled || frozen} title={frozen ? 'Actions disabled for past orders' : (advanceDisabled ? 'Final state reached' : `Advance to ${next}`)}>
                           {advanceDisabled ? 'Complete' : `Mark ${next}`}
                         </button>
@@ -884,8 +916,8 @@ export default function Orders() {
             </div>
             <div className="modal-action flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {selectedOrder.status === 'placed' && (<><button className="btn btn-sm btn-success" onClick={() => { acceptOrder(selectedOrder) }}>Accept</button><button className="btn btn-sm btn-error" onClick={() => { rejectOrder(selectedOrder) }}>Reject</button></>)}
-                {selectedOrder.status !== 'placed' && selectedOrder.status !== 'rejected' && nextOrderStatus(selectedOrder.status) !== selectedOrder.status && (<button className="btn btn-sm btn-primary" onClick={() => { advanceOrder(selectedOrder) }}>Mark {nextOrderStatus(selectedOrder.status)}</button>)}
+                {selectedOrder.status === 'placed' && canHandlePlacedOrders && (<><button className="btn btn-sm btn-success" onClick={() => { acceptOrder(selectedOrder) }}>Accept</button><button className="btn btn-sm btn-error" onClick={() => { rejectOrder(selectedOrder) }}>Reject</button></>)}
+                {selectedOrder.status !== 'placed' && selectedOrder.status !== 'rejected' && nextOrderStatus(selectedOrder.status) !== selectedOrder.status && canAdvanceOrderStatus && (<button className="btn btn-sm btn-primary" onClick={() => { advanceOrder(selectedOrder) }}>Mark {nextOrderStatus(selectedOrder.status)}</button>)}
                 <button className="btn btn-sm btn-ghost gap-2 border-base-300" onClick={() => printOrderBill(selectedOrder)}>
                   <MdPrint className="w-4 h-4" /> Print Bill
                 </button>

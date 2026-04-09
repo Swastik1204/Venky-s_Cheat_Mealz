@@ -729,7 +729,9 @@ export default function Home() {
           </section>
 
           <section aria-label="Browse categories" className="space-y-4">
-            <CategoriesBar items={categoryBarItems} />
+            <div className="home-categories-sticky">
+              <CategoriesBar items={categoryBarItems} />
+            </div>
           </section>
 
           {showSpotlightSection && (

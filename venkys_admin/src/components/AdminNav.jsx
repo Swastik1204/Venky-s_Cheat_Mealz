@@ -13,7 +13,7 @@ import { fetchStoreStatus, setStoreOpen } from '../lib/storeStatus'
 
 function AdminLinks({ section, vertical = false, onClick }) {
   const { pathname } = useLocation()
-  const { canAccess } = useAuth()
+  const { canAccess, isSuperAdmin } = useAuth()
 
   const links = useMemo(() => {
     const defs = [
@@ -27,8 +27,8 @@ function AdminLinks({ section, vertical = false, onClick }) {
       { key: 'biller', label: 'Biller', to: '/admin/biller' },
       { key: 'delivery', label: 'Delivery', to: '/admin/delivery' },
     ]
-    return defs.filter((d) => canAccess(d.key))
-  }, [canAccess])
+    return defs.filter((d) => (d.key === 'logs' ? isSuperAdmin : canAccess(d.key)))
+  }, [canAccess, isSuperAdmin])
 
   const pathSection = pathname.startsWith('/admin/') ? pathname.split('/')[2] : null
   const active = section || pathSection || links[0]?.key || 'inventory'

@@ -5,49 +5,86 @@ import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndP
 import { doc, getDoc } from 'firebase/firestore'
 
 import { auth, db } from '../lib/firebase'
+import { getAdminUser } from '../lib/data-adminUsers'
 import { ensureUserDocument } from '../lib/userData'
 
 const AuthContext = createContext(null)
+const SUPER_ADMIN_EMAIL = 'swastiksaha1204@gmail.com'
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function canAccessForRole(roleName, pages, pageKey) {
+  const page = String(pageKey || '').trim().toLowerCase()
+  const role = String(roleName || '').trim().toLowerCase()
+  if (!role || !page) return false
+  if (role === 'admin') return true
+  if (role === 'delivery') return page === 'delivery'
+  if (role !== 'staff') return false
+
+  const safePages = pages && typeof pages === 'object' ? pages : {}
+  const has = (key) => !!safePages[key]
+
+  const matrix = {
+    biller: has('biller'),
+    orders: has('orders') || has('biller') || has('cashManager') || has('orderMessenger'),
+    inventory: has('inventory'),
+    stock: has('stock') || has('inventory') || has('biller'),
+    analytics: has('analytics'),
+    settings: has('settings'),
+    appearance: has('appearance'),
+    delivery: has('delivery') || has('orders'),
+    cashmanager: has('cashManager'),
+    ordermessenger: has('orderMessenger'),
+    logs: false,
+  }
+
+  return !!matrix[page]
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [role, setRole] = useState(null) // null | { isStaffMember, role, isAdmin }
+  const [adminUserDoc, setAdminUserDoc] = useState(null)
   const [roleLoading, setRoleLoading] = useState(true)
 
   const canAccess = useCallback((pageKey) => {
-    const roleName = role?.role
-    if (!role?.isStaffMember || !roleName) return false
-    if (roleName === 'admin') return true
-
-    // Explicit per-page permission takes precedence for all non-admin roles.
-    if (role?.pages && typeof role.pages === 'object') {
-      if (Object.prototype.hasOwnProperty.call(role.pages, pageKey)) {
-        return !!role.pages[pageKey]
-      }
+    const page = String(pageKey || '').trim().toLowerCase()
+    if (page === 'logs') {
+      return normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL
     }
 
-    if (roleName === 'delivery') return pageKey === 'delivery'
-
-    // Back-compat defaults (existing installs)
-    if (roleName === 'staff') {
-      return ['orders', 'biller', 'inventory', 'stock', 'analytics'].includes(pageKey)
+    // adminUsers doc takes precedence when present.
+    if (adminUserDoc) {
+      if (adminUserDoc.status !== 'active') return false
+      return canAccessForRole(adminUserDoc.role, adminUserDoc.pages, page)
     }
-    return false
-  }, [role])
+
+    if (!role?.isStaffMember) return false
+    return canAccessForRole(role?.role, role?.pages, page)
+  }, [adminUserDoc, role, user?.email])
 
   // Check user role from /roles/{email} collection
-  const refreshRole = useCallback(async (email) => {
-    if (!email) {
+  const refreshRole = useCallback(async (email, uid) => {
+    if (!email && !uid) {
       setRole(null)
+      setAdminUserDoc(null)
       setRoleLoading(false)
       return
     }
+
     setRoleLoading(true)
     try {
-      const roleRef = doc(db, 'roles', email.toLowerCase().trim())
-      const roleSnap = await getDoc(roleRef)
-      if (roleSnap.exists()) {
+      const [roleSnap, adminUserSnap] = await Promise.all([
+        email ? getDoc(doc(db, 'roles', normalizeEmail(email))) : Promise.resolve(null),
+        uid ? getAdminUser(uid) : Promise.resolve(null),
+      ])
+
+      setAdminUserDoc(adminUserSnap || null)
+
+      if (roleSnap && roleSnap.exists()) {
         const data = roleSnap.data()
         const userRole = data.role || 'staff'
         setRole({
@@ -66,7 +103,8 @@ export function AuthProvider({ children }) {
       }
     } catch (err) {
       console.error('[AuthContext] Role check failed:', err)
-    setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
+      setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
+      setAdminUserDoc(null)
     } finally {
       setRoleLoading(false)
     }
@@ -76,9 +114,10 @@ export function AuthProvider({ children }) {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser)
       if (firebaseUser) {
-        await refreshRole(firebaseUser.email)
+        await refreshRole(firebaseUser.email, firebaseUser.uid)
       } else {
         setRole(null)
+        setAdminUserDoc(null)
         setRoleLoading(false)
       }
       setLoading(false)
@@ -129,21 +168,39 @@ export function AuthProvider({ children }) {
     user, 
     loading, 
     role, 
+    adminUserDoc,
     roleLoading, 
+    adminUserStatus: adminUserDoc?.status || null,
+    isRegisteredAdminUser: !!adminUserDoc && adminUserDoc.status === 'active',
+    isSuperAdmin: normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL,
     // Helper booleans for easy access
-    isStaffMember: role?.isStaffMember || false, // Has any role (admin or staff)
-    isAdmin: role?.isAdmin || false,             // Is admin (full access)
-    isStaff: role?.isStaff || false,             // Is staff (limited access)
-    isDelivery: role?.isDelivery || false,
+    isStaffMember: adminUserDoc
+      ? adminUserDoc.status === 'active'
+      : (role?.isStaffMember || false),
+    isAdmin: adminUserDoc
+      ? (adminUserDoc.status === 'active' && String(adminUserDoc.role || '').toLowerCase() === 'admin')
+      : (role?.isAdmin || false),
+    isStaff: adminUserDoc
+      ? (adminUserDoc.status === 'active' && String(adminUserDoc.role || '').toLowerCase() === 'staff')
+      : (role?.isStaff || false),
+    isDelivery: adminUserDoc
+      ? (adminUserDoc.status === 'active' && String(adminUserDoc.role || '').toLowerCase() === 'delivery')
+      : (role?.isDelivery || false),
+    isCashManager: adminUserDoc
+      ? (adminUserDoc.status === 'active' && String(adminUserDoc.role || '').toLowerCase() === 'staff' && !!adminUserDoc.pages?.cashManager)
+      : (String(role?.role || '').toLowerCase() === 'staff' && !!role?.pages?.cashManager),
+    isOrderMessenger: adminUserDoc
+      ? (adminUserDoc.status === 'active' && String(adminUserDoc.role || '').toLowerCase() === 'staff' && !!adminUserDoc.pages?.orderMessenger)
+      : (String(role?.role || '').toLowerCase() === 'staff' && !!role?.pages?.orderMessenger),
     canAccess,
-    refreshRole: () => refreshRole(user?.email),
+    refreshRole: () => refreshRole(user?.email, user?.uid),
     signup, 
     login, 
     logout, 
     loginWithGoogle, 
     sendOtp, 
     verifyOtp 
-  }), [user, loading, role, roleLoading, canAccess, refreshRole, signup, login, logout, loginWithGoogle, sendOtp, verifyOtp])
+  }), [user, loading, role, adminUserDoc, roleLoading, canAccess, refreshRole, signup, login, logout, loginWithGoogle, sendOtp, verifyOtp])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

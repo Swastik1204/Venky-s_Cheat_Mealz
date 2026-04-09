@@ -1,29 +1,46 @@
 // InstallPWA — PWA install banner prompt
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export default function InstallPWA() {
-  const [promptEvent, setPromptEvent] = useState(null)
-  const [canInstall, setCanInstall] = useState(false)
+  const deferredPromptRef = useRef(null)
+  const [showInstallButton, setShowInstallButton] = useState(false)
   const [showUpdateBanner, setShowUpdateBanner] = useState(false)
   const [updateDismissed, setUpdateDismissed] = useState(false)
   const [offset, setOffset] = useState(72)
 
   useEffect(() => {
-    function onBip(e) {
-      e.preventDefault()
-      setPromptEvent(e)
-      setCanInstall(true)
+    function onInstallReady(event) {
+      const promptEvent = event?.detail
+      if (!promptEvent || typeof promptEvent.prompt !== 'function') return
+      deferredPromptRef.current = promptEvent
+      setShowInstallButton(true)
     }
+
     function onUpdateAvailable() {
       setShowUpdateBanner(true)
       setUpdateDismissed(false)
     }
-    window.addEventListener('beforeinstallprompt', onBip)
+
+    function onAppInstalled() {
+      deferredPromptRef.current = null
+      setShowInstallButton(false)
+    }
+
+    window.addEventListener('pwa-install-ready', onInstallReady)
+    window.addEventListener('appinstalled', onAppInstalled)
     window.addEventListener('pwa-update-available', onUpdateAvailable)
+
+    if (window.__pwaInstallPrompt && typeof window.__pwaInstallPrompt.prompt === 'function') {
+      deferredPromptRef.current = window.__pwaInstallPrompt
+      setShowInstallButton(true)
+    }
+
     // If already installed (standalone), hide
     if (window.matchMedia('(display-mode: standalone)').matches) {
-      setCanInstall(false)
+      deferredPromptRef.current = null
+      setShowInstallButton(false)
     }
+
     // measure dock height
     const measure = () => {
       const el = document.getElementById('quick-dock-bar')
@@ -42,14 +59,15 @@ export default function InstallPWA() {
       if (el) ro.observe(el)
     }
     return () => {
-      window.removeEventListener('beforeinstallprompt', onBip)
+      window.removeEventListener('pwa-install-ready', onInstallReady)
+      window.removeEventListener('appinstalled', onAppInstalled)
       window.removeEventListener('pwa-update-available', onUpdateAvailable)
       window.removeEventListener('resize', measure)
       if (ro) ro.disconnect()
     }
   }, [])
 
-  const showInstallPrompt = canInstall && !!promptEvent
+  const showInstallPrompt = showInstallButton && deferredPromptRef.current !== null
   const showUpdatePrompt = showUpdateBanner && !updateDismissed
   if (!showInstallPrompt && !showUpdatePrompt) return null
 
@@ -90,10 +108,14 @@ export default function InstallPWA() {
             className="btn btn-primary shadow-lg strobe"
             onClick={async () => {
               try {
-                await promptEvent.prompt()
-                await promptEvent.userChoice
-                setCanInstall(false)
-                setPromptEvent(null)
+                const deferredPrompt = deferredPromptRef.current
+                if (!deferredPrompt) return
+                console.log('[PWA] install prompt shown')
+                await deferredPrompt.prompt()
+                const choice = await deferredPrompt.userChoice
+                console.log('[PWA] install choice', choice?.outcome || choice)
+                deferredPromptRef.current = null
+                setShowInstallButton(false)
               } catch { /* noop */ }
             }}
           >Install app</button>

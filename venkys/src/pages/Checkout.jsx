@@ -13,7 +13,7 @@ import usePlacesAutocomplete from '../hooks/usePlacesAutocomplete'
 import { createOrder, fetchAddresses, addAddress, setDefaultAddress, createRazorpayOrder, verifyRazorpayPayment, BRAND_LONG, fetchUserProfile, updateAddress, fetchOrder, getRazorpayKeyId } from '../lib/data'
 import { db } from '../lib/firebase'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
-import { sendBillToCustomer } from '../lib/whatsapp'
+import { sendBillToCustomer, sendOrderMessengerForOnlineOrder } from '../lib/whatsapp'
 
 const CHECKOUT_PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash on Delivery', helper: 'Pay when the order arrives.', icon: MdPayment },
@@ -1018,6 +1018,23 @@ export default function Checkout() {
         paymentInfo.currency = razorpayOrder.currency
         paymentInfo.verified = true
       }
+
+      if (isOnlinePayment) {
+        try {
+          const messengerPayload = {
+            orderRef: orderIdValue,
+            customerName: form.name,
+            totalAmount: Number(subtotal),
+            address: [form.addressLine1, form.addressLine2, form.city, form.state, form.pin]
+              .filter(Boolean)
+              .join(', '),
+          }
+          void sendOrderMessengerForOnlineOrder(messengerPayload)
+        } catch (messengerErr) {
+          console.warn('[WA_TRIGGER_B_ORDER_MESSENGER] non_blocking_error', messengerErr)
+        }
+      }
+
       setOrderId(orderIdValue)
       setShowOrderPlacedSuccess(true)
 
@@ -1034,7 +1051,8 @@ export default function Checkout() {
           subtotal: Number(subtotal),
           taxAmount: 0,
           totalAmount: Number(subtotal),
-          orderType: 'delivery'
+          orderType: 'delivery',
+          paymentMethod: form.paymentMethod || 'cod'
         }
         console.info('[WA_TRIGGER_A_CHECKOUT_BILL] queued', {
           orderRef: orderIdValue,

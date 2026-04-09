@@ -7,6 +7,7 @@ export async function sendWhatsAppInvoice(phone, payload) {
     if (!normalizedPhone) {
       return { __skipped: 'missing_phone' }
     }
+    console.log('[WA_TRIGGER_C_BILLER_OTP] sending_to', normalizedPhone)
     const url = apiUrl('/api/send-whatsapp')
     const authHeaders = await getAuthHeaders()
     const res = await fetch(url, {
@@ -17,13 +18,17 @@ export async function sendWhatsAppInvoice(phone, payload) {
     let body = null
     try { body = await res.json() } catch { /* ignore non-JSON responses */ }
     if (res.ok) {
-      return body || {}
+      const out = body || {}
+      console.log('[WA_TRIGGER_C_BILLER_OTP] send_result', out)
+      return out
     }
     const errObj = { __error: 'http_error', status: res.status, ...(body || {}) }
+    console.log('[WA_TRIGGER_C_BILLER_OTP] send_result', errObj)
     try { console.warn('[wa] send failed', JSON.stringify(errObj, null, 2)) } catch {}
     return errObj
   } catch (e) {
     const errObj = { __error: 'network', message: String(e) }
+    console.log('[WA_TRIGGER_C_BILLER_OTP] send_result', errObj)
     try { console.warn('[wa] send failed', JSON.stringify(errObj, null, 2)) } catch {}
     return errObj
   }
@@ -57,37 +62,40 @@ export async function sendOrderMessengerViaWhatsApp(phone, { customerName, total
   }
 }
 
-// Send OTP via WhatsApp using template with plain-text fallback
+// Send OTP via WhatsApp using only the OTP template.
 export async function sendOtpViaWhatsApp(phone, otp, orderRef = '') {
-  if (!phone) {
-    return { __error: 'missing_phone' }
-  }
-  const rawButtonParam = otp ? String(otp) : String(orderRef || '')
-  const buttonParam = rawButtonParam.replace(/\s+/g, '').slice(0, 15) || '0'
-  const templatePayload = {
+  const normalizedPhone = normalizeWhatsappPhone(phone)
+  if (!normalizedPhone) return { __error: 'missing_phone' }
+
+  const otpCode = String(otp || '').trim()
+  if (!otpCode) return { __error: 'missing_otp' }
+
+  // venkys_otp is an Authentication template with Copy Code delivery.
+  // Meta requires TWO components: body with OTP and button with copy_code sub_type carrying the same OTP.
+  const otpPayload = {
     templateName: 'venkys_otp',
     templateLanguage: 'en',
+    otp: otpCode,
     components: [
       {
         type: 'body',
-        parameters: [
-          { type: 'text', text: String(otp) },
-        ],
+        parameters: [{ type: 'text', text: otpCode }],
       },
       {
         type: 'button',
         sub_type: 'url',
         index: '0',
-        parameters: [{ type: 'text', text: buttonParam }],
+        parameters: [{ type: 'text', text: otpCode }],
       },
-    ]
+    ],
   }
-  const res = await sendWhatsAppInvoice(phone, templatePayload)
-  if (!res?.__error) {
-    return res
+
+  const result = await sendWhatsAppInvoice(normalizedPhone, otpPayload)
+  if (result?.__error) {
+    console.warn('[WA_TRIGGER_C_BILLER_OTP] send_failed', {
+      orderRef: String(orderRef || '').trim() || 'unknown_order',
+      reason: result?.message || result?.error || result?.__error || 'unknown',
+    })
   }
-  const textMessage = orderRef
-    ? `🔐 Dine-in COD OTP\nOrder: ${orderRef}\nOTP: ${otp}`
-    : `🔐 Your OTP: ${otp}`
-  return await sendWhatsAppInvoice(phone, { text: textMessage })
+  return result
 }

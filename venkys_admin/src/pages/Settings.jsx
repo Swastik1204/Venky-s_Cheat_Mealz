@@ -1,5 +1,5 @@
 // Settings — Store settings, staff roles, and notifications
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { MdDelete, MdEdit, MdPersonAdd } from 'react-icons/md'
@@ -8,12 +8,14 @@ import AdminLayout from '../layouts/AdminLayout'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { fetchAppSettings, saveAppSettings, sendWhatsAppInvoice, fetchBusinessProfile, syncBusinessProfile, fetchStaff, addStaffMember, updateStaffMember, removeStaffMember } from '../lib/data'
+import { createAdminUser, listAdminUsers, suspendAdminUser, updateAdminUser } from '../lib/data-adminUsers'
 import { fetchDeliverySettings, saveDeliverySettings } from '../lib/deliverySettings'
 import { fetchStoreStatus, setStoreOpen } from '../lib/storeStatus'
 
 export default function Settings() {
   const { pushToast } = useUI()
-  const { user, isAdmin, refreshRole } = useAuth()
+  const { user, isAdmin, isSuperAdmin, refreshRole, canAccess } = useAuth()
+  const hasPageAccess = canAccess('settings')
 
   // ── State ──
   const [appSettings, setAppSettings] = useState({ adminMobile: '', shopAddress: '', shopPhone: '', centerLat: '', centerLng: '', radiusKm: 8, locationLink: '', googlePlaceId: '' })
@@ -67,6 +69,8 @@ export default function Settings() {
 
   const STAFF_PAGE_DEFS = [
     { key: 'orders', label: 'Orders' },
+    { key: 'cashManager', label: 'Cash Manager (Orders)' },
+    { key: 'orderMessenger', label: 'Order Messenger (Orders)' },
     { key: 'biller', label: 'Biller (POS)' },
     { key: 'inventory', label: 'Inventory' },
     { key: 'stock', label: 'Stock' },
@@ -79,7 +83,7 @@ export default function Settings() {
 
   const defaultPagesForRole = (role) => {
     if (role === 'delivery') return { delivery: true }
-    if (role === 'staff') return { orders: true, biller: true, inventory: true, stock: true, analytics: true }
+    if (role === 'staff') return { orders: true, biller: true, inventory: true, stock: true, analytics: true, cashManager: false, orderMessenger: false }
     return null
   }
 
@@ -87,6 +91,61 @@ export default function Settings() {
   const [staff, setStaff] = useState([])
   const [staffLoading, setStaffLoading] = useState(false)
   const [staffModal, setStaffModal] = useState({ open: false, mode: 'add', email: '', name: '', role: 'staff', pages: defaultPagesForRole('staff'), defaultPage: '', saving: false })
+
+  // Admin users (invite-based registration)
+  const [adminUsersTab, setAdminUsersTab] = useState('current')
+  const [adminUsersStatusFilter, setAdminUsersStatusFilter] = useState('all')
+  const [adminUsers, setAdminUsers] = useState([])
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false)
+  const [adminUsersBusy, setAdminUsersBusy] = useState(false)
+  const [adminUserInviteForm, setAdminUserInviteForm] = useState({
+    displayName: '',
+    email: '',
+    phone: '',
+    role: 'staff',
+    pages: defaultPagesForRole('staff') || {},
+  })
+  const [inviteLinkModal, setInviteLinkModal] = useState({ open: false, link: '' })
+  const [adminUserEditModal, setAdminUserEditModal] = useState({
+    open: false,
+    uid: '',
+    displayName: '',
+    phone: '',
+    role: 'staff',
+    pages: defaultPagesForRole('staff') || {},
+    saving: false,
+  })
+
+  const loadAdminUsers = useCallback(async (status = 'all') => {
+    if (!isSuperAdmin) return
+    setAdminUsersLoading(true)
+    try {
+      const list = await listAdminUsers(status)
+      setAdminUsers(Array.isArray(list) ? list : [])
+    } catch (e) {
+      pushToast(e?.message || 'Failed to load admin users', 'error')
+    } finally {
+      setAdminUsersLoading(false)
+    }
+  }, [isSuperAdmin, pushToast])
+
+  const formatAdminDate = useCallback((value) => {
+    if (!value) return '-'
+    if (typeof value === 'number') return new Date(value).toLocaleString()
+    if (value?.seconds) return new Date(value.seconds * 1000).toLocaleString()
+    if (typeof value === 'string') {
+      const d = new Date(value)
+      if (!Number.isNaN(d.getTime())) return d.toLocaleString()
+    }
+    return '-'
+  }, [])
+
+  const getEnabledPagesLabel = useCallback((pages) => {
+    const enabled = Object.entries(pages && typeof pages === 'object' ? pages : {})
+      .filter(([, val]) => !!val)
+      .map(([key]) => key)
+    return enabled.length ? enabled.join(', ') : '-'
+  }, [])
 
   // Messaging test state
   const [testPhone, setTestPhone] = useState('')
@@ -108,6 +167,11 @@ export default function Settings() {
     }).finally(() => active && setStaffLoading(false))
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    if (!isSuperAdmin) return
+    loadAdminUsers(adminUsersStatusFilter)
+  }, [isSuperAdmin, loadAdminUsers, adminUsersStatusFilter])
 
   // Initial load
   useEffect(() => {
@@ -166,6 +230,105 @@ export default function Settings() {
   }, [])
 
   const liveStatusDirty = liveEnabled !== liveDefault
+
+  if (!hasPageAccess) {
+    return <div className="p-8"><div className="alert alert-error">You don't have permission to access this page.</div></div>
+  }
+
+  const handleSuspendAdminUser = async (uid, displayName) => {
+    if (!isSuperAdmin || !uid) return
+    const label = displayName || uid
+    if (!confirm(`Suspend ${label}?`)) return
+    setAdminUsersBusy(true)
+    try {
+      await suspendAdminUser(uid)
+      pushToast('Admin user suspended', 'success')
+      await loadAdminUsers(adminUsersStatusFilter)
+    } catch (e) {
+      pushToast(e?.message || 'Failed to suspend admin user', 'error')
+    } finally {
+      setAdminUsersBusy(false)
+    }
+  }
+
+  const handleInviteAdminUser = async () => {
+    if (!isSuperAdmin) return
+    const email = String(adminUserInviteForm.email || '').trim().toLowerCase()
+    const phone = String(adminUserInviteForm.phone || '').replace(/\D/g, '')
+    const displayName = String(adminUserInviteForm.displayName || '').trim()
+    if (!displayName || !email || !phone) {
+      pushToast('Display name, email, and phone are required', 'error')
+      return
+    }
+
+    const uid = crypto.randomUUID()
+    const role = adminUserInviteForm.role || 'staff'
+    const pages = role === 'admin' ? {} : (adminUserInviteForm.pages || {})
+    setAdminUsersBusy(true)
+    try {
+      const created = await createAdminUser(uid, {
+        email,
+        displayName,
+        phone,
+        role,
+        pages,
+        invitedBy: user?.uid || null,
+      })
+      const token = String(created?.inviteToken || '').trim()
+      const inviteLink = `https://venkys-admin.vercel.app/invite?token=${encodeURIComponent(token)}&uid=${encodeURIComponent(uid)}`
+      setInviteLinkModal({ open: true, link: inviteLink })
+      setAdminUserInviteForm({
+        displayName: '',
+        email: '',
+        phone: '',
+        role: 'staff',
+        pages: defaultPagesForRole('staff') || {},
+      })
+      setAdminUsersTab('current')
+      await loadAdminUsers(adminUsersStatusFilter)
+    } catch (e) {
+      pushToast(e?.message || 'Failed to invite admin user', 'error')
+    } finally {
+      setAdminUsersBusy(false)
+    }
+  }
+
+  const handleSaveAdminUserEdit = async () => {
+    if (!isSuperAdmin || !adminUserEditModal.uid) return
+    setAdminUserEditModal((prev) => ({ ...prev, saving: true }))
+    try {
+      const role = adminUserEditModal.role || 'staff'
+      await updateAdminUser(adminUserEditModal.uid, {
+        displayName: adminUserEditModal.displayName,
+        phone: adminUserEditModal.phone,
+        role,
+        pages: role === 'admin' ? {} : (adminUserEditModal.pages || {}),
+      })
+      pushToast('Admin user updated', 'success')
+      setAdminUserEditModal({
+        open: false,
+        uid: '',
+        displayName: '',
+        phone: '',
+        role: 'staff',
+        pages: defaultPagesForRole('staff') || {},
+        saving: false,
+      })
+      await loadAdminUsers(adminUsersStatusFilter)
+    } catch (e) {
+      pushToast(e?.message || 'Failed to update admin user', 'error')
+      setAdminUserEditModal((prev) => ({ ...prev, saving: false }))
+    }
+  }
+
+  const handleCopyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLinkModal.link)
+      pushToast('Invite link copied', 'success')
+    } catch {
+      pushToast('Copy failed. Please copy the link manually.', 'warning')
+    }
+  }
 
   // ── Render ──
   return (
@@ -708,6 +871,213 @@ export default function Settings() {
         )}
       </div>
 
+      {isSuperAdmin && (
+        <div className="rounded-2xl border border-base-300/60 bg-base-100/80 backdrop-blur p-5 shadow-sm max-w-5xl mt-6">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h3 className="font-semibold tracking-tight">Admin Users</h3>
+            <div className="tabs tabs-boxed">
+              <button
+                type="button"
+                className={`tab ${adminUsersTab === 'current' ? 'tab-active' : ''}`}
+                onClick={() => setAdminUsersTab('current')}
+              >
+                Current users
+              </button>
+              <button
+                type="button"
+                className={`tab ${adminUsersTab === 'invite' ? 'tab-active' : ''}`}
+                onClick={() => setAdminUsersTab('invite')}
+              >
+                Invite new user
+              </button>
+            </div>
+          </div>
+
+          {adminUsersTab === 'current' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <label className="text-sm opacity-70">Status:</label>
+                <select
+                  className="select select-bordered select-sm"
+                  value={adminUsersStatusFilter}
+                  onChange={(e) => setAdminUsersStatusFilter(e.target.value)}
+                >
+                  <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <option value="pending">Pending</option>
+                  <option value="suspended">Suspended</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  disabled={adminUsersLoading}
+                  onClick={() => loadAdminUsers(adminUsersStatusFilter)}
+                >
+                  {adminUsersLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-base-300/60">
+                <table className="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Phone</th>
+                      <th>Role</th>
+                      <th>Pages</th>
+                      <th>Status</th>
+                      <th>Last Login</th>
+                      <th className="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!adminUsersLoading && adminUsers.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="text-center opacity-60 py-6">No admin users found.</td>
+                      </tr>
+                    )}
+                    {adminUsers.map((u) => (
+                      <tr key={u.id}>
+                        <td className="font-medium">{u.displayName || '-'}</td>
+                        <td className="font-mono text-xs">{u.email || '-'}</td>
+                        <td>{u.phone || '-'}</td>
+                        <td><span className="badge badge-outline uppercase">{u.role || '-'}</span></td>
+                        <td className="max-w-[14rem] truncate" title={getEnabledPagesLabel(u.pages)}>{getEnabledPagesLabel(u.pages)}</td>
+                        <td>
+                          <span className={`badge badge-sm ${u.status === 'active' ? 'badge-success' : u.status === 'pending' ? 'badge-warning' : 'badge-error'}`}>
+                            {u.status || '-'}
+                          </span>
+                        </td>
+                        <td>{formatAdminDate(u.lastLoginAt)}</td>
+                        <td>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              className="btn btn-xs"
+                              onClick={() => setAdminUserEditModal({
+                                open: true,
+                                uid: u.id,
+                                displayName: u.displayName || '',
+                                phone: String(u.phone || ''),
+                                role: u.role || 'staff',
+                                pages: u.pages && typeof u.pages === 'object' ? u.pages : (defaultPagesForRole(u.role || 'staff') || {}),
+                                saving: false,
+                              })}
+                            >
+                              Edit role
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-error"
+                              disabled={adminUsersBusy || u.status === 'suspended'}
+                              onClick={() => handleSuspendAdminUser(u.id, u.displayName)}
+                            >
+                              Suspend
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {adminUsersTab === 'invite' && (
+            <div className="space-y-4 max-w-2xl">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="form-control">
+                  <span className="label-text mb-1">Display name</span>
+                  <input
+                    type="text"
+                    className="input input-bordered"
+                    value={adminUserInviteForm.displayName}
+                    onChange={(e) => setAdminUserInviteForm((prev) => ({ ...prev, displayName: e.target.value }))}
+                    placeholder="Full name"
+                  />
+                </label>
+
+                <label className="form-control">
+                  <span className="label-text mb-1">Email</span>
+                  <input
+                    type="email"
+                    className="input input-bordered"
+                    value={adminUserInviteForm.email}
+                    onChange={(e) => setAdminUserInviteForm((prev) => ({ ...prev, email: e.target.value }))}
+                    placeholder="user@example.com"
+                  />
+                </label>
+
+                <label className="form-control">
+                  <span className="label-text mb-1">Phone number</span>
+                  <input
+                    type="text"
+                    className="input input-bordered"
+                    value={adminUserInviteForm.phone}
+                    onChange={(e) => setAdminUserInviteForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, '') }))}
+                    placeholder="10-digit phone"
+                  />
+                </label>
+
+                <label className="form-control">
+                  <span className="label-text mb-1">Role</span>
+                  <select
+                    className="select select-bordered"
+                    value={adminUserInviteForm.role}
+                    onChange={(e) => {
+                      const nextRole = e.target.value
+                      setAdminUserInviteForm((prev) => ({
+                        ...prev,
+                        role: nextRole,
+                        pages: nextRole === 'admin' ? {} : (defaultPagesForRole(nextRole) || {}),
+                      }))
+                    }}
+                  >
+                    <option value="admin">admin</option>
+                    <option value="staff">staff</option>
+                    <option value="delivery">delivery</option>
+                  </select>
+                </label>
+              </div>
+
+              {adminUserInviteForm.role !== 'admin' && (
+                <div>
+                  <div className="text-sm font-medium mb-2">Pages</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {STAFF_PAGE_DEFS.map((p) => (
+                      <label key={p.key} className="label cursor-pointer justify-start gap-2 rounded-lg border border-base-300/60 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-sm"
+                          checked={!!adminUserInviteForm.pages?.[p.key]}
+                          onChange={(e) => setAdminUserInviteForm((prev) => ({
+                            ...prev,
+                            pages: { ...(prev.pages || {}), [p.key]: e.target.checked },
+                          }))}
+                        />
+                        <span className="label-text">{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs opacity-60 mt-2">
+                    Sub-roles: <span className="font-medium">Cash Manager</span> can handle OTP/payment acceptance,
+                    and <span className="font-medium">Order Messenger</span> gets orders access without full lifecycle controls.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <button type="button" className="btn btn-primary" disabled={adminUsersBusy} onClick={handleInviteAdminUser}>
+                  {adminUsersBusy ? 'Creating…' : 'Create Invite'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Staff Modal */}
       {staffModal.open && createPortal(
         <div 
@@ -892,6 +1262,139 @@ export default function Settings() {
           </div>
         </div>,
         document.body
+      )}
+
+      {inviteLinkModal.open && (
+        <dialog open className="modal modal-open">
+          <div className="modal-box">
+            <h3 className="font-semibold text-lg mb-2">Invite link</h3>
+            <p className="text-sm opacity-70 mb-3">This link expires in 48 hours. Send it to the new user directly.</p>
+            <textarea
+              className="textarea textarea-bordered w-full h-24 font-mono text-xs"
+              readOnly
+              value={inviteLinkModal.link}
+            />
+            <div className="modal-action">
+              <button type="button" className="btn btn-outline" onClick={handleCopyInviteLink}>Copy</button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setInviteLinkModal({ open: false, link: '' })}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <form method="dialog" className="modal-backdrop" onClick={() => setInviteLinkModal({ open: false, link: '' })}>
+            <button>close</button>
+          </form>
+        </dialog>
+      )}
+
+      {adminUserEditModal.open && (
+        <dialog open className="modal modal-open">
+          <div className="modal-box">
+            <h3 className="font-semibold text-lg mb-3">Edit admin user</h3>
+            <div className="space-y-3">
+              <label className="form-control">
+                <span className="label-text mb-1">Display name</span>
+                <input
+                  className="input input-bordered"
+                  value={adminUserEditModal.displayName}
+                  onChange={(e) => setAdminUserEditModal((prev) => ({ ...prev, displayName: e.target.value }))}
+                />
+              </label>
+              <label className="form-control">
+                <span className="label-text mb-1">Phone</span>
+                <input
+                  className="input input-bordered"
+                  value={adminUserEditModal.phone}
+                  onChange={(e) => setAdminUserEditModal((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, '') }))}
+                />
+              </label>
+              <label className="form-control">
+                <span className="label-text mb-1">Role</span>
+                <select
+                  className="select select-bordered"
+                  value={adminUserEditModal.role}
+                  onChange={(e) => {
+                    const nextRole = e.target.value
+                    setAdminUserEditModal((prev) => ({
+                      ...prev,
+                      role: nextRole,
+                      pages: nextRole === 'admin' ? {} : (prev.pages || defaultPagesForRole(nextRole) || {}),
+                    }))
+                  }}
+                >
+                  <option value="admin">admin</option>
+                  <option value="staff">staff</option>
+                  <option value="delivery">delivery</option>
+                </select>
+              </label>
+
+              {adminUserEditModal.role !== 'admin' && (
+                <div>
+                  <div className="text-sm font-medium mb-2">Pages</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {STAFF_PAGE_DEFS.map((p) => (
+                      <label key={p.key} className="label cursor-pointer justify-start gap-2 rounded-lg border border-base-300/60 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-sm"
+                          checked={!!adminUserEditModal.pages?.[p.key]}
+                          onChange={(e) => setAdminUserEditModal((prev) => ({
+                            ...prev,
+                            pages: { ...(prev.pages || {}), [p.key]: e.target.checked },
+                          }))}
+                        />
+                        <span className="label-text">{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs opacity-60 mt-2">
+                    Sub-roles: <span className="font-medium">Cash Manager</span> can handle OTP/payment acceptance,
+                    and <span className="font-medium">Order Messenger</span> gets orders access without full lifecycle controls.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="modal-action">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setAdminUserEditModal({
+                  open: false,
+                  uid: '',
+                  displayName: '',
+                  phone: '',
+                  role: 'staff',
+                  pages: defaultPagesForRole('staff') || {},
+                  saving: false,
+                })}
+              >
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" disabled={adminUserEditModal.saving} onClick={handleSaveAdminUserEdit}>
+                {adminUserEditModal.saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+          <form
+            method="dialog"
+            className="modal-backdrop"
+            onClick={() => setAdminUserEditModal({
+              open: false,
+              uid: '',
+              displayName: '',
+              phone: '',
+              role: 'staff',
+              pages: defaultPagesForRole('staff') || {},
+              saving: false,
+            })}
+          >
+            <button>close</button>
+          </form>
+        </dialog>
       )}
     </div>
   </AdminLayout>

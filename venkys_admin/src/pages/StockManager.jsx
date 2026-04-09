@@ -9,6 +9,7 @@ import {
 } from 'react-icons/md'
 
 import AdminLayout from '../layouts/AdminLayout'
+import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { fetchRawMaterials, saveRawMaterial, deleteRawMaterial, updateRawMaterialStock, fetchMenuCategories } from '../lib/data'
 
@@ -42,6 +43,9 @@ function progressColor(stock, threshold) {
 }
 
 export default function StockManager() {
+  const { canAccess } = useAuth()
+  const hasPageAccess = canAccess('stock')
+
   // ── State & refs ──
   const [materials, setMaterials] = useState([])
   const [menuItems, setMenuItems] = useState([])
@@ -268,6 +272,10 @@ export default function StockManager() {
         pushToast('Failed to delete', 'error')
       }
     }
+  }
+
+  if (!hasPageAccess) {
+    return <div className="p-8"><div className="alert alert-error">You don't have permission to access this page.</div></div>
   }
 
   // ── Render ──

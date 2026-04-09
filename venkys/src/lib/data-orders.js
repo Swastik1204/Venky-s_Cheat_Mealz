@@ -21,7 +21,6 @@
 import { collection, doc, getDocs, getDoc, query, where, setDoc, serverTimestamp, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion } from 'firebase/firestore'
 import { db } from './firebase'
 import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment, isPermissionDenied, apiUrl, getAuthHeaders } from './data-common'
-import { fetchAppSettings } from './data-settings'
 
 // ── Order number generation ──
 
@@ -148,9 +147,6 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
   try {
     await setDoc(topRef, base)
     topLevelPersisted = true
-    if (String(base?.source || '').toLowerCase() !== 'pos') {
-      try { void notifyOrderMessengers(base) } catch { /* noop */ }
-    }
   } catch (err) {
     if (err?.code !== 'permission-denied') {
       throw err
@@ -162,67 +158,6 @@ export async function createOrder({ userId = null, customer = {}, items, orderTy
 
   if (topLevelPersisted) return resolvedOrderNo
   throw new Error('You need to sign in before placing an order.')
-}
-
-// ── Notifications ──
-
-// Send order notification to all order messenger phone numbers
-async function notifyOrderMessengers(orderPayload) {
-  try {
-    const settings = await fetchAppSettings()
-    const phones = Array.isArray(settings?.orderMessengerPhones) ? settings.orderMessengerPhones : []
-    const validPhones = phones
-      .map((p) => String(p || '').replace(/\D/g, ''))
-      .filter((digits) => digits.length === 10)
-
-    if (!validPhones.length) {
-      return { __skipped: 'no_order_messenger_phones' }
-    }
-
-    const customerName = String(orderPayload?.customer?.name || 'Customer').trim() || 'Customer'
-    const totalAmount = Number(orderPayload?.totalAmount ?? orderPayload?.subtotal ?? 0)
-    const rawAddr = orderPayload?.customer?.address || ''
-    let address = '-'
-    if (typeof rawAddr === 'string' && rawAddr.trim()) {
-      address = rawAddr.trim()
-    } else if (typeof rawAddr === 'object') {
-      const parts = [rawAddr.line1, rawAddr.line2, rawAddr.landmark, rawAddr.city, rawAddr.state, rawAddr.pin]
-        .map(v => (v == null ? '' : String(v).trim()))
-        .filter(Boolean)
-      address = parts.length ? parts.join(', ') : '-'
-    }
-    const orderId = String(orderPayload?.orderNo || orderPayload?.id || '').trim()
-
-    const sendPromises = validPhones.map(async (phone) => {
-      try {
-        const url = apiUrl('/api/send-order-messenger')
-        const authHeaders = await getAuthHeaders()
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders },
-          body: JSON.stringify({ phone, customerName, totalAmount, address, orderId: orderId || undefined }),
-        })
-        let body = null
-        try { body = await res.json() } catch { /* ignore */ }
-        const msgId = body?.msgId || body?.data?.messages?.[0]?.id || ''
-        if (res.ok && msgId) {
-          return { phone, success: true, msgId, result: body }
-        }
-        return { phone, success: false, error: body }
-      } catch (e) {
-        console.error('[notifyOrderMessengers] Error sending to', phone, e)
-        return { phone, success: false, error: String(e) }
-      }
-    })
-
-    const results = await Promise.all(sendPromises)
-    const successful = results.filter(r => r.success).length
-    const failed = results.filter(r => !r.success).length
-    return { results, successful, failed }
-  } catch (e) {
-    console.error('[notifyOrderMessengers] Error:', e)
-    return { __error: 'notify_failed', message: String(e) }
-  }
 }
 
 // ── WhatsApp messaging ──

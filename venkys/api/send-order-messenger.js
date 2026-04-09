@@ -80,6 +80,8 @@ export default async function handler(req, res) {
       : `₹${String(totalAmount || '').trim() || '0'}`
     const addr = String(address || '-').trim() || '-'
 
+    console.log('[send-order-messenger] params', { customer: name, total: totalText, address: addr })
+
     const templateName = (process.env.WA_TEMPLATE_ORDER_MESSENGER_NAME || 'venkys_order_messenger').trim()
     const templateLang = (process.env.WA_TEMPLATE_ORDER_MESSENGER_LANG || 'en').trim()
     console.info('[WA_TRIGGER_B_ORDER_MESSENGER] start', {

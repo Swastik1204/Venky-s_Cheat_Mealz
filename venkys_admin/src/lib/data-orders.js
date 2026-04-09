@@ -21,10 +21,8 @@
 // }
 import { collection, doc, getDocs, getDoc, query, where, setDoc, serverTimestamp, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion } from 'firebase/firestore'
 import { db } from './firebase'
-import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment, normalizeWhatsappPhone } from './data-common'
+import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment } from './data-common'
 import { logOrderChange } from './auditLog'
-import { fetchAppSettings } from './data-settings'
-import { sendWhatsAppInvoice } from './data-whatsapp'
 
 // ── Order number generation ──
 
@@ -190,67 +188,7 @@ export async function createOrder({
 
   const topRef = doc(db, 'orders', resolvedOrderNo)
   await setDoc(topRef, base)
-  try { void notifyCashManagerOnOrder(resolvedOrderNo, base) } catch { /* noop */ }
   return resolvedOrderNo
-}
-
-// ── Notifications ──
-
-async function notifyCashManagerOnOrder(orderId, orderPayload) {
-  try {
-    const settings = await fetchAppSettings()
-    const phones = (Array.isArray(settings?.cashManagerPhones) ? settings.cashManagerPhones : [])
-      .map((p) => normalizeWhatsappPhone(p)).filter(Boolean)
-    if (!phones.length) return { __skipped: 'no_cash_manager_phone' }
-
-    const orderNo = orderPayload?.orderNo || orderId
-    const type = String(orderPayload?.orderType || '').toLowerCase()
-    const method = String(orderPayload?.payment?.method || '').toLowerCase()
-    const otp = orderPayload?.cashManagerOtp
-
-    if (!(type === 'dine-in' && method === 'cod' && otp)) {
-      return { __skipped: 'not_dinein_cod_or_missing_otp', orderNo }
-    }
-
-    const rawButtonParam = otp ? String(otp) : String(orderNo || '')
-    const buttonParam = rawButtonParam.replace(/\s+/g, '').slice(0, 15)
-    const templatePayload = {
-      templateName: 'venkys_otp',
-      templateLanguage: 'en',
-      components: [
-        {
-          type: 'body',
-          parameters: [
-            { type: 'text', text: String(otp) },
-          ],
-        },
-        {
-          type: 'button',
-          sub_type: 'url',
-          index: '0',
-          parameters: [{ type: 'text', text: buttonParam }],
-        },
-      ]
-    }
-    const results = await Promise.allSettled(phones.map((p) => sendWhatsAppInvoice(p, templatePayload)))
-    const ok = results.filter(r => r.status === 'fulfilled' && !r.value?.__error).length
-    if (ok === 0) {
-      const firstErr = results.find(r => r.status === 'fulfilled' && r.value?.__error)?.value
-      try {
-        console.warn('[OTP Template Failed]', JSON.stringify({
-          error: firstErr?.__error,
-          message: firstErr?.message,
-          details: firstErr?.data?.error?.error_data?.details,
-          template: { name: 'venkys_otp', language: 'en', bodyParamCount: 1, urlButtonIndex0Param: buttonParam }
-        }, null, 2))
-      } catch {}
-      await Promise.allSettled(phones.map((p) => sendWhatsAppInvoice(p, { text: `OTP: ${otp}` })))
-      return { __error: firstErr?.__error || 'template_failed', message: firstErr?.message || 'Template send failed' }
-    }
-    return { ok, total: phones.length }
-  } catch (e) {
-    return { __error: 'notify_failed', message: String(e) }
-  }
 }
 
 // ── Order mutations ──

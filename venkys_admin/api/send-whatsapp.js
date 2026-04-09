@@ -51,7 +51,16 @@ export default async function handler(req, res) {
     const token = (process.env.WA_TOKEN || '').trim()
     const phoneNumberId = (process.env.WA_PHONE_NUMBER_ID || '').trim()
     const waApiVersion = (process.env.WA_API_VERSION || 'v21.0').trim()
-    const { phone, payload, text } = req.body || {}
+    const {
+      phone,
+      payload,
+      text,
+      templateName: topLevelTemplateName,
+      templateLanguage: topLevelTemplateLanguage,
+      otp: topLevelOtp,
+    } = req.body || {}
+    const requestedTemplateName = String(topLevelTemplateName || payload?.templateName || '').trim()
+    const requestedOtp = topLevelOtp ?? payload?.otp
     const to = String(phone || '').replace(/\D/g, '')
     if (!to) {
       res.status(400).json({ error: 'missing_phone' })
@@ -101,6 +110,8 @@ export default async function handler(req, res) {
       // Fallback template send
       const fallbackName = process.env.WA_TEMPLATE_DEFAULT_NAME || 'hello_world'
       const fallbackLang = process.env.WA_TEMPLATE_DEFAULT_LANG || 'en_US'
+      // Default fallback template — hello_world is Meta's built-in test template
+      // Set WA_TEMPLATE_DEFAULT_NAME in env to override for production
       const tplBody = {
         messaging_product: 'whatsapp',
         to: textBody.to,
@@ -120,20 +131,52 @@ export default async function handler(req, res) {
       }
       res.status(200).json({ ok: true, openedWithTemplate: true, template: { name: fallbackName, language: fallbackLang }, data: second.data })
       return
-    } else if (payload && payload.templateName) {
+    } else if (requestedTemplateName) {
       // Optional template support if caller provides template
       const defaultLang = process.env.WA_TEMPLATE_DEFAULT_LANG || 'en_US'
-      const rawLang = String(payload.templateLanguage || defaultLang).replace('-', '_')
+      const defaultTemplateName = (process.env.WA_TEMPLATE_DEFAULT_NAME || 'hello_world').trim()
+      const rawLang = String(topLevelTemplateLanguage || payload?.templateLanguage || defaultLang).replace('-', '_')
       const lang = rawLang // Use the language code as provided, don't auto-convert 'en' to 'en_US'
+
+      let templateName = String(requestedTemplateName || defaultTemplateName).trim()
+      let components = Array.isArray(payload?.components) && payload.components.length > 0
+        ? payload.components
+        : null
+
+      // OTP sends must always resolve to venkys_otp with body param {{1}} and button param {{1}}.
+      // venkys_otp is an Authentication template with Copy Code delivery (Meta requirement).
+      if (templateName === 'venkys_otp') {
+        const otpCode = String(requestedOtp || '').trim()
+        if (!otpCode) {
+          res.status(400).json({ error: 'missing_otp', hint: 'Provide otp when templateName is venkys_otp' })
+          return
+        }
+        templateName = 'venkys_otp'
+        components = [
+          {
+            type: 'body',
+            parameters: [{ type: 'text', text: otpCode }],
+          },
+          {
+            type: 'button',
+            sub_type: 'url',
+            index: '0',
+            parameters: [{ type: 'text', text: otpCode }],
+          },
+        ]
+      }
+
+      console.log('[send-whatsapp] otp_payload_components', JSON.stringify(components))
+      console.log('[send-whatsapp] template_resolved', templateName)
       body = {
         messaging_product: 'whatsapp',
         to: to.startsWith('91') ? to : `91${to}`,
         type: 'template',
         template: {
-          name: payload.templateName,
+          name: templateName,
           language: { code: lang },
-          ...(Array.isArray(payload.components) && payload.components.length > 0
-            ? { components: payload.components }
+          ...(Array.isArray(components) && components.length > 0
+            ? { components }
             : {}),
         },
       }

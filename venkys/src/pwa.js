@@ -6,6 +6,7 @@ export function setupPWAHooks() {
     e.preventDefault()
     // You can store this event and show your own Install UI
     window.__pwaInstallPrompt = e
+    window.dispatchEvent(new CustomEvent('pwa-install-ready', { detail: e }))
   })
 
   // Notify when app is ready offline

@@ -70,6 +70,12 @@ service cloud.firestore {
       return hasEmail() && exists(/databases/$(database)/documents/roles/$(request.auth.token.email));
     }
 
+    function hasStaffPage(pageName) {
+      return isStaffUser()
+        && getRoleDoc().pages != null
+        && getRoleDoc().pages[pageName] == true;
+    }
+
     // Role helpers
     function isStaffUser() {
       return hasRoleDoc() && getRoleDoc().role == 'staff';
@@ -88,16 +94,25 @@ service cloud.firestore {
     function hasPageAccess(pageName) {
       // IMPORTANT: Only 'staff' role uses page-level permissions.
       // Delivery users are restricted by role (delivery-only), not by pages.
-      return isAdmin() || (
-        isStaffUser() &&
-        getRoleDoc().pages != null &&
-        getRoleDoc().pages[pageName] == true
-      );
+      return isAdmin() || hasStaffPage(pageName);
+    }
+
+    function isCashManagerUser() {
+      return hasStaffPage('cashManager');
+    }
+
+    function isOrderMessengerUser() {
+      return hasStaffPage('orderMessenger');
     }
 
     // Check if user can manage orders (includes biller page access)
     function canManageOrders() {
-      return hasPageAccess('orders') || hasPageAccess('biller');
+      return hasPageAccess('orders') || hasPageAccess('biller') || isCashManagerUser();
+    }
+
+    // Read-only order access for sub-roles that should not mutate lifecycle.
+    function canViewOrders() {
+      return canManageOrders() || isOrderMessengerUser();
     }
 
     // Check if user can manage inventory
@@ -112,11 +127,6 @@ service cloud.firestore {
 
     function isDeliveryOrder(data) {
       return data != null && data.orderType == 'delivery';
-    }
-
-    function isVisibleDeliveryOrder(data) {
-      return isDeliveryOrder(data)
-        && !(data.status == 'cancelled' || data.status == 'rejected');
     }
 
     function deliveryCanUpdateOrder() {
@@ -199,9 +209,10 @@ service cloud.firestore {
     // ROLES COLLECTION (Staff Management)
     // -----------------------------------------
     match /roles/{email} {
-      // Users can read their own role (needed for frontend to check permissions)
-      // Admins can read all roles
-      allow read: if isAdmin() || (isSignedIn() && request.auth.token.email == email);
+      // Users can read only their own role doc; admins can read any role doc.
+      allow get: if isAdmin() || (isSignedIn() && request.auth.token.email == email);
+      // Collection queries on roles are admin-only.
+      allow list: if isAdmin();
       
       // Only super admin and admins can create/update/delete roles
       // Super admin can manage all roles, admins cannot modify super admin's role
@@ -211,6 +222,29 @@ service cloud.firestore {
         && (isSuperAdmin() || email != superAdminEmail())
         && request.resource.data.role in ['admin', 'staff', 'delivery'];
       allow delete: if isAdmin() && email != superAdminEmail(); // Cannot delete super admin
+    }
+
+    // -----------------------------------------
+    // ADMIN USERS (Invite-based admin onboarding)
+    // -----------------------------------------
+    match /adminUsers/{uid} {
+      // Super admin can read and write all admin user documents.
+      allow read, write: if isSuperAdmin();
+
+      // Admin role can read all admin users (for displaying team).
+      allow read: if isAdmin();
+
+      // Each admin user can read their own document.
+      allow read: if isSignedIn() && request.auth.uid == uid;
+
+      // No user can write their own document (prevents privilege escalation).
+      allow write: if isSuperAdmin();
+
+      // Delete is super admin only.
+      allow delete: if isSuperAdmin();
+
+      // Firestore rules cannot mask inviteToken per-field for non-super-admin reads.
+      // Ensure inviteToken is cleared immediately after successful activation.
     }
 
     // -----------------------------------------
@@ -227,7 +261,8 @@ service cloud.firestore {
       // User's nested orders (legacy - prefer top-level orders collection)
       match /orders/{orderId} {
         allow create: if isAdmin() || ((isSignedIn() && request.auth.uid == uid) && hasCanonicalOrderShape(request.resource.data) && allowDeliveryFor(request.resource.data));
-        allow read: if isAdmin() || canManageOrders() || (isSignedIn() && request.auth.uid == uid);
+        allow get: if isAdmin() || canManageOrders() || isDeliveryUser() || (isSignedIn() && request.auth.uid == uid);
+        allow list: if isAdmin() || isStaff() || (isSignedIn() && request.auth.uid == uid);
         allow update: if isAdmin() || canManageOrders() || (isSignedIn() && request.auth.uid == uid);
         allow delete: if false; // Never delete orders
       }
@@ -259,15 +294,20 @@ service cloud.firestore {
           )
       );
 
-      // READ: Staff can read all orders, users can read their own
-      allow read: if (
+      // READ (document): Staff can read any order, users can read own order.
+      allow get: if (
         isOrderCounterDoc(orderId)
           ? (isAdmin() || hasPageAccess('biller'))
           : (
-            isAdmin() || canManageOrders() || (isDeliveryUser() && isVisibleDeliveryOrder(resource.data)) ||
+            isAdmin() || canViewOrders() || isDeliveryUser() ||
             (isSignedIn() && resource.data.userId == request.auth.uid)
           )
       );
+
+      // READ (collection query): Firestore evaluates list rules at query level.
+      // For staff this is unrestricted; for customers, safety depends on client query
+      // constraints (where('userId','==',uid)) in app code.
+      allow list: if isAdmin() || canViewOrders() || isDeliveryUser() || isSignedIn();
 
       // UPDATE: Staff can update orders, users cannot update their own orders
       allow update: if (
@@ -320,7 +360,8 @@ service cloud.firestore {
     // RAW MATERIALS / STOCK
     // -----------------------------------------
     match /raw_materials/{doc} {
-      allow read: if isAdmin() || canManageInventory() || hasPageAccess('biller');
+      allow get: if isAdmin() || canManageInventory() || hasPageAccess('biller');
+      allow list: if isAdmin() || canManageInventory() || hasPageAccess('biller');
       allow create, update: if isAdmin() || canManageInventory();
       allow delete: if isAdmin();
     }
@@ -362,8 +403,8 @@ service cloud.firestore {
     match /logs/{logId} {
       // Any staff member can create audit logs
       allow create: if isStaff();
-      // Only admins can read/update/delete logs
-      allow read, update, delete: if isAdmin();
+      // Only super admin can read/update/delete logs
+      allow read, update, delete: if isSuperAdmin();
     }
 
     // -----------------------------------------

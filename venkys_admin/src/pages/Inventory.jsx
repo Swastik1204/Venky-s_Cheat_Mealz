@@ -4,10 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 import { MdDelete, MdAdd, MdKeyboardArrowDown, MdWarningAmber, MdEdit, MdError, MdFlag } from 'react-icons/md'
 
 import AdminLayout from '../layouts/AdminLayout'
+import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { fetchMenuCategories, upsertMenuCategory, addMenuItems, setMenuItems, renameMenuCategory, removeMenuItem, fetchImagesByIds, saveBase64Image, deleteImageById, removeCategoryImage, fetchRawMaterials } from '../lib/data'
 
 export default function Inventory() {
+  const { canAccess } = useAuth()
+  const hasPageAccess = canAccess('inventory')
+
   // ── State & refs ──
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -469,6 +473,10 @@ export default function Inventory() {
       setNewItems([{ category: '', name: '', rate: '', veg: true, isVariant: false }])
       const cats = await fetchMenuCategories(); setCategories(cats); setInfo('Items saved.')
     } catch (e) { setError(e.message || 'Save failed') } finally { setLoading(false) }
+  }
+
+  if (!hasPageAccess) {
+    return <div className="p-8"><div className="alert alert-error">You don't have permission to access this page.</div></div>
   }
 
   // ── Render ──

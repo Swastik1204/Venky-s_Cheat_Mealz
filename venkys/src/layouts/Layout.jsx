@@ -1,7 +1,7 @@
 // Layout — Main page layout wrapper with nav, footer, and outlet
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 
 import { useUI } from '../context/UIContext'
 import AuthModal from '../components/AuthModal'
@@ -15,6 +15,8 @@ import Dock from '../components/QuickDock'
 
 export default function Layout() {
   const { authMode, toasts, dismissToast, confirmState, resolveConfirm } = useUI()
+  const location = useLocation()
+  const [showScrollTop, setShowScrollTop] = useState(false)
   // Inline adaptive scale effect
   useEffect(() => {
     const opts = { minWidth: 360, maxWidth: 1800, minRem: 14, maxRem: 19, varName: '--app-scale' }
@@ -35,6 +37,20 @@ export default function Layout() {
     }
   }, [])
 
+  useEffect(() => {
+    const cls = 'customer-home-route'
+    if (location.pathname === '/') document.body.classList.add(cls)
+    else document.body.classList.remove(cls)
+    return () => document.body.classList.remove(cls)
+  }, [location.pathname])
+
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 280)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   return (
     <CartDrawer>
       <div className={`app-shell ${authMode ? 'blur-when-auth-open' : ''}`}>
@@ -49,6 +65,14 @@ export default function Layout() {
       {/* Keep modal outside blurred container */}
       <AuthModal />
   <InstallPWA />
+      <button
+        type="button"
+        aria-label="Scroll to top"
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        className={`scroll-top-fab ${showScrollTop ? 'scroll-top-fab--visible' : ''}`}
+      >
+        Top
+      </button>
       {/* Toast stack */}
       <div className="fixed z-[60] bottom-20 right-4 flex flex-col gap-2 w-72">
         {toasts.map(t => (

@@ -17,6 +17,18 @@
 	.page-wrap { @apply w-full max-w-6xl mx-auto px-4; }
 	/* Make navbar flush to top & give it a full-width subtle backdrop so content doesn't peek above */
 	.nav-sticky { @apply sticky top-0 z-50 px-2 pt-1; }
+	.home-categories-sticky {
+		position: sticky;
+		top: calc(var(--customer-nav-height, 84px) + 0.5rem);
+		z-index: 40;
+		transition: top 220ms ease;
+	}
+	body:not(.customer-home-route) .home-categories-sticky {
+		position: static;
+	}
+	body.customer-nav-hidden .home-categories-sticky {
+		top: 0.5rem;
+	}
 	.nav-wrap { @apply container mx-auto bg-transparent shadow-none border-0 rounded-xl; }
 	.brand-logo { @apply h-10 w-auto object-contain; }
 	.search-box { @apply w-full bg-base-100 border border-base-300/70 rounded-xl shadow-sm px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3; }
@@ -236,3 +248,35 @@ img {
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background-color: var(--color-base-300); border-radius: 20px; }
+
+.scroll-top-fab {
+	position: fixed;
+	right: 1rem;
+	bottom: 1.1rem;
+	z-index: 55;
+	border-radius: 9999px;
+	padding: 0.55rem 0.9rem;
+	font-size: 0.78rem;
+	font-weight: 700;
+	letter-spacing: 0.03em;
+	border: 1px solid color-mix(in srgb, var(--color-primary) 42%, transparent);
+	background: color-mix(in srgb, var(--color-base-100) 88%, transparent);
+	color: var(--color-base-content);
+	box-shadow: 0 12px 30px -16px color-mix(in srgb, var(--color-primary) 45%, transparent);
+	opacity: 0;
+	pointer-events: none;
+	transform: translateY(14px) scale(0.95);
+	transition: opacity 220ms ease, transform 220ms ease, box-shadow 220ms ease;
+	backdrop-filter: blur(8px);
+	-webkit-backdrop-filter: blur(8px);
+}
+
+.scroll-top-fab--visible {
+	opacity: 1;
+	pointer-events: auto;
+	transform: translateY(0) scale(1);
+}
+
+.scroll-top-fab:hover {
+	box-shadow: 0 16px 34px -14px color-mix(in srgb, var(--color-primary) 55%, transparent);
+}

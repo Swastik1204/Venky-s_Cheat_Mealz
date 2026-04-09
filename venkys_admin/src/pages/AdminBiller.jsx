@@ -6,7 +6,7 @@ import { MdPayment, MdQrCode, MdSearch, MdKeyboardReturn, MdRestaurantMenu } fro
 
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, updateOrder, sendWhatsAppInvoice, getRandomOtp, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
+import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, updateOrder, sendWhatsAppInvoice, sendOtpViaWhatsApp, fetchAppSettings, getRandomOtp, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
 
 const PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash', helper: 'Collect cash at counter', icon: MdPayment },
@@ -39,7 +39,8 @@ function paymentStatusBadge(status) {
 }
 
 export default function AdminBiller() {
-  const { user } = useAuth()
+  const { user, canAccess } = useAuth()
+  const hasPageAccess = canAccess('biller')
   const { pushToast } = useUI()
   const navigate = useNavigate()
 
@@ -59,6 +60,8 @@ export default function AdminBiller() {
   // OTP State
 
   const [expectedOtp, setExpectedOtp] = useState(null)
+  const [otpDisplay, setOtpDisplay] = useState(null)
+  const [otpClockMs, setOtpClockMs] = useState(Date.now())
   const [otpSending, setOtpSending] = useState(false)
   const searchInputRef = useRef(null)
 
@@ -103,6 +106,31 @@ export default function AdminBiller() {
 
   const [showCalc, setShowCalc] = useState(false)
   const [calcExpr, setCalcExpr] = useState('')
+  const [cashManagerPhones, setCashManagerPhones] = useState([])
+
+  const normalizeCashManagerPhone = useCallback((value) => {
+    let digits = String(value || '').replace(/\D/g, '')
+    if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1)
+    if (digits.length === 10) digits = `91${digits}`
+    if (digits.length === 12 && digits.startsWith('91')) return digits
+    return ''
+  }, [])
+
+  const extractCashManagerPhones = useCallback((settings) => {
+    const list = Array.isArray(settings?.cashManagerPhones) ? settings.cashManagerPhones : []
+    return Array.from(new Set(list.map(normalizeCashManagerPhone).filter(Boolean)))
+  }, [normalizeCashManagerPhone])
+
+  useEffect(() => {
+    let mounted = true
+    fetchAppSettings()
+      .then((settings) => {
+        if (!mounted) return
+        setCashManagerPhones(extractCashManagerPhones(settings))
+      })
+      .catch(() => { /* non-blocking */ })
+    return () => { mounted = false }
+  }, [extractCashManagerPhones])
 
   useEffect(() => {
     if (!showCalc) return
@@ -110,6 +138,27 @@ export default function AdminBiller() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [showCalc])
+
+  useEffect(() => {
+    if (!otpDisplay) return
+    const timer = window.setInterval(() => {
+      setOtpClockMs(Date.now())
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [otpDisplay])
+
+  const otpRemainingSec = otpDisplay
+    ? Math.max(0, Math.ceil((Number(otpDisplay.expiresAt || 0) - otpClockMs) / 1000))
+    : 0
+
+  const otpExpired = !!otpDisplay && otpRemainingSec <= 0
+
+  const otpCountdownLabel = (() => {
+    if (!otpDisplay) return ''
+    const mins = Math.floor(otpRemainingSec / 60)
+    const secs = otpRemainingSec % 60
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  })()
 
   // ── Data loading ──
   useEffect(() => {
@@ -414,7 +463,7 @@ export default function AdminBiller() {
            })
 
            // Place order immediately; OTP will be sent to Cash Manager and verified in Orders page.
-           await submitBill({ otpVerified: false, navigateToOrders: true, otpValue: code })
+           await submitBill({ otpVerified: false, navigateToOrders: false, otpValue: code })
           } catch (e) {
              pushToast('OTP Error: ' + e.message, 'error')
           } finally {
@@ -553,19 +602,47 @@ export default function AdminBiller() {
           ...guestMeta,
           ...otpMeta,
         })
+        const otpExpiresAt = shouldAttachOtp && !otpVerified ? Date.now() + (5 * 60 * 1000) : null
         setSuccess({
           id,
+          userId: userIdForOrder,
           orderNo: createdOrderNo,
           items: orderItems,
           subtotal,
           totalAmount: grandTotal,
           payment,
+          cashManagerOtp: shouldAttachOtp ? String(effectiveOtp) : null,
+          cashManagerOtpExpiresAt: otpExpiresAt,
           createdAt: new Date().toISOString(),
         })
+        if (shouldAttachOtp && !otpVerified) {
+          setOtpDisplay({
+            orderId: id,
+            orderNo: createdOrderNo,
+            userId: userIdForOrder,
+            code: String(effectiveOtp),
+            expiresAt: otpExpiresAt,
+          })
+        } else {
+          setOtpDisplay(null)
+        }
         pushToast(`Bill created #${createdOrderNo}`, 'success')
         await refreshRecent()
 
-        if (navigateToOrders || (shouldAttachOtp && !otpVerified)) {
+        if (shouldAttachOtp && !otpVerified) {
+          const otpText = String(effectiveOtp || '').trim()
+          const orderRef = createdOrderNo || id || 'unknown_order'
+          try {
+            const sent = await sendOtpViaWhatsAppSecondary(otpText, orderRef)
+            if (!sent) {
+              pushToast('WhatsApp notification failed — use the on-screen code instead.', 'warning')
+            }
+          } catch {
+            pushToast('WhatsApp notification failed — use the on-screen code instead.', 'warning')
+          }
+        }
+
+        if (navigateToOrders) {
           navigate('/admin/orders', { state: { highlightOrderId: createdOrderNo, autoOpen: true } })
         }
       }
@@ -680,8 +757,70 @@ export default function AdminBiller() {
     } catch { setCalcExpr('Err') }
   }
 
+  async function sendOtpViaWhatsAppSecondary(otpText, orderRef) {
+    const normalizedOtp = String(otpText || '').trim()
+    if (!normalizedOtp) return false
+
+    let phonesAtSend = Array.isArray(cashManagerPhones) ? cashManagerPhones.filter(Boolean) : []
+    if (!phonesAtSend.length) {
+      try {
+        const liveSettings = await fetchAppSettings()
+        phonesAtSend = extractCashManagerPhones(liveSettings)
+        setCashManagerPhones(phonesAtSend)
+      } catch (phoneErr) {
+        console.warn('[WA_TRIGGER_C_BILLER_OTP] fallback_phone_load_failed', phoneErr)
+      }
+    }
+
+    if (!phonesAtSend.length) return false
+
+    const sendResults = await Promise.allSettled(
+      phonesAtSend.map((phone) => sendOtpViaWhatsApp(phone, normalizedOtp, orderRef))
+    )
+    const successCount = sendResults.filter((r) => r.status === 'fulfilled' && !r.value?.__error).length
+    return successCount === phonesAtSend.length && phonesAtSend.length > 0
+  }
+
+  async function regenerateOnScreenOtp() {
+    if (!otpDisplay?.orderId) return
+
+    try {
+      const otpDoc = await getRandomOtp()
+      const nextOtp = otpDoc?.code || String(Math.floor(1000 + Math.random() * 9000))
+      const nowIso = new Date().toISOString()
+      const nextExpiry = Date.now() + (5 * 60 * 1000)
+
+      await updateOrder(otpDisplay.userId || null, otpDisplay.orderId, {
+        cashManagerOtp: nextOtp,
+        cashManagerOtpFor: 'dine-in-cod',
+        cashManagerOtpVerified: false,
+        cashManagerOtpVerifiedAt: null,
+        cashManagerOtpVerifiedBy: null,
+        cashManagerOtpRegeneratedAt: nowIso,
+        cashManagerOtpRegeneratedBy: user?.email || user?.uid || 'biller',
+      }, user?.uid || user?.email || 'pos')
+
+      setExpectedOtp(nextOtp)
+      setOtpDisplay((prev) => prev ? { ...prev, code: String(nextOtp), expiresAt: nextExpiry } : prev)
+      setSuccess((prev) => prev ? { ...prev, cashManagerOtp: String(nextOtp), cashManagerOtpExpiresAt: nextExpiry } : prev)
+
+      try {
+        const sent = await sendOtpViaWhatsAppSecondary(nextOtp, otpDisplay.orderNo || otpDisplay.orderId)
+        if (!sent) {
+          pushToast('WhatsApp notification failed — use the on-screen code instead.', 'warning')
+        }
+      } catch {
+        pushToast('WhatsApp notification failed — use the on-screen code instead.', 'warning')
+      }
+      pushToast('OTP regenerated on biller screen', 'success')
+    } catch (e) {
+      pushToast(e?.message || 'Failed to regenerate OTP', 'error')
+    }
+  }
+
   function startNewBill() {
     setSuccess(null)
+    setOtpDisplay(null)
     setCheckoutStep(0)
     setExpectedOtp(null)
     setCustomerDetails({ name: '', phone: '' })
@@ -692,6 +831,10 @@ export default function AdminBiller() {
     setShowContactDropdown(false)
     clearBill()
     setQ('')
+  }
+
+  if (!hasPageAccess) {
+    return <div className="p-8"><div className="alert alert-error">You don't have permission to access this page.</div></div>
   }
 
   // ── Render ──
@@ -712,6 +855,27 @@ export default function AdminBiller() {
               <div className="font-semibold">Bill created successfully</div>
               <div className="text-sm opacity-80">Order #{success.orderNo} | Total: ₹{success.totalAmount ?? success.subtotal ?? 0} | Payment: {formatPaymentMethod(success.payment?.method || payMethod)}</div>
               <div className="mt-1"><span className={`badge badge-sm ${paymentStatusBadge(success.payment?.status || 'paid')}`}>{(success.payment?.status || 'paid').toUpperCase()}</span></div>
+              {otpDisplay?.code && (
+                <div className="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide opacity-70">Show this code to the cash manager</div>
+                  <div className="mt-1 text-4xl font-black tracking-[0.45em] leading-none">
+                    {String(otpDisplay.code || '').split('').join(' ')}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className={`badge ${otpExpired ? 'badge-error' : 'badge-warning'}`}>
+                      Expires in {otpCountdownLabel}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-outline"
+                      disabled={!otpExpired}
+                      onClick={regenerateOnScreenOtp}
+                    >
+                      Regenerate
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button className="btn btn-sm" onClick={() => navigate('/admin/orders', { state: { highlightOrderId: success.orderNo, autoOpen: true } })}>View Order</button>

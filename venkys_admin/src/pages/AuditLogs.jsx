@@ -174,7 +174,8 @@ function prettyValue(val) {
 
 export default function AuditLogs() {
   // ── State ──
-  const { isAdmin } = useAuth()
+  const { isSuperAdmin } = useAuth()
+  const hasPageAccess = isSuperAdmin
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({
@@ -187,9 +188,9 @@ export default function AuditLogs() {
 
   // ── Side-effects ──
   useEffect(() => {
-    if (!isAdmin) return
+    if (!isSuperAdmin) return
     loadLogs()
-  }, [isAdmin])
+  }, [isSuperAdmin])
 
   async function loadLogs() {
     setLoading(true)
@@ -272,16 +273,8 @@ export default function AuditLogs() {
   }, [groupedLogs]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ──
-  if (!isAdmin) {
-    return (
-      <AdminLayout>
-        <div className="page-wrap py-20 text-center">
-          <div className="text-6xl mb-4">🔒</div>
-          <h2 className="text-2xl font-bold">Access Denied</h2>
-          <p className="text-sm opacity-70 mt-2">Only administrators can view activity logs.</p>
-        </div>
-      </AdminLayout>
-    )
+  if (!hasPageAccess) {
+    return <div className="p-8"><div className="alert alert-error">Only super admin can access audit logs.</div></div>
   }
 
   return (

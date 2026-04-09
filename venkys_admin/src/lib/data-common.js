@@ -112,10 +112,18 @@ export function normalizeWhatsappPhone(phone) {
     raw = String(phone || '').trim()
   }
   if (!raw) return ''
-  const digits = raw.replace(/\D/g, '')
-  if (digits.length === 10) return `91${digits}`
+  let digits = raw.replace(/\D/g, '')
+
+  // Common local formats: 0XXXXXXXXXX or 0091XXXXXXXXXX
+  if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1)
+  if (digits.length === 14 && digits.startsWith('0091')) digits = digits.slice(2)
+  if (digits.length === 13 && digits.startsWith('091')) digits = digits.slice(1)
+
+  if (digits.length === 10) digits = `91${digits}`
   if (digits.length === 12 && digits.startsWith('91')) return digits
-  return digits
+
+  // Reject non-Indian or malformed numbers for WA sends.
+  return ''
 }
 
 // ── API URL builder ──

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { MdTrendingUp, MdTrendingDown } from 'react-icons/md'
 
 import AdminLayout from '../layouts/AdminLayout'
+import { useAuth } from '../context/AuthContext'
 import { fetchAllOrders } from '../lib/data'
 
 const fmtINR = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`
@@ -39,6 +40,9 @@ function normalizeOrdersResponse(res) {
 }
 
 export default function Analytics() {
+  const { canAccess } = useAuth()
+  const hasPageAccess = canAccess('analytics')
+
   const [preset, setPreset] = useState('today')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -211,6 +215,10 @@ export default function Analytics() {
 
   const trendUp = revenueChangePct >= 0
   const trendAbs = Math.abs(revenueChangePct)
+
+  if (!hasPageAccess) {
+    return <div className="p-8"><div className="alert alert-error">You don't have permission to access this page.</div></div>
+  }
 
   return (
     <AdminLayout>

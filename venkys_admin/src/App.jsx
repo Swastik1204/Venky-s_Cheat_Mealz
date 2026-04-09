@@ -1,7 +1,7 @@
 // App — Admin root component with role-based routing
 import { Suspense, lazy } from 'react'
 
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 
 import { useAuth } from './context/AuthContext'
 import { useUI } from './context/UIContext'
@@ -20,6 +20,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const AdminBiller = lazy(() => import('./pages/AdminBiller'))
 const AuditLogs = lazy(() => import('./pages/AuditLogs'))
 const Delivery = lazy(() => import('./pages/Delivery'))
+const InviteAccept = lazy(() => import('./pages/InviteAccept'))
 
 // Access denied component for guests/unregistered users
 function AccessDenied() {
@@ -47,28 +48,11 @@ function AccessDenied() {
   )
 }
 
-function PageRestricted({ pageName }) {
-  return (
-    <div className="min-h-[70vh] flex items-center justify-center">
-      <div className="card bg-base-100 shadow-xl border border-base-300 max-w-md w-full">
-        <div className="card-body text-center">
-          <div className="text-5xl">🔒</div>
-          <h3 className="text-xl font-bold mt-2">Restricted Page</h3>
-          <p className="text-sm opacity-70 mt-1">
-            You are not authorized to access {pageName}.
-          </p>
-          <p className="text-xs opacity-60 mt-2">
-            Contact an admin if this page should be enabled for your role.
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export default function App() {
+  const location = useLocation()
   const { authMode } = useUI()
-  const { user, loading, roleLoading, isStaffMember, canAccess, role } = useAuth()
+  const { user, loading, roleLoading, isStaffMember, canAccess, role, adminUserDoc, isSuperAdmin } = useAuth()
+  const isInviteRoute = location.pathname.startsWith('/invite')
 
   // Show skeleton while loading auth or role
   if (loading || roleLoading) {
@@ -77,6 +61,27 @@ export default function App() {
         <InstallPWA />
         <AuthSkeleton />
         <AuthModal />
+      </>
+    )
+  }
+
+  if (isInviteRoute) {
+    return (
+      <>
+        <InstallPWA />
+        <ErrorBoundary>
+          <div className="admin-shell">
+            <main className={`page-wrap pb-16 pt-6 transition-all duration-200 ${authMode ? 'blur-when-auth-open' : ''}`}>
+              <Suspense fallback={<div className="py-20 text-center text-sm opacity-70">Loading module…</div>}>
+                <Routes>
+                  <Route path="/invite" element={<InviteAccept />} />
+                  <Route path="*" element={<Navigate to="/invite" replace />} />
+                </Routes>
+              </Suspense>
+            </main>
+            <AuthModal />
+          </div>
+        </ErrorBoundary>
       </>
     )
   }
@@ -114,12 +119,38 @@ export default function App() {
     { key: 'delivery', label: 'Delivery', path: '/admin/delivery', element: <Delivery /> },
   ]
 
-  const allowedPages = pageDefs.filter((p) => canAccess(p.key))
+  const canAccessPage = (pageKey) => (pageKey === 'logs' ? isSuperAdmin : canAccess(pageKey))
+  const allowedPages = pageDefs.filter((p) => canAccessPage(p.key))
+  const effectiveRoleName = adminUserDoc?.status === 'active'
+    ? String(adminUserDoc.role || '').toLowerCase()
+    : String(role?.role || '').toLowerCase()
+  const effectivePages = adminUserDoc?.status === 'active'
+    ? (adminUserDoc.pages && typeof adminUserDoc.pages === 'object' ? adminUserDoc.pages : {})
+    : (role?.pages && typeof role.pages === 'object' ? role.pages : {})
+  const isSubRoleOnlyStaff = effectiveRoleName === 'staff'
+    && !effectivePages.orders
+    && !effectivePages.biller
+    && !effectivePages.inventory
+    && !effectivePages.stock
+    && !effectivePages.analytics
+    && !effectivePages.settings
+    && !effectivePages.appearance
+    && !effectivePages.delivery
+    && (!!effectivePages.cashManager || !!effectivePages.orderMessenger)
   
-  // Use user's defaultPage if set and allowed, otherwise first allowed page
-  const defaultPageKey = role?.defaultPage
-  const defaultPageDef = defaultPageKey ? allowedPages.find(p => p.key === defaultPageKey) : null
-  const firstAllowedPath = defaultPageDef?.path || allowedPages[0]?.path || '/admin'
+  // Canonical landing priority:
+  // admin -> orders, biller-led staff -> biller, delivery role -> delivery, else first allowed.
+  const defaultPageKey = effectiveRoleName === 'admin' ? null : role?.defaultPage
+  const defaultPageDef = defaultPageKey ? allowedPages.find((p) => p.key === defaultPageKey) : null
+  const preferredOrder = effectiveRoleName === 'admin'
+    ? ['orders', 'biller', 'inventory', 'stock', 'analytics', 'settings', 'appearance', 'delivery', 'logs']
+    : (isSubRoleOnlyStaff
+        ? ['orders', 'biller', 'inventory', 'stock', 'analytics', 'settings', 'appearance', 'delivery', 'logs']
+        : ['biller', 'orders', 'inventory', 'stock', 'analytics', 'settings', 'appearance', 'delivery', 'logs'])
+  const preferredDef = preferredOrder
+    .map((key) => allowedPages.find((p) => p.key === key))
+    .find(Boolean)
+  const firstAllowedPath = defaultPageDef?.path || preferredDef?.path || allowedPages[0]?.path || '/admin'
 
   // If a staff role exists but has no allowed pages, treat as denied.
   if (isStaffMember && allowedPages.length === 0) {
@@ -147,7 +178,7 @@ export default function App() {
                   <Route
                     key={p.key}
                     path={p.path}
-                    element={canAccess(p.key) ? p.element : <PageRestricted pageName={p.label} />}
+                    element={canAccessPage(p.key) ? p.element : <Navigate to={firstAllowedPath} replace />}
                   />
                 ))}
 

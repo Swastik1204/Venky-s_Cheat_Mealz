@@ -4,10 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MdLocalOffer, MdOutlineAutoAwesome, MdDelete, MdDragIndicator, MdAdd } from 'react-icons/md'
 
 import AdminLayout from '../layouts/AdminLayout'
+import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { fetchAppearanceSettings, fetchMenuCategories, saveAppearanceSpotlight, saveCategoriesOrder, setMenuItems, fetchImagesByIdsCached, getImageDataUrl } from '../lib/data'
 
 export default function Appearance() {
+  const { canAccess } = useAuth()
+  const hasPageAccess = canAccess('appearance')
+
   // ── State & refs ──
   const [categories, setCategories] = useState([])
   const [appearanceOrder, setAppearanceOrder] = useState([])
@@ -453,6 +457,10 @@ export default function Appearance() {
       setSpotlightDraft(originalSpotlightDraft)
       pushToast('Spotlight changes reverted.', 'info')
     }
+  }
+
+  if (!hasPageAccess) {
+    return <div className="p-8"><div className="alert alert-error">You don't have permission to access this page.</div></div>
   }
 
   return (

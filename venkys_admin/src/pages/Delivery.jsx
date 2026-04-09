@@ -82,7 +82,7 @@ function statusBadgeClass(status) {
 
 export default function Delivery() {
   const { pushToast } = useUI()
-  const { user, role, roleLoading, isAdmin, isDelivery, canAccess } = useAuth()
+  const { user, role, roleLoading, canAccess } = useAuth()
 
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
@@ -90,7 +90,7 @@ export default function Delivery() {
   const [busyOrderId, setBusyOrderId] = useState('')
   const [nowMs, setNowMs] = useState(Date.now())
 
-  const canViewDelivery = isAdmin || isDelivery || canAccess('orders')
+  const canViewDelivery = canAccess('delivery')
 
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 60000)
@@ -210,13 +210,7 @@ export default function Delivery() {
   }
 
   if (!roleLoading && !canViewDelivery) {
-    return (
-      <AdminLayout title="Delivery">
-        <div className="alert alert-error">
-          <span>You don't have permission to view this page</span>
-        </div>
-      </AdminLayout>
-    )
+    return <div className="p-8"><div className="alert alert-error">You don't have permission to access this page.</div></div>
   }
 
   return (
