@@ -86,7 +86,7 @@ export async function getAdminUser(uid) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null
 }
 
-export async function createAdminUser(uid, { email, displayName, phone, role, pages, invitedBy } = {}) {
+export async function createAdminUser(uid, { email, displayName, nickname, phone, role, pages, invitedBy } = {}) {
   assertSuperAdmin()
   if (!uid) throw new Error('uid is required')
 
@@ -95,6 +95,7 @@ export async function createAdminUser(uid, { email, displayName, phone, role, pa
   const payload = {
     email: normalizeEmail(email),
     displayName: String(displayName || '').trim(),
+    nickname: String(nickname || '').trim(),
     phone: normalizePhone(phone),
     role: normalizeRole(role),
     pages: normalizePages(pages),
@@ -179,6 +180,7 @@ export async function updateAdminUser(uid, updates = {}) {
   if (Object.prototype.hasOwnProperty.call(out, 'email')) out.email = normalizeEmail(out.email)
   if (Object.prototype.hasOwnProperty.call(out, 'phone')) out.phone = normalizePhone(out.phone)
   if (Object.prototype.hasOwnProperty.call(out, 'displayName')) out.displayName = String(out.displayName || '').trim()
+  if (Object.prototype.hasOwnProperty.call(out, 'nickname')) out.nickname = String(out.nickname || '').trim()
   if (Object.prototype.hasOwnProperty.call(out, 'role')) out.role = normalizeRole(out.role)
   if (Object.prototype.hasOwnProperty.call(out, 'pages')) out.pages = normalizePages(out.pages)
   out.updatedAt = serverTimestamp()

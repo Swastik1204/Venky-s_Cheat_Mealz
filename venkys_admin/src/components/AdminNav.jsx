@@ -158,11 +158,13 @@ export default function AdminTopNav() {
   const activeSection = pathname.startsWith('/admin/') ? pathname.split('/')[2] : 'inventory'
 
   const displayLabel = useMemo(() => {
-    const name = user?.displayName?.trim()
+    const nickname = role?.nickname?.trim()
+    if (nickname) return nickname
+    const name = role?.displayName?.trim() || user?.displayName?.trim()
     if (name) return name.split(/\s+/)[0]
     const email = user?.email || ''
     return email.split('@')[0] || 'User'
-  }, [user])
+  }, [user, role])
 
   const handleToggleTheme = (nextIsDark) => {
     const next = nextIsDark ? 'venkys_dark' : 'venkys_light'

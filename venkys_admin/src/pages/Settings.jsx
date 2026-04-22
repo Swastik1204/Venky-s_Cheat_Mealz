@@ -98,6 +98,7 @@ export default function Settings() {
   const [adminUsersBusy, setAdminUsersBusy] = useState(false)
   const [adminUserInviteForm, setAdminUserInviteForm] = useState({
     displayName: '',
+    nickname: '',
     email: '',
     phone: '',
     role: 'staff',
@@ -108,6 +109,7 @@ export default function Settings() {
     open: false,
     uid: '',
     displayName: '',
+    nickname: '',
     phone: '',
     role: 'staff',
     pages: defaultPagesForRole('staff') || {},
@@ -244,6 +246,7 @@ export default function Settings() {
     const email = String(adminUserInviteForm.email || '').trim().toLowerCase()
     const phone = String(adminUserInviteForm.phone || '').replace(/\D/g, '')
     const displayName = String(adminUserInviteForm.displayName || '').trim()
+    const nickname = String(adminUserInviteForm.nickname || '').trim()
     if (!displayName || !email || !phone) {
       pushToast('Display name, email, and phone are required', 'error')
       return
@@ -257,6 +260,7 @@ export default function Settings() {
       const created = await createAdminUser(uid, {
         email,
         displayName,
+        nickname,
         phone,
         role,
         pages,
@@ -267,6 +271,7 @@ export default function Settings() {
       setInviteLinkModal({ open: true, link: inviteLink })
       setAdminUserInviteForm({
         displayName: '',
+        nickname: '',
         email: '',
         phone: '',
         role: 'staff',
@@ -288,6 +293,7 @@ export default function Settings() {
       const role = adminUserEditModal.role || 'staff'
       await updateAdminUser(adminUserEditModal.uid, {
         displayName: adminUserEditModal.displayName,
+        nickname: adminUserEditModal.nickname,
         phone: adminUserEditModal.phone,
         role,
         pages: role === 'admin' ? {} : (adminUserEditModal.pages || {}),
@@ -297,6 +303,7 @@ export default function Settings() {
         open: false,
         uid: '',
         displayName: '',
+        nickname: '',
         phone: '',
         role: 'staff',
         pages: defaultPagesForRole('staff') || {},
@@ -896,7 +903,10 @@ export default function Settings() {
                     )}
                     {adminUsers.map((u) => (
                       <tr key={u.id}>
-                        <td className="font-medium">{u.displayName || '-'}</td>
+                        <td className="font-medium">
+                          <div>{u.displayName || '-'}</div>
+                          {u.nickname && <div className="text-xs opacity-60">"{u.nickname}"</div>}
+                        </td>
                         <td className="font-mono text-xs">{u.email || '-'}</td>
                         <td>{u.phone || '-'}</td>
                         <td><span className="badge badge-outline uppercase">{u.role || '-'}</span></td>
@@ -916,6 +926,7 @@ export default function Settings() {
                                 open: true,
                                 uid: u.id,
                                 displayName: u.displayName || '',
+                                nickname: u.nickname || '',
                                 phone: String(u.phone || ''),
                                 role: u.role || 'staff',
                                 pages: u.pages && typeof u.pages === 'object' ? u.pages : (defaultPagesForRole(u.role || 'staff') || {}),
@@ -955,6 +966,19 @@ export default function Settings() {
                     placeholder="Full name"
                   />
                 </label>
+
+                {adminUserInviteForm.role !== 'admin' && (
+                  <label className="form-control">
+                    <span className="label-text mb-1">Nickname (Staff only)</span>
+                    <input
+                      type="text"
+                      className="input input-bordered"
+                      value={adminUserInviteForm.nickname}
+                      onChange={(e) => setAdminUserInviteForm((prev) => ({ ...prev, nickname: e.target.value }))}
+                      placeholder="Optional nickname"
+                    />
+                  </label>
+                )}
 
                 <label className="form-control">
                   <span className="label-text mb-1">Email</span>
@@ -1261,6 +1285,18 @@ export default function Settings() {
                   onChange={(e) => setAdminUserEditModal((prev) => ({ ...prev, displayName: e.target.value }))}
                 />
               </label>
+
+              {adminUserEditModal.role !== 'admin' && (
+                <label className="form-control">
+                  <span className="label-text mb-1">Nickname (Staff only)</span>
+                  <input
+                    className="input input-bordered"
+                    value={adminUserEditModal.nickname}
+                    onChange={(e) => setAdminUserEditModal((prev) => ({ ...prev, nickname: e.target.value }))}
+                  />
+                </label>
+              )}
+
               <label className="form-control">
                 <span className="label-text mb-1">Phone</span>
                 <input
