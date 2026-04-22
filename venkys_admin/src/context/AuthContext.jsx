@@ -61,6 +61,7 @@ export function AuthProvider({ children }) {
     }
 
     // adminUsers doc takes precedence when present.
+    // TODO: deprecate roles fallback after all staff migrated and keep both working for now.
     if (adminUserDoc) {
       if (adminUserDoc.status !== 'active') return false
       return canAccessForRole(adminUserDoc.role, adminUserDoc.pages, page)
@@ -88,6 +89,7 @@ export function AuthProvider({ children }) {
 
       setAdminUserDoc(adminUserSnap || null)
 
+      // TODO: deprecate roles fallback after all staff migrated and keep both working for now.
       if (roleSnap && roleSnap.exists()) {
         const data = roleSnap.data()
         const userRole = data.role || 'staff'

@@ -176,7 +176,7 @@ service cloud.firestore {
         && data.source is string
         && data.orderNo is string
         && data.status is string
-        && data.statusHistory is list
+        && (!("statusHistory" in data) || data.statusHistory is list)
         && data.payment is map
         && data.totalAmount is number
         && data.revisionCount is number
@@ -217,10 +217,12 @@ service cloud.firestore {
       // Only super admin and admins can create/update/delete roles
       // Super admin can manage all roles, admins cannot modify super admin's role
       allow create: if isAdmin()
-        && request.resource.data.role in ['admin', 'staff', 'delivery'];
+        && request.resource.data.role in ['admin', 'staff', 'delivery']
+        && (!("nickname" in request.resource.data) || request.resource.data.nickname is string);
       allow update: if isAdmin()
         && (isSuperAdmin() || email != superAdminEmail())
-        && request.resource.data.role in ['admin', 'staff', 'delivery'];
+        && request.resource.data.role in ['admin', 'staff', 'delivery']
+        && (!("nickname" in request.resource.data) || request.resource.data.nickname is string);
       allow delete: if isAdmin() && email != superAdminEmail(); // Cannot delete super admin
     }
 
@@ -228,23 +230,8 @@ service cloud.firestore {
     // ADMIN USERS (Invite-based admin onboarding)
     // -----------------------------------------
     match /adminUsers/{uid} {
-      // Super admin can read and write all admin user documents.
-      allow read, write: if isSuperAdmin();
-
-      // Admin role can read all admin users (for displaying team).
-      allow read: if isAdmin();
-
-      // Each admin user can read their own document.
-      allow read: if isSignedIn() && request.auth.uid == uid;
-
-      // No user can write their own document (prevents privilege escalation).
-      allow write: if isSuperAdmin();
-
-      // Delete is super admin only.
-      allow delete: if isSuperAdmin();
-
-      // Firestore rules cannot mask inviteToken per-field for non-super-admin reads.
-      // Ensure inviteToken is cleared immediately after successful activation.
+      allow read: if isSuperAdmin() || isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write, delete: if isSuperAdmin();
     }
 
     // -----------------------------------------
@@ -399,8 +386,8 @@ service cloud.firestore {
     // AUDIT LOGS
     // -----------------------------------------
     match /logs/{logId} {
-      // Any staff member can create audit logs
-      allow create: if isStaff();
+      // Any staff member or super admin can create audit logs
+      allow create: if isStaff() || isSuperAdmin();
       // Only super admin can read/update/delete logs
       allow read, update, delete: if isSuperAdmin();
     }
