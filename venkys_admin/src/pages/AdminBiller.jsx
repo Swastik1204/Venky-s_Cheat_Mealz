@@ -6,7 +6,7 @@ import { MdPayment, MdQrCode, MdSearch, MdKeyboardReturn, MdRestaurantMenu } fro
 
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, updateOrder, sendWhatsAppInvoice, sendOtpViaWhatsApp, fetchAppSettings, getRandomOtp, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
+import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, updateOrder, fetchAppSettings, getRandomOtp, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
 
 const PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash', helper: 'Collect cash at counter', icon: MdPayment },
@@ -106,31 +106,7 @@ export default function AdminBiller() {
 
   const [showCalc, setShowCalc] = useState(false)
   const [calcExpr, setCalcExpr] = useState('')
-  const [cashManagerPhones, setCashManagerPhones] = useState([])
 
-  const normalizeCashManagerPhone = useCallback((value) => {
-    let digits = String(value || '').replace(/\D/g, '')
-    if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1)
-    if (digits.length === 10) digits = `91${digits}`
-    if (digits.length === 12 && digits.startsWith('91')) return digits
-    return ''
-  }, [])
-
-  const extractCashManagerPhones = useCallback((settings) => {
-    const list = Array.isArray(settings?.cashManagerPhones) ? settings.cashManagerPhones : []
-    return Array.from(new Set(list.map(normalizeCashManagerPhone).filter(Boolean)))
-  }, [normalizeCashManagerPhone])
-
-  useEffect(() => {
-    let mounted = true
-    fetchAppSettings()
-      .then((settings) => {
-        if (!mounted) return
-        setCashManagerPhones(extractCashManagerPhones(settings))
-      })
-      .catch(() => { /* non-blocking */ })
-    return () => { mounted = false }
-  }, [extractCashManagerPhones])
 
   useEffect(() => {
     if (!showCalc) return
@@ -457,7 +433,7 @@ export default function AdminBiller() {
            const otpDoc = await getRandomOtp()
            const code = otpDoc?.code || String(Math.floor(1000 + Math.random() * 9000))
            setExpectedOtp(code)
-           console.info('[WA_TRIGGER_C_BILLER_OTP] generated_for_order', {
+           ;(/* removed log */ () => {})('[WA_TRIGGER_C_BILLER_OTP] generated_for_order', {
              orderRef: editOrder?.orderNo || 'new_order',
              otpLength: String(code).length,
            })
@@ -575,7 +551,7 @@ export default function AdminBiller() {
         const effectiveOtp = otpValue || expectedOtp
         const shouldAttachOtp = payMethod === 'cod' && !!effectiveOtp
         if (shouldAttachOtp) {
-          console.info('[WA_TRIGGER_C_BILLER_OTP] attached_to_order_payload', {
+          ;(/* removed log */ () => {})('[WA_TRIGGER_C_BILLER_OTP] attached_to_order_payload', {
             orderRef: createdOrderNo,
             otpVerified,
           })
@@ -630,16 +606,7 @@ export default function AdminBiller() {
         await refreshRecent()
 
         if (shouldAttachOtp && !otpVerified) {
-          const otpText = String(effectiveOtp || '').trim()
-          const orderRef = createdOrderNo || id || 'unknown_order'
-          try {
-            const sent = await sendOtpViaWhatsAppSecondary(otpText, orderRef)
-            if (!sent) {
-              pushToast('WhatsApp notification failed — use the on-screen code instead.', 'warning')
-            }
-          } catch {
-            pushToast('WhatsApp notification failed — use the on-screen code instead.', 'warning')
-          }
+          // OTP is shown on-screen
         }
 
         if (navigateToOrders) {
@@ -649,56 +616,7 @@ export default function AdminBiller() {
       
       // Send Invoice automatically if phone provided
       if (customerDetails.phone) {
-          const phoneRaw = customerDetails.phone
-          const finalOrderNo = (editOrder?.orderNo) || createdOrderNo || ''
-          const itemsSummary = Array.isArray(orderItems)
-            ? orderItems
-              .map(it => `${Number(it.qty || 1)}x ${String(it.name || '').trim()}`.trim())
-              .filter(Boolean)
-              .join(', ')
-              .slice(0, 1000)
-            : ''
-          const payload = {
-            templateName: 'venkys_bill',
-            templateLanguage: 'en',
-            components: [
-              {
-                type: 'body',
-                parameters: [
-                  { type: 'text', text: (customerDetails.name || 'Customer').trim() || 'Customer' },
-                  { type: 'text', text: String(finalOrderNo) },
-                  { type: 'text', text: String(Number(grandTotal || 0)) },
-                  { type: 'text', text: itemsSummary || '-' },
-                ]
-              }
-            ]
-          }
-          try { 
-            console.info('[WA_TRIGGER_BILLER_CUSTOMER_INVOICE] start', {
-              orderRef: finalOrderNo || editOrder?.id || 'unknown',
-              phoneLast4: String(phoneRaw || '').replace(/\D/g, '').slice(-4),
-            })
-            const res = await sendWhatsAppInvoice(phoneRaw, payload)
-            if (res?.__error) {
-               console.warn('WhatsApp invoice failed', res)
-               console.warn('[WA_TRIGGER_BILLER_CUSTOMER_INVOICE] failed_non_blocking', {
-                 orderRef: finalOrderNo || editOrder?.id || 'unknown',
-                 reason: res.message || res.__error,
-               })
-               pushToast('WhatsApp invoice failed: ' + (res.message || res.__error), 'warning')
-            } else {
-               console.info('[WA_TRIGGER_BILLER_CUSTOMER_INVOICE] success', {
-                 orderRef: finalOrderNo || editOrder?.id || 'unknown',
-               })
-            }
-          } catch (e) { 
-            console.warn('WhatsApp invoice failed', e)
-            console.warn('[WA_TRIGGER_BILLER_CUSTOMER_INVOICE] error_non_blocking', {
-              orderRef: finalOrderNo || editOrder?.id || 'unknown',
-              error: e?.message || String(e),
-            })
-            pushToast('WhatsApp invoice failed', 'warning')
-          }
+          // WA invoice removed
       }
 
       setCheckoutStep(0)
@@ -757,29 +675,6 @@ export default function AdminBiller() {
     } catch { setCalcExpr('Err') }
   }
 
-  async function sendOtpViaWhatsAppSecondary(otpText, orderRef) {
-    const normalizedOtp = String(otpText || '').trim()
-    if (!normalizedOtp) return false
-
-    let phonesAtSend = Array.isArray(cashManagerPhones) ? cashManagerPhones.filter(Boolean) : []
-    if (!phonesAtSend.length) {
-      try {
-        const liveSettings = await fetchAppSettings()
-        phonesAtSend = extractCashManagerPhones(liveSettings)
-        setCashManagerPhones(phonesAtSend)
-      } catch (phoneErr) {
-        console.warn('[WA_TRIGGER_C_BILLER_OTP] fallback_phone_load_failed', phoneErr)
-      }
-    }
-
-    if (!phonesAtSend.length) return false
-
-    const sendResults = await Promise.allSettled(
-      phonesAtSend.map((phone) => sendOtpViaWhatsApp(phone, normalizedOtp, orderRef))
-    )
-    const successCount = sendResults.filter((r) => r.status === 'fulfilled' && !r.value?.__error).length
-    return successCount === phonesAtSend.length && phonesAtSend.length > 0
-  }
 
   async function regenerateOnScreenOtp() {
     if (!otpDisplay?.orderId) return
@@ -804,14 +699,6 @@ export default function AdminBiller() {
       setOtpDisplay((prev) => prev ? { ...prev, code: String(nextOtp), expiresAt: nextExpiry } : prev)
       setSuccess((prev) => prev ? { ...prev, cashManagerOtp: String(nextOtp), cashManagerOtpExpiresAt: nextExpiry } : prev)
 
-      try {
-        const sent = await sendOtpViaWhatsAppSecondary(nextOtp, otpDisplay.orderNo || otpDisplay.orderId)
-        if (!sent) {
-          pushToast('WhatsApp notification failed — use the on-screen code instead.', 'warning')
-        }
-      } catch {
-        pushToast('WhatsApp notification failed — use the on-screen code instead.', 'warning')
-      }
       pushToast('OTP regenerated on biller screen', 'success')
     } catch (e) {
       pushToast(e?.message || 'Failed to regenerate OTP', 'error')

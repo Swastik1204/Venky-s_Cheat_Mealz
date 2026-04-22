@@ -7,11 +7,9 @@ import { MdDelete, MdEdit, MdPersonAdd } from 'react-icons/md'
 import AdminLayout from '../layouts/AdminLayout'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchAppSettings, saveAppSettings, sendWhatsAppInvoice, fetchBusinessProfile, syncBusinessProfile, fetchStaff, addStaffMember, updateStaffMember, removeStaffMember } from '../lib/data'
+import { fetchAppSettings, saveAppSettings, fetchBusinessProfile, syncBusinessProfile, fetchStaff, addStaffMember, updateStaffMember, removeStaffMember } from '../lib/data'
 import { createAdminUser, listAdminUsers, suspendAdminUser, updateAdminUser } from '../lib/data-adminUsers'
 import { fetchDeliverySettings, saveDeliverySettings } from '../lib/deliverySettings'
-import { fetchStoreStatus, setStoreOpen } from '../lib/storeStatus'
-
 export default function Settings() {
   const { pushToast } = useUI()
   const { user, isAdmin, isSuperAdmin, refreshRole, canAccess } = useAuth()
@@ -154,9 +152,6 @@ export default function Settings() {
   const [tplLang, setTplLang] = useState('en_US')
   const [tplBodyText, setTplBodyText] = useState('')
   const [waDebug, setWaDebug] = useState(null)
-  const [liveEnabled, setLiveEnabled] = useState(true)
-  const [liveDefault, setLiveDefault] = useState(true)
-  const [updatingStoreStatus, setUpdatingStoreStatus] = useState(false)
 
   // Load staff
   useEffect(() => {
@@ -179,11 +174,10 @@ export default function Settings() {
     setAppSettingsLoading(true)
     Promise.allSettled([
       fetchAppSettings(),
-      fetchStoreStatus(),
       fetchDeliverySettings(),
       fetchBusinessProfile(),
     ]).then((results)=>{
-      const [settingsRes, statusRes, deliveryRes, profileRes] = results
+      const [settingsRes, deliveryRes, profileRes] = results
       if (!active) return
       if (settingsRes.status === 'fulfilled' && settingsRes.value) {
         setAppSettings((prev) => ({ ...prev, ...settingsRes.value }))
@@ -217,11 +211,6 @@ export default function Settings() {
           radiusKm: d.radiusKm ?? prev.radiusKm,
         }))
       }
-      if (statusRes.status === 'fulfilled' && statusRes.value) {
-        const open = statusRes.value.open !== false
-        setLiveEnabled(open)
-        setLiveDefault(open)
-      }
       if (profileRes.status === 'fulfilled' && profileRes.value) {
         setBusinessProfile(profileRes.value)
       }
@@ -229,7 +218,6 @@ export default function Settings() {
     return () => { active = false }
   }, [])
 
-  const liveStatusDirty = liveEnabled !== liveDefault
 
   if (!hasPageAccess) {
     return <div className="p-8"><div className="alert alert-error">You don't have permission to access this page.</div></div>
@@ -340,37 +328,6 @@ export default function Settings() {
       </div>
 
 
-      <div className="rounded-2xl border border-base-300/60 bg-base-100/80 backdrop-blur p-5 shadow-sm max-w-3xl mb-6 flex flex-wrap gap-4 items-center justify-between">
-        <div>
-          <p className="text-sm opacity-70">Live ordering status</p>
-          <p className={`text-lg font-semibold ${liveEnabled ? 'text-success' : 'text-error'}`}>
-            {liveEnabled ? 'Accepting orders' : 'Paused'}
-          </p>
-          {liveStatusDirty && <p className="text-xs opacity-70 mt-1">Click save to push the new status live.</p>}
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2">
-            <span className="text-sm opacity-80 w-12 text-right">{liveEnabled ? 'Open' : 'Closed'}</span>
-            <input type="checkbox" className="toggle toggle-primary" checked={liveEnabled} onChange={(e)=> setLiveEnabled(e.target.checked)} />
-          </label>
-          <button
-            className="btn btn-primary btn-sm"
-            disabled={updatingStoreStatus || (!liveStatusDirty && !updatingStoreStatus)}
-            onClick={async ()=>{
-              setUpdatingStoreStatus(true)
-              try {
-                await setStoreOpen(liveEnabled)
-                setLiveDefault(liveEnabled)
-                setInfo(liveEnabled ? 'Store marked open for live orders' : 'Store paused for new orders')
-              } catch (e) {
-                setError(e.message || 'Failed to update store status')
-              } finally {
-                setUpdatingStoreStatus(false)
-              }
-            }}
-          >{updatingStoreStatus ? 'Saving…' : 'Save status'}</button>
-        </div>
-      </div>
 
       <div className="rounded-2xl border border-base-300/60 bg-base-100/80 backdrop-blur p-5 shadow-sm max-w-3xl">
         <div className="mb-3 flex items-center justify-between">
@@ -643,7 +600,7 @@ export default function Settings() {
                 locationLink: appSettings.locationLink || '',
                 googlePlaceId: appSettings.googlePlaceId || '',
                 orderMessengerPhones: validPhones,
-              })
+              }, user?.email || user?.uid || 'admin')
               const lat = Number(appSettings.centerLat)
               const lng = Number(appSettings.centerLng)
               const radius = Number(appSettings.radiusKm)

@@ -330,6 +330,16 @@ service cloud.firestore {
     }
 
     // -----------------------------------------
+    // CHANGE HISTORY
+    // -----------------------------------------
+    match /changeHistory/{changeId} {
+      allow read: if isSuperAdmin();
+      allow create: if isStaff() || isAdmin() || isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // -----------------------------------------
     // HEALTH CHECK (Testing) - Read-only public
     // -----------------------------------------
     match /_health/{doc} {

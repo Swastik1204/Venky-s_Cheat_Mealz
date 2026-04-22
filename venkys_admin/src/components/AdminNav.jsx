@@ -24,14 +24,19 @@ function AdminLinks({ section, vertical = false, onClick }) {
       { key: 'appearance', label: 'Appearance', to: '/admin/appearance' },
       { key: 'settings', label: 'Settings', to: '/admin/settings' },
       { key: 'logs', label: 'Logs', to: '/admin/logs' },
+      { key: 'changeHistory', label: 'Change History', to: '/change-history' },
       { key: 'biller', label: 'Biller', to: '/admin/biller' },
       { key: 'delivery', label: 'Delivery', to: '/admin/delivery' },
     ]
-    return defs.filter((d) => (d.key === 'logs' ? isSuperAdmin : canAccess(d.key)))
+    return defs.filter((d) => (
+      d.key === 'logs' || d.key === 'changeHistory'
+        ? isSuperAdmin
+        : canAccess(d.key)
+    ))
   }, [canAccess, isSuperAdmin])
 
   const pathSection = pathname.startsWith('/admin/') ? pathname.split('/')[2] : null
-  const active = section || pathSection || links[0]?.key || 'inventory'
+  const active = section || (pathname === '/change-history' ? 'changeHistory' : pathSection) || links[0]?.key || 'inventory'
   
   const baseLinkClass = vertical 
     ? "flex items-center gap-3 px-4 py-3 rounded-xl text-base font-medium transition-colors" 

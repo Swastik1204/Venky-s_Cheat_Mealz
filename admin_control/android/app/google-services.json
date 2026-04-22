@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "468230181503",
+    "project_id": "venky-s-chicken-xperience",
+    "storage_bucket": "venky-s-chicken-xperience.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:468230181503:android:0ad924b93966875412a54a",
+        "android_client_info": {
+          "package_name": "venkys.admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "468230181503-8qr0hm3jeigaktra7i97jjnn18i4ms1v.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "venkys.admin",
+            "certificate_hash": "c053329cc7c42eb5efd3b7a6f2123c9c7f4c9a48"
+          }
+        },
+        {
+          "client_id": "468230181503-h7hllsn5hogn1jg5mmil93emup2c44v0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCHLVGVFBc8nnIStP79DRqHLFEa4aXNjFg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "468230181503-h7hllsn5hogn1jg5mmil93emup2c44v0.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "468230181503-53vnrr4qfm5d9tn3nivqd49oqubfmg2v.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "my.venkys"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -23,6 +23,19 @@ import { collection, doc, getDocs, getDoc, query, where, setDoc, serverTimestamp
 import { db } from './firebase'
 import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment } from './data-common'
 import { logOrderChange } from './auditLog'
+import { recordChange } from './data-changeHistory'
+
+function resolveActor(actor) {
+  return String(actor || 'system')
+}
+
+async function safeRecordChange(payload) {
+  try {
+    await recordChange(payload)
+  } catch (err) {
+    console.error('[changeHistory] order record failed', err)
+  }
+}
 
 // ── Order number generation ──
 
@@ -35,6 +48,8 @@ export async function generateDailyOrderNo(orderType = 'dine-in', userId = null)
   const d = String(now.getDate()).padStart(2, '0')
   const dateKey = `${y}${m}${d}`
   const counterRef = doc(db, 'miscellaneous', DAILY_COUNTER_DOC)
+  const beforeCounterSnap = await getDoc(counterRef)
+
   const next = await runTransaction(db, async (tx) => {
     const snap = await tx.get(counterRef)
     const data = snap.exists() ? snap.data() : {}
@@ -49,6 +64,18 @@ export async function generateDailyOrderNo(orderType = 'dine-in', userId = null)
     }, { merge: true })
     return newTotal
   })
+
+  const afterCounterSnap = await getDoc(counterRef)
+  await safeRecordChange({
+    collection: 'miscellaneous',
+    docId: DAILY_COUNTER_DOC,
+    before: beforeCounterSnap.exists() ? beforeCounterSnap.data() : null,
+    after: afterCounterSnap.exists() ? afterCounterSnap.data() : null,
+    action: beforeCounterSnap.exists() ? 'update' : 'create',
+    performedBy: resolveActor(userId ? `user:${userId}` : 'system'),
+    description: `Daily order counter incremented for ${dateKey}`,
+  })
+
   const seq = String(next).padStart(4, '0')
   const segment = formatUserSegment(userId)
   return `${dateKey}-${seq}-${segment}`
@@ -187,7 +214,20 @@ export async function createOrder({
   if (normalizedTaxAmount != null) base.taxAmount = normalizedTaxAmount
 
   const topRef = doc(db, 'orders', resolvedOrderNo)
+  const beforeSnap = await getDoc(topRef)
   await setDoc(topRef, base)
+
+  const afterSnap = await getDoc(topRef)
+  await safeRecordChange({
+    collection: 'orders',
+    docId: resolvedOrderNo,
+    before: beforeSnap.exists() ? beforeSnap.data() : null,
+    after: afterSnap.exists() ? afterSnap.data() : null,
+    action: beforeSnap.exists() ? 'update' : 'create',
+    performedBy: resolveActor(customerPayload?.servedBy || (userId ? `user:${userId}` : 'system')),
+    description: `Order #${resolvedOrderNo} created`,
+  })
+
   return resolvedOrderNo
 }
 
@@ -248,6 +288,25 @@ export async function updateOrder(userId, orderId, data = {}, actor = null) {
       reason: `Order ${patch.status ? `status changed to ${patch.status}` : 'updated'}`
     }).catch(err => console.error('Failed to log order update:', err))
   }
+
+  const latestSnap = await getDoc(doc(db, 'orders', orderId))
+  const latestAfter = latestSnap.exists() ? latestSnap.data() : afterState
+  const beforeStatus = String(beforeState?.status || '').toLowerCase()
+  const afterStatus = String(latestAfter?.status || '').toLowerCase()
+  const orderNo = String(latestAfter?.orderNo || beforeState?.orderNo || orderId)
+  const description = (patch.status && beforeStatus !== afterStatus)
+    ? `Order #${orderNo} moved to ${afterStatus}`
+    : `Order #${orderNo} updated`
+
+  await safeRecordChange({
+    collection: 'orders',
+    docId: orderId,
+    before: beforeState,
+    after: latestAfter,
+    action: 'update',
+    performedBy: resolveActor(actor),
+    description,
+  })
 }
 
 // ── Order queries ──

@@ -19,6 +19,7 @@ const Appearance = lazy(() => import('./pages/Appearance'))
 const Settings = lazy(() => import('./pages/Settings'))
 const AdminBiller = lazy(() => import('./pages/AdminBiller'))
 const AuditLogs = lazy(() => import('./pages/AuditLogs'))
+const ChangeHistory = lazy(() => import('./pages/ChangeHistory'))
 const Delivery = lazy(() => import('./pages/Delivery'))
 const InviteAccept = lazy(() => import('./pages/InviteAccept'))
 
@@ -181,6 +182,11 @@ export default function App() {
                     element={canAccessPage(p.key) ? p.element : <Navigate to={firstAllowedPath} replace />}
                   />
                 ))}
+
+                <Route
+                  path="/change-history"
+                  element={isSuperAdmin ? <ChangeHistory /> : <Navigate to={firstAllowedPath} replace />}
+                />
 
                 <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />
               </Routes>

@@ -11,6 +11,47 @@ import { createRateLimiter } from './lib/rateLimiter.js'
 import { verifyAuth } from './lib/verifyAuth.js'
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
+import { getMessaging } from 'firebase-admin/messaging'
+
+async function sendFCMToStaff(db, orderData) {
+  // Fetch all FCM tokens from the fcmTokens collection
+  const tokensSnap = await db.collection('fcmTokens').get()
+  if (tokensSnap.empty) {
+    return
+  }
+  const tokens = tokensSnap.docs.map(d => d.data().token).filter(Boolean)
+  if (!tokens.length) return
+
+  const message = {
+    tokens: tokens,
+    data: {
+      type: 'new_order',
+      orderNo: String(orderData.orderNo || ''),
+      orderType: String(orderData.orderType || 'online'),
+      customerName: String(orderData.customer?.name || 'Customer'),
+      total: String(orderData.totalAmount || orderData.amount || 0),
+      isDineInCod: String(orderData.orderType === 'dine-in' && orderData.payment?.method === 'cod'),
+    },
+    notification: {
+      title: orderData.orderType === 'dine-in' ? '🚨 New Dine-in Order' : '🛒 New Online Order',
+      body: `${orderData.customer?.name || 'Customer'} • ₹${orderData.totalAmount || orderData.amount || ''}`,
+    },
+    android: {
+      priority: 'high',
+      notification: {
+        sound: 'default',
+        defaultSound: true,
+      }
+    }
+  }
+
+  try {
+    const response = await getMessaging().sendEachForMulticast(message)
+    ;(/* removed log */ () => {})('[FCM] Push result:', response.successCount, 'failures:', response.failureCount)
+  } catch (error) {
+    console.error('[FCM] Error sending message:', error)
+  }
+}
 
 const rateLimiter = createRateLimiter({ routeName: 'create-order' })
 
@@ -157,6 +198,11 @@ export default async function handler(req, res) {
     }
 
     const order = await razorpay.orders.create(options)
+    
+    try {
+      sendFCMToStaff(getFirestore(), req.body || {}).catch(() => {})
+    } catch (e) {}
+
     return res.status(200).json({ orderId: order.id, amount: order.amount, currency: order.currency })
   } catch (e) {
     console.error('create-order error', e)

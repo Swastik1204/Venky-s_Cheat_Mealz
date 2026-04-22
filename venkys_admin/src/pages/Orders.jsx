@@ -8,7 +8,7 @@ import { MdWarningAmber, MdPrint } from 'react-icons/md'
 import AdminLayout from '../layouts/AdminLayout'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, sendWhatsAppInvoice, sendOtpViaWhatsApp, isCounterDocId } from '../lib/data'
+import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, isCounterDocId } from '../lib/data'
 import { db } from '../lib/firebase'
 import { printOrderReceiptViaRawBT, shouldUseRawBT } from '../lib/rawbtPrint'
 
@@ -171,42 +171,8 @@ export default function Orders() {
 
     setOtpResendBusy(true)
     try {
-      const orderRef = o.orderNo || o.id
-      const otp = String(o.cashManagerOtp).trim()
-      console.info('[WA_TRIGGER_C_BILLER_OTP] resend_start', {
-        orderRef,
-        targets: cashManagerPhones.length,
-      })
-
-      // Send the same OTP to all cash-manager phones simultaneously
-      const results = await Promise.allSettled(
-        cashManagerPhones.map((p) => sendOtpViaWhatsApp(p, otp, orderRef))
-      )
-      const successCount = results.filter(r => r.status === 'fulfilled' && !r.value?.__error).length
-      if (successCount === 0) {
-        const firstErr = results.find(r => r.status === 'fulfilled' && r.value?.__error)?.value
-        console.warn('[WA_TRIGGER_C_BILLER_OTP] resend_failed_all', {
-          orderRef,
-          firstError: firstErr?.message || firstErr?.__error || 'unknown',
-        })
-        throw new Error(firstErr?.message || firstErr?.__error || 'WhatsApp send failed')
-      }
-      console.info('[WA_TRIGGER_C_BILLER_OTP] resend_success_partial_or_full', {
-        orderRef,
-        successCount,
-        totalTargets: cashManagerPhones.length,
-      })
-
-      const resentAt = new Date().toISOString()
-      const nextCount = Number(o.cashManagerOtpResentCount || 0) + 1
-      await updateOrder(o.userId || null, o.id, {
-        cashManagerOtpResentAt: resentAt,
-        cashManagerOtpResentBy: user?.email || user?.uid || 'staff',
-        cashManagerOtpResentCount: nextCount,
-      }, user?.email)
-
-      setOrders(arr => arr.map(x => x.id === o.id ? { ...x, cashManagerOtpResentAt: resentAt, cashManagerOtpResentBy: user?.email || user?.uid || 'staff', cashManagerOtpResentCount: nextCount } : x))
-      pushToast('OTP resent', 'success')
+      // WA OTP resend disabled; on-screen code should be used
+      pushToast('OTP resend via WhatsApp is currently disabled. Please use the on-screen code.', 'info')
     } catch (err) {
       console.error('[Orders] OTP resend failed:', err)
       pushToast(err?.message || 'Failed to resend OTP', 'error')
@@ -486,43 +452,7 @@ export default function Orders() {
     await updateOrder(o.userId || null, o.id, { status: next }, user?.email); 
     setOrders((arr) => arr.map(x => x.id === o.id ? { ...x, status: next } : x))
     
-    // Send Google review request if order just became delivered
-    if (next === 'delivered' && o.status !== 'delivered') {
-      const phone = o.customer?.phone || o.phone
-      if (phone) {
-        try {
-          const settings = await fetchAppSettings()
-          const googlePlaceId = settings.googlePlaceId
-          if (googlePlaceId) {
-            console.info('[WA_TRIGGER_D_DELIVERED_REVIEW] start', {
-              orderRef: o.orderNo || o.id,
-              phoneLast4: String(phone).replace(/\D/g, '').slice(-4),
-            })
-            const reviewUrl = `https://search.google.com/local/writereview?placeid=${googlePlaceId}`
-            const message = `Thank you for your order at Venky's Cheat Mealz! 🍽️\n\nWe hope you enjoyed your meal. Your feedback helps us improve! Please take a moment to share your experience:\n\n${reviewUrl}\n\nThank you! 😊`
-            const waRes = await sendWhatsAppInvoice(phone, { text: message })
-            if (waRes?.__error) {
-              console.warn('[WA_TRIGGER_D_DELIVERED_REVIEW] failed_non_blocking', {
-                orderRef: o.orderNo || o.id,
-                reason: waRes.message || waRes.__error,
-              })
-              return
-            }
-            console.info('[WA_TRIGGER_D_DELIVERED_REVIEW] success', { orderRef: o.orderNo || o.id })
-          } else {
-            console.warn('[WA_TRIGGER_D_DELIVERED_REVIEW] skipped_missing_google_place_id', { orderRef: o.orderNo || o.id })
-          }
-        } catch (err) {
-          console.error('[Orders] Failed to send review request:', err)
-          console.error('[WA_TRIGGER_D_DELIVERED_REVIEW] failed_non_blocking', {
-            orderRef: o.orderNo || o.id,
-            error: err?.message || String(err),
-          })
-        }
-      } else {
-        console.warn('[WA_TRIGGER_D_DELIVERED_REVIEW] skipped_missing_phone', { orderRef: o.orderNo || o.id })
-      }
-    }
+    // Review request via WA removed
   }
 
   function progressPercent(s) { const idx = statusFlow.indexOf(s); if (idx === -1) return 0; return ((idx + 1) / statusFlow.length) * 100 }

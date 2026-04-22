@@ -366,13 +366,11 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // -----------------------------------------
-    // OTPs (Cash Manager Verification)
-    // -----------------------------------------
-    match /otps/{otpId} {
-      allow read: if isAdmin() || hasPageAccess('biller') || canManageOrders();
-      allow write: if isAdmin();
-    }
+    // DISABLED: OTP collection removed — OTPs now stored directly on order documents
+    // match /otps/{otpId} {
+    //   allow read: if isAdmin() || hasPageAccess('biller') || canManageOrders();
+    //   allow write: if isAdmin();
+    // }
 
     // -----------------------------------------
     // MISCELLANEOUS CONFIG
@@ -413,6 +411,16 @@ service cloud.firestore {
     match /_health/{doc} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // -----------------------------------------
+    // FCM TOKENS (Push notification tokens)
+    // -----------------------------------------
+    match /fcmTokens/{uid} {
+      // Admins can read all FCM tokens (for sending pushes)
+      allow read: if isAdmin() || isSuperAdmin();
+      // Each signed-in user can only write their own token doc
+      allow write: if isSignedIn() && request.auth.uid == uid;
     }
   }
 }

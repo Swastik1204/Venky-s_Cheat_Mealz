@@ -29,7 +29,7 @@ export default defineConfig([
   },
   // Node/serverless files
   {
-    files: ['api/**/*.js', 'vite.config.js', 'firebase*.js', 'tailwind.config.js'],
+    files: ['api/**/*.js', 'scripts/**/*.js', 'vite.config.js', 'firebase*.js', 'tailwind.config.js'],
     languageOptions: {
       globals: { ...globals.node },
     },

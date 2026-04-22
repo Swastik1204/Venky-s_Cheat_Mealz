@@ -13,7 +13,6 @@ import usePlacesAutocomplete from '../hooks/usePlacesAutocomplete'
 import { createOrder, fetchAddresses, addAddress, setDefaultAddress, createRazorpayOrder, verifyRazorpayPayment, BRAND_LONG, fetchUserProfile, updateAddress, fetchOrder, getRazorpayKeyId } from '../lib/data'
 import { db } from '../lib/firebase'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
-import { sendBillToCustomer, sendOrderMessengerForOnlineOrder } from '../lib/whatsapp'
 
 const CHECKOUT_PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash on Delivery', helper: 'Pay when the order arrives.', icon: MdPayment },
@@ -1020,61 +1019,13 @@ export default function Checkout() {
       }
 
       if (isOnlinePayment) {
-        try {
-          const messengerPayload = {
-            orderRef: orderIdValue,
-            customerName: form.name,
-            totalAmount: Number(subtotal),
-            address: [form.addressLine1, form.addressLine2, form.city, form.state, form.pin]
-              .filter(Boolean)
-              .join(', '),
-          }
-          void sendOrderMessengerForOnlineOrder(messengerPayload)
-        } catch (messengerErr) {
-          console.warn('[WA_TRIGGER_B_ORDER_MESSENGER] non_blocking_error', messengerErr)
-        }
+        // Order messenger replaced by FCM push notifications
       }
 
       setOrderId(orderIdValue)
       setShowOrderPlacedSuccess(true)
 
-      // Send WhatsApp Bill
-      try {
-        const billOrder = {
-          orderNo: orderIdValue,
-          customer: {
-            name: form.name,
-            phone: form.phone,
-            address: [form.addressLine1, form.addressLine2, form.city, form.pin].filter(Boolean).join(', '),
-          },
-          items: entries.map(({ item, qty }) => ({ ...item, qty, total: (Number(item?.rate ?? item?.price ?? 0) * qty) })),
-          subtotal: Number(subtotal),
-          taxAmount: 0,
-          totalAmount: Number(subtotal),
-          orderType: 'delivery',
-          paymentMethod: form.paymentMethod || 'cod'
-        }
-        console.info('[WA_TRIGGER_A_CHECKOUT_BILL] queued', {
-          orderRef: orderIdValue,
-          phone: String(form.phone || '').replace(/\D/g, '').slice(-4),
-        })
-        sendBillToCustomer(billOrder)
-          .then(res => {
-             if (res?.__error) {
-               console.warn('[WA_TRIGGER_A_CHECKOUT_BILL] failed_non_blocking', { orderRef: orderIdValue, reason: res.message || res.__error })
-               pushToast('WhatsApp confirmation failed: ' + (res.message || res.__error), 'warning')
-               return
-             }
-             console.info('[WA_TRIGGER_A_CHECKOUT_BILL] success', { orderRef: orderIdValue })
-          })
-          .catch(err => {
-             console.warn('Failed to send WhatsApp bill', err)
-             console.warn('[WA_TRIGGER_A_CHECKOUT_BILL] error_non_blocking', { orderRef: orderIdValue, error: err?.message || String(err) })
-             pushToast('WhatsApp confirmation failed', 'warning')
-          })
-      } catch (e) {
-        console.warn('Error preparing WhatsApp bill', e)
-      }
+      // WA Bill sending removed
 
       try {
         let summary = null
