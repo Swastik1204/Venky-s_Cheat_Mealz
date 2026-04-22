@@ -12,12 +12,25 @@ import {
 } from 'firebase/firestore'
 
 import { auth, db } from './firebase'
+import { recordChange } from './data-changeHistory'
 
 const ADMIN_USERS_COLLECTION = 'adminUsers'
 const SUPER_ADMIN_EMAIL = 'swastiksaha1204@gmail.com'
 const OTP_MAX_ATTEMPTS = 3
 const OTP_EXPIRY_MS = 10 * 60 * 1000
 const INVITE_EXPIRY_MS = 48 * 60 * 60 * 1000
+
+function resolveActor(performedBy = null) {
+  return String(performedBy || currentUserEmail() || auth.currentUser?.uid || 'system')
+}
+
+async function safeRecordChange(payload) {
+  try {
+    await recordChange(payload)
+  } catch (err) {
+    console.error('[changeHistory] adminUsers record failed', err)
+  }
+}
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase()
@@ -98,7 +111,21 @@ export async function createAdminUser(uid, { email, displayName, phone, role, pa
     updatedAt: serverTimestamp(),
   }
 
+  const beforeSnap = await getDoc(ref)
   await setDoc(ref, payload, { merge: false })
+
+  const afterSnap = await getDoc(ref)
+  const createdEmail = normalizeEmail(email)
+  await safeRecordChange({
+    collection: ADMIN_USERS_COLLECTION,
+    docId: String(uid),
+    before: beforeSnap.exists() ? beforeSnap.data() : null,
+    after: afterSnap.exists() ? afterSnap.data() : null,
+    action: 'create',
+    performedBy: resolveActor(invitedBy),
+    description: `Admin user ${createdEmail || uid} invited`,
+  })
+
   return { id: String(uid), ...payload }
 }
 
@@ -120,6 +147,7 @@ export async function activateAdminUser(uid, inviteToken) {
   }
 
   const ref = doc(db, ADMIN_USERS_COLLECTION, String(uid))
+  const beforeSnap = await getDoc(ref)
   await updateDoc(ref, {
     inviteTokenUsed: true,
     inviteToken: null,
@@ -127,6 +155,17 @@ export async function activateAdminUser(uid, inviteToken) {
     status: 'active',
     activatedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+  })
+
+  const afterSnap = await getDoc(ref)
+  await safeRecordChange({
+    collection: ADMIN_USERS_COLLECTION,
+    docId: String(uid),
+    before: beforeSnap.exists() ? beforeSnap.data() : null,
+    after: afterSnap.exists() ? afterSnap.data() : null,
+    action: 'update',
+    performedBy: resolveActor(),
+    description: `Admin user ${normalizeEmail(docData.email) || uid} activated`,
   })
 
   return { success: true }
@@ -145,7 +184,28 @@ export async function updateAdminUser(uid, updates = {}) {
   out.updatedAt = serverTimestamp()
 
   const ref = doc(db, ADMIN_USERS_COLLECTION, String(uid))
+  const beforeSnap = await getDoc(ref)
+  const beforeData = beforeSnap.exists() ? beforeSnap.data() : null
   await updateDoc(ref, out)
+
+  const afterSnap = await getDoc(ref)
+  const afterData = afterSnap.exists() ? afterSnap.data() : null
+  const email = normalizeEmail(afterData?.email || beforeData?.email || '') || String(uid)
+  const oldRole = normalizeRole(beforeData?.role)
+  const newRole = normalizeRole(afterData?.role)
+  const description = (Object.prototype.hasOwnProperty.call(out, 'role') && oldRole !== newRole)
+    ? `User ${email} role changed to ${newRole}`
+    : `Admin user ${email} updated`
+
+  await safeRecordChange({
+    collection: ADMIN_USERS_COLLECTION,
+    docId: String(uid),
+    before: beforeData,
+    after: afterData,
+    action: 'update',
+    performedBy: resolveActor(),
+    description,
+  })
 }
 
 export async function suspendAdminUser(uid) {
@@ -153,9 +213,24 @@ export async function suspendAdminUser(uid) {
   if (!uid) throw new Error('uid is required')
 
   const ref = doc(db, ADMIN_USERS_COLLECTION, String(uid))
+  const beforeSnap = await getDoc(ref)
+  const beforeData = beforeSnap.exists() ? beforeSnap.data() : null
   await updateDoc(ref, {
     status: 'suspended',
     updatedAt: serverTimestamp(),
+  })
+
+  const afterSnap = await getDoc(ref)
+  const afterData = afterSnap.exists() ? afterSnap.data() : null
+  const email = normalizeEmail(afterData?.email || beforeData?.email || '') || String(uid)
+  await safeRecordChange({
+    collection: ADMIN_USERS_COLLECTION,
+    docId: String(uid),
+    before: beforeData,
+    after: afterData,
+    action: 'update',
+    performedBy: resolveActor(),
+    description: `User ${email} suspended`,
   })
 }
 
@@ -178,11 +253,23 @@ export async function generateLoginOtp(uid) {
   const hash = await sha256Hex(otp)
 
   const ref = doc(db, ADMIN_USERS_COLLECTION, String(uid))
+  const beforeSnap = await getDoc(ref)
   await updateDoc(ref, {
     loginOtpHash: hash,
     loginOtpExpiry: Date.now() + OTP_EXPIRY_MS,
     loginOtpAttempts: 0,
     updatedAt: serverTimestamp(),
+  })
+
+  const afterSnap = await getDoc(ref)
+  await safeRecordChange({
+    collection: ADMIN_USERS_COLLECTION,
+    docId: String(uid),
+    before: beforeSnap.exists() ? beforeSnap.data() : null,
+    after: afterSnap.exists() ? afterSnap.data() : null,
+    action: 'update',
+    performedBy: resolveActor(),
+    description: `Login OTP generated for ${normalizeEmail(afterSnap.data()?.email) || uid}`,
   })
 
   return otp
@@ -209,6 +296,7 @@ export async function verifyLoginOtp(uid, otpInput) {
 
   const ref = doc(db, ADMIN_USERS_COLLECTION, String(uid))
   if (savedHash && inputHash === savedHash) {
+    const beforeSnap = await getDoc(ref)
     await updateDoc(ref, {
       loginOtpHash: null,
       loginOtpExpiry: null,
@@ -216,13 +304,37 @@ export async function verifyLoginOtp(uid, otpInput) {
       lastLoginAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
+
+    const afterSnap = await getDoc(ref)
+    await safeRecordChange({
+      collection: ADMIN_USERS_COLLECTION,
+      docId: String(uid),
+      before: beforeSnap.exists() ? beforeSnap.data() : null,
+      after: afterSnap.exists() ? afterSnap.data() : null,
+      action: 'update',
+      performedBy: resolveActor(),
+      description: `OTP verified for ${normalizeEmail(userDoc.email) || uid}`,
+    })
+
     return { success: true }
   }
 
   const newCount = attempts + 1
+  const beforeSnap = await getDoc(ref)
   await updateDoc(ref, {
     loginOtpAttempts: newCount,
     updatedAt: serverTimestamp(),
+  })
+
+  const afterSnap = await getDoc(ref)
+  await safeRecordChange({
+    collection: ADMIN_USERS_COLLECTION,
+    docId: String(uid),
+    before: beforeSnap.exists() ? beforeSnap.data() : null,
+    after: afterSnap.exists() ? afterSnap.data() : null,
+    action: 'update',
+    performedBy: resolveActor(),
+    description: `OTP attempt ${newCount} for ${normalizeEmail(userDoc.email) || uid}`,
   })
 
   if (newCount >= OTP_MAX_ATTEMPTS) {

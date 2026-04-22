@@ -8,9 +8,6 @@ export { BRAND_LONG, BRAND_SHORT, isCounterDocId, apiUrl, getAuthHeaders, DEFAUL
 // ── Orders ──
 export { generateDailyOrderNo, createOrder, updateOrder, fetchOrder, fetchAllOrders, fetchRecentOrders, nextOrderStatus, fetchLatestUserOrder, fetchUserOrders } from './data-orders'
 
-// ── WhatsApp messaging ──
-export { sendWhatsAppInvoice, sendOrderMessengerViaWhatsApp, sendOtpViaWhatsApp } from './data-whatsapp'
-
 // ── Menu ──
 export { fetchMenuCategories, upsertMenuCategory, appendMenuItems, addMenuItems, setMenuItems, removeMenuItem, renameMenuCategory, fetchMenuItems, fetchItems, addItem, upsertCategory, upsertMenuItem, migrateRemoveCategoryNameFields } from './data-menu'
 // Legacy alias — the original export name for deleting from the old menuItems collection
@@ -33,6 +30,7 @@ export { fetchRawMaterials, saveRawMaterial, deleteRawMaterial, updateRawMateria
 
 // ── Audit / Logging ──
 export { sendLogEmail } from './auditLog'
+export { recordChange, fetchChangeHistory, restoreVersion, deleteExpiredHistory } from './data-changeHistory'
 
 // ── Staff ──
 export { fetchStaff, getStaffMember, addStaffMember, updateStaffMember, removeStaffMember, normalizeRolePages, assertValidStaffRole } from './data-staff'

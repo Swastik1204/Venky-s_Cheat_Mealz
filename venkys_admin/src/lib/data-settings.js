@@ -3,6 +3,19 @@ import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
 import { DEFAULT_SPOTLIGHT, normalizeSpotlight } from './data-common'
 import { logSettingsChange } from './auditLog'
+import { recordChange } from './data-changeHistory'
+
+function resolveActor(performedBy) {
+  return String(performedBy || 'system')
+}
+
+async function safeRecordChange(payload) {
+  try {
+    await recordChange(payload)
+  } catch (err) {
+    console.error('[changeHistory] settings record failed', err)
+  }
+}
 
 // ── Appearance ──
 export async function fetchAppearanceSettings() {
@@ -12,7 +25,18 @@ export async function fetchAppearanceSettings() {
     if (!snap.exists()) {
       const fallback = { categoriesOrder: [], spotlight: DEFAULT_SPOTLIGHT }
       try {
+        const before = null
         await setDoc(ref, { ...fallback, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true })
+        const afterSnap = await getDoc(ref)
+        await safeRecordChange({
+          collection: 'miscellaneous',
+          docId: 'appearance',
+          before,
+          after: afterSnap.exists() ? afterSnap.data() : null,
+          action: 'create',
+          performedBy: resolveActor('system'),
+          description: 'Appearance settings document initialized',
+        })
       } catch (err) {
         console.warn('[firestore] unable to prime appearance doc', err)
       }
@@ -41,7 +65,22 @@ export async function fetchAppearanceSettings() {
       return hasBad(data.spotlight?.hotDeals) || hasBad(data.spotlight?.chefSpecials)
     })()
     if (needsFlagBackfill || hasDeprecated) {
-      try { await setDoc(ref, { spotlight, updatedAt: serverTimestamp() }, { merge: true }) } catch (err) { console.warn('[firestore] unable to backfill spotlight field', err) }
+      try {
+        const before = data
+        await setDoc(ref, { spotlight, updatedAt: serverTimestamp() }, { merge: true })
+        const afterSnap = await getDoc(ref)
+        await safeRecordChange({
+          collection: 'miscellaneous',
+          docId: 'appearance',
+          before,
+          after: afterSnap.exists() ? afterSnap.data() : null,
+          action: 'update',
+          performedBy: resolveActor('system'),
+          description: 'Appearance spotlight settings backfilled',
+        })
+      } catch (err) {
+        console.warn('[firestore] unable to backfill spotlight field', err)
+      }
     }
     return { categoriesOrder, spotlight, __exists: true }
   } catch (e) {
@@ -50,17 +89,46 @@ export async function fetchAppearanceSettings() {
   }
 }
 
-export async function saveCategoriesOrder(orderIds) {
+export async function saveCategoriesOrder(orderIds, performedBy = null) {
   if (!Array.isArray(orderIds)) return false
   const ref = doc(db, 'miscellaneous', 'appearance')
+  const beforeSnap = await getDoc(ref)
+  const before = beforeSnap.exists() ? beforeSnap.data() : null
+
   await setDoc(ref, { categoriesOrder: orderIds, updatedAt: serverTimestamp() }, { merge: true })
+
+  const afterSnap = await getDoc(ref)
+  await safeRecordChange({
+    collection: 'miscellaneous',
+    docId: 'appearance',
+    before,
+    after: afterSnap.exists() ? afterSnap.data() : null,
+    action: beforeSnap.exists() ? 'update' : 'create',
+    performedBy: resolveActor(performedBy),
+    description: 'Category order updated',
+  })
+
   return true
 }
 
-export async function saveAppearanceSpotlight(spotlightLike) {
+export async function saveAppearanceSpotlight(spotlightLike, performedBy = null) {
   const ref = doc(db, 'miscellaneous', 'appearance')
+  const beforeSnap = await getDoc(ref)
+  const before = beforeSnap.exists() ? beforeSnap.data() : null
   const spotlight = normalizeSpotlight(spotlightLike || DEFAULT_SPOTLIGHT)
   await setDoc(ref, { spotlight, updatedAt: serverTimestamp() }, { merge: true })
+
+  const afterSnap = await getDoc(ref)
+  await safeRecordChange({
+    collection: 'miscellaneous',
+    docId: 'appearance',
+    before,
+    after: afterSnap.exists() ? afterSnap.data() : null,
+    action: beforeSnap.exists() ? 'update' : 'create',
+    performedBy: resolveActor(performedBy),
+    description: 'Appearance spotlight updated',
+  })
+
   return spotlight
 }
 
@@ -152,7 +220,7 @@ export async function fetchAppSettings() {
   }
 }
 
-export async function saveAppSettings(partial) {
+export async function saveAppSettings(partial, performedBy = null) {
   const payload = {}
   const normalize10 = (p) => {
     let digits = String(p || '').replace(/\D/g, '')
@@ -205,7 +273,19 @@ export async function saveAppSettings(partial) {
   const afterSnap = await getDoc(ref)
   const after = afterSnap.exists() ? afterSnap.data() : null
 
-  await logSettingsChange('update', 'settings', before, after, 'admin', {
+  const actor = resolveActor(performedBy)
+
+  await safeRecordChange({
+    collection: 'miscellaneous',
+    docId: 'settings',
+    before,
+    after,
+    action: beforeSnap.exists() ? 'update' : 'create',
+    performedBy: actor,
+    description: `App settings updated by ${actor}`,
+  })
+
+  await logSettingsChange('update', 'settings', before, after, actor, {
     reason: 'App settings updated',
     fields: Object.keys(payload)
   }).catch(err => console.error('Failed to log settings update:', err))

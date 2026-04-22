@@ -11,6 +11,55 @@ const EMAIL_WORTHY_EVENTS = new Set([
   'stock_low_alert',    // stock below threshold (sent directly, not through shouldEmailAlert)
 ])
 
+function getOrderRef(entry) {
+  return entry?.after?.orderNo || entry?.before?.orderNo || entry?.documentId || 'unknown'
+}
+
+function getActor(entry) {
+  return entry?.performedBy || entry?.userEmail || 'Someone'
+}
+
+export function formatLogEntry(entry) {
+  const who = getActor(entry)
+  const action = String(entry?.action || entry?.type || '').toLowerCase()
+  const collectionName = String(entry?.collection || '').toLowerCase()
+
+  const formatters = {
+    create: (e) => {
+      if (collectionName === 'orders') return `${who} created Order #${getOrderRef(e)}`
+      if (collectionName === 'menu') return `${who} added a menu item`
+      if (collectionName === 'raw_materials') return `${who} added a stock item`
+      if (collectionName === 'roles') return `${who} added a staff role`
+      if (collectionName === 'miscellaneous') return `${who} added settings data`
+      return `${who} created ${collectionName || 'a record'}`
+    },
+    update: (e) => {
+      if (collectionName === 'orders') {
+        const statusTo = e?.metadata?.changedFields?.status?.to || e?.after?.status
+        if (statusTo) return `${who} moved Order #${getOrderRef(e)} to ${statusTo}`
+        return `${who} updated Order #${getOrderRef(e)}`
+      }
+      if (collectionName === 'raw_materials') return `${who} updated stock details`
+      if (collectionName === 'roles') return `${who} updated staff permissions`
+      if (collectionName === 'miscellaneous') return `${who} updated app settings`
+      if (collectionName === 'menu') return `${who} updated a menu item`
+      return `${who} updated ${collectionName || 'the system'}`
+    },
+    delete: (e) => {
+      if (collectionName === 'orders') return `${who} removed Order #${getOrderRef(e)}`
+      if (collectionName === 'menu') return `${who} removed a menu item`
+      if (collectionName === 'raw_materials') return `${who} removed a stock item`
+      if (collectionName === 'roles') return `${who} removed a staff role`
+      return `${who} removed ${collectionName || 'a record'}`
+    },
+    restore: () => `${who} restored a previous version`,
+  }
+
+  const fn = formatters[action]
+  if (fn) return fn(entry)
+  return `${who} made a change to ${entry?.collection || 'the system'}`
+}
+
 /**
  * Fire-and-forget email notification for significant audit events.
  * Logs warnings on failure so issues are discoverable in the console.
@@ -104,6 +153,8 @@ export async function logChange({
         ip: 'server-side', // Can be enhanced with actual IP tracking
       }
     }
+
+    logEntry.readableAction = formatLogEntry(logEntry)
 
     // Store in logs collection - auto-creates if doesn't exist
     await addDoc(collection(db, 'logs'), logEntry)
