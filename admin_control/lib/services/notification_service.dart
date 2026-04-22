@@ -52,7 +52,7 @@ class NotificationService {
           : 'New order notifications',
       importance: Importance.max,
       priority: Priority.max,
-      fullScreenIntent: isCritical,
+      fullScreenIntent: true,
       category: isCritical ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.message,
       ticker: 'New Order',
       playSound: true,
