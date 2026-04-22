@@ -53,6 +53,9 @@ export async function createRazorpayOrder(amount, items = null, cartChecksum = n
     const message = body?.error || `Failed to create Razorpay order (${res.status})`
     throw new Error(message)
   }
+  if (!body) {
+    throw new Error('Received empty response from server when creating Razorpay order')
+  }
   return body
 }
 
