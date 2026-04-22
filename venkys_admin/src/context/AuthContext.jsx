@@ -56,6 +56,10 @@ export function AuthProvider({ children }) {
       return normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL
     }
 
+    if (normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL) {
+      return true
+    }
+
     // adminUsers doc takes precedence when present.
     if (adminUserDoc) {
       if (adminUserDoc.status !== 'active') return false
@@ -173,13 +177,12 @@ export function AuthProvider({ children }) {
     adminUserStatus: adminUserDoc?.status || null,
     isRegisteredAdminUser: !!adminUserDoc && adminUserDoc.status === 'active',
     isSuperAdmin: normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL,
-    // Helper booleans for easy access
-    isStaffMember: adminUserDoc
+    isStaffMember: (normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL) || (adminUserDoc
       ? adminUserDoc.status === 'active'
-      : (role?.isStaffMember || false),
-    isAdmin: adminUserDoc
+      : (role?.isStaffMember || false)),
+    isAdmin: (normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL) || (adminUserDoc
       ? (adminUserDoc.status === 'active' && String(adminUserDoc.role || '').toLowerCase() === 'admin')
-      : (role?.isAdmin || false),
+      : (role?.isAdmin || false)),
     isStaff: adminUserDoc
       ? (adminUserDoc.status === 'active' && String(adminUserDoc.role || '').toLowerCase() === 'staff')
       : (role?.isStaff || false),

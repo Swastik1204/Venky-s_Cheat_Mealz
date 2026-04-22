@@ -12,6 +12,17 @@ import 'services/notification_service.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+  await NotificationService.initialize();
+
+  final data = message.data;
+  if (data['type'] == 'new_order') {
+    await NotificationService.showNewOrderAlert(
+      orderNo: data['orderNo'] ?? '',
+      customerName: data['customerName'] ?? 'Customer',
+      total: '₹${data['total'] ?? ''}',
+      isCritical: data['isDineInCod'] == 'true',
+    );
+  }
 }
 
 Future<void> main() async {
