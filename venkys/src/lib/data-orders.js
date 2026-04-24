@@ -56,8 +56,7 @@ export async function generateDailyOrderNo(orderType = 'dine-in', userId = null)
   const seq = next != null
     ? String(next).padStart(4, '0')
     : String((Date.now() % 10000)).padStart(4, '0')
-  const segment = formatUserSegment(userId)
-  return `${dateKey}-${seq}-${segment}`
+  return `${dateKey}-${seq}`
 }
 
 export async function createOrder({ userId = null, customer = {}, items, orderType = 'delivery', source = 'web', orderNo = null, taxRate = null, taxAmount = null, totalAmount = null }) {

@@ -64,6 +64,17 @@ class FirestoreService {
     });
   }
 
+  Future<void> setOrderOtp({
+    required String orderId,
+    required String otp,
+  }) async {
+    await _db.collection('orders').doc(orderId).update({
+      'cashManagerOtp': otp,
+      'cashManagerOtpGeneratedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> saveFCMToken(String uid, String token, {String? email}) async {
     // Save to fcmTokens collection for push notification delivery
     try {

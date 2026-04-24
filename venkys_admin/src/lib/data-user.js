@@ -222,9 +222,19 @@ export function getAvatarUrl(userOrProfile) {
 
 // ── OTP ──
 export async function getRandomOtp() {
-  const snap = await getDocs(collection(db, 'otps'))
-  if (snap.empty) return null
-  const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-  const random = list[Math.floor(Math.random() * list.length)]
-  return random
+  // LEGACY: Used to read from 'otps' collection.
+  // NOW: Returns a dynamically generated 6-digit code for consistency.
+  let otp = ''
+  try {
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const buf = new Uint32Array(1)
+      crypto.getRandomValues(buf)
+      otp = String(buf[0] % 1000000).padStart(6, '0')
+    } else {
+      otp = String(Math.floor(100000 + Math.random() * 900000))
+    }
+  } catch {
+    otp = String(Math.floor(100000 + Math.random() * 900000))
+  }
+  return { code: otp }
 }

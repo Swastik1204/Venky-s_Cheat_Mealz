@@ -300,7 +300,22 @@ service cloud.firestore {
       allow update: if (
         isOrderCounterDoc(orderId)
           ? (allowCounterWrite(request.resource.data) && (isAdmin() || hasPageAccess('biller')))
-          : (isAdmin() || canManageOrders() || deliveryCanUpdateOrder())
+          : (
+            isAdmin() ||
+            deliveryCanUpdateOrder() ||
+            (
+              canManageOrders() && (
+                // 1. Cash Manager generating/regenerating OTP
+                (isCashManagerUser() && request.resource.data.diff(resource.data).changedKeys().hasOnly(['cashManagerOtp', 'cashManagerOtpGeneratedAt', 'updatedAt'])) ||
+                
+                // 2. Kitchen/Staff verifying OTP and marking delivered
+                (hasPageAccess('orders') && request.resource.data.diff(resource.data).changedKeys().hasAny(['status', 'cashManagerOtpVerified', 'cashManagerOtp'])) ||
+                
+                // 3. General order updates (biller/admin)
+                (isAdmin() || hasPageAccess('biller') || hasPageAccess('orders'))
+              )
+            )
+          )
       );
 
       // DELETE: Only admins can delete non-counter orders

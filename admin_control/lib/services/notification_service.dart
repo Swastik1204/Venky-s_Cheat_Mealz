@@ -58,6 +58,8 @@ class NotificationService {
       playSound: true,
       enableVibration: true,
       ongoing: isCritical,
+      showWhen: true,
+      when: DateTime.now().millisecondsSinceEpoch,
     );
 
     await _plugin.show(
