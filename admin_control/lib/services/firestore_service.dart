@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:flutter/foundation.dart';
 
 import '../models/order.dart';
 
@@ -74,7 +75,7 @@ class FirestoreService {
       });
 
     } catch (e) {
-
+      debugPrint('[FirestoreService] Failed to save FCM token: $e');
     }
   }
 }

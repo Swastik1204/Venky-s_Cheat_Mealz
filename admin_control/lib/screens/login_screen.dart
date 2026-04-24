@@ -22,7 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       await _auth.signInWithGoogle();
-    } catch (e, stack) {
+    } catch (e) {
 
 
       setState(() {

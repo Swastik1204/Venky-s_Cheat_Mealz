@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../models/admin_user.dart';
@@ -35,9 +36,8 @@ class AuthService {
 
         }
       }
-    } catch (e, stack) {
-
-
+    } catch (e) {
+      debugPrint('[AuthService] adminUsers check failed: $e');
     }
 
     try {
@@ -61,9 +61,8 @@ class AuthService {
       } else {
 
       }
-    } catch (e, stack) {
-
-
+    } catch (e) {
+      debugPrint('[AuthService] roles check failed: $e');
     }
 
 
@@ -138,7 +137,7 @@ class AuthService {
       }
 
       return user;
-    } catch (e, stack) {
+    } catch (e) {
 
 
       rethrow;
