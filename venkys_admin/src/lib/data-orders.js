@@ -77,8 +77,7 @@ export async function generateDailyOrderNo(orderType = 'dine-in', userId = null)
   })
 
   const seq = String(next).padStart(4, '0')
-  const segment = formatUserSegment(userId)
-  return `${dateKey}-${seq}-${segment}`
+  return `${dateKey}-${seq}`
 }
 
 export async function createOrder({
@@ -182,26 +181,9 @@ export async function createOrder({
   const normalizedPayMethod = String(payment?.method || '').toLowerCase()
   const needsManagerOtp = normalizedOrderType === 'dine-in' && normalizedPayMethod === 'cod'
   if (needsManagerOtp) {
-    const providedOtp = String(cashManagerOtp || '').trim()
-    if (providedOtp) {
-      base.cashManagerOtp = providedOtp
-      base.cashManagerOtpFor = String(cashManagerOtpFor || 'dine-in-cod')
-    } else {
-      let otp = ''
-      try {
-        if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-          const buf = new Uint32Array(1)
-          crypto.getRandomValues(buf)
-          otp = String(buf[0] % 1000000).padStart(6, '0')
-        } else {
-          otp = String(Math.floor(100000 + Math.random() * 900000))
-        }
-      } catch {
-        otp = String(Math.floor(100000 + Math.random() * 900000))
-      }
-      base.cashManagerOtp = otp
-      base.cashManagerOtpFor = 'dine-in-cod'
-    }
+    base.cashManagerOtp = null
+    base.cashManagerOtpFor = 'dine-in-cod'
+    base.cashManagerOtpVerified = false
   }
 
   if (cashManagerOtpVerified != null) base.cashManagerOtpVerified = !!cashManagerOtpVerified

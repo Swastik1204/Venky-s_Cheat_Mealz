@@ -23,7 +23,7 @@ export { saveBase64Image, fetchImagesByIds, fetchImagesByIdsCached, getImageData
 export { fetchPublicConfig, getRazorpayKeyId, createRazorpayOrder, verifyRazorpayPayment } from './data-payments'
 
 // ── Settings & appearance ──
-export { fetchAppearanceSettings, saveCategoriesOrder, saveAppearanceSpotlight, fetchAppSettings, saveAppSettings, fetchBusinessProfile, syncBusinessProfile } from './data-settings'
+export { fetchAppearanceSettings, saveCategoriesOrder, saveAppearanceSpotlight, fetchAppSettings, saveAppSettings, fetchBusinessProfile, syncBusinessProfile, sendWhatsAppInvoice } from './data-settings'
 
 // ── Inventory ──
 export { fetchRawMaterials, saveRawMaterial, deleteRawMaterial, updateRawMaterialStock, deductStockForOrder } from './data-inventory'

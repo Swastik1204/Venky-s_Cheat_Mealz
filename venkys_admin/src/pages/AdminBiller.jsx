@@ -6,7 +6,7 @@ import { MdPayment, MdQrCode, MdSearch, MdKeyboardReturn, MdRestaurantMenu } fro
 
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, updateOrder, fetchAppSettings, getRandomOtp, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
+import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, updateOrder, fetchAppSettings, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
 
 const PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash', helper: 'Collect cash at counter', icon: MdPayment },
@@ -57,12 +57,6 @@ export default function AdminBiller() {
   const [brokenCatImages, setBrokenCatImages] = useState({})
   const [brokenItemImages, setBrokenItemImages] = useState({})
   
-  // OTP State
-
-  const [expectedOtp, setExpectedOtp] = useState(null)
-  const [otpDisplay, setOtpDisplay] = useState(null)
-  const [otpClockMs, setOtpClockMs] = useState(Date.now())
-  const [otpSending, setOtpSending] = useState(false)
   const searchInputRef = useRef(null)
 
   const ensureRazorpay = useCallback(() => {
@@ -101,8 +95,6 @@ export default function AdminBiller() {
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(null)
   const [editOrder, setEditOrder] = useState(null)
-  const [razorpayMode, setRazorpayMode] = useState('unknown')
-  const [razorpayKeyHint, setRazorpayKeyHint] = useState('')
 
   const [showCalc, setShowCalc] = useState(false)
   const [calcExpr, setCalcExpr] = useState('')
@@ -115,26 +107,7 @@ export default function AdminBiller() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showCalc])
 
-  useEffect(() => {
-    if (!otpDisplay) return
-    const timer = window.setInterval(() => {
-      setOtpClockMs(Date.now())
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [otpDisplay])
 
-  const otpRemainingSec = otpDisplay
-    ? Math.max(0, Math.ceil((Number(otpDisplay.expiresAt || 0) - otpClockMs) / 1000))
-    : 0
-
-  const otpExpired = !!otpDisplay && otpRemainingSec <= 0
-
-  const otpCountdownLabel = (() => {
-    if (!otpDisplay) return ''
-    const mins = Math.floor(otpRemainingSec / 60)
-    const secs = otpRemainingSec % 60
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-  })()
 
   // ── Data loading ──
   useEffect(() => {
@@ -227,27 +200,6 @@ export default function AdminBiller() {
   }
   useEffect(() => { refreshRecent() }, [])
 
-  useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      try {
-        const keyId = String((await getRazorpayKeyId()) || '').trim()
-        if (!mounted) return
-        if (!keyId) {
-          setRazorpayMode('missing')
-          setRazorpayKeyHint('')
-          return
-        }
-        setRazorpayMode(keyId.startsWith('rzp_test_') ? 'test' : 'live')
-        setRazorpayKeyHint(keyId.slice(0, 12))
-      } catch {
-        if (!mounted) return
-        setRazorpayMode('missing')
-        setRazorpayKeyHint('')
-      }
-    })()
-    return () => { mounted = false }
-  }, [])
 
   // Contact suggestions (from recent POS orders) driven by the active input
   useEffect(() => {
@@ -428,23 +380,11 @@ export default function AdminBiller() {
        setCheckoutStep(2)
     } else if (checkoutStep === 2) {
        if (payMethod === 'cod') {
-          setOtpSending(true)
           try {
-           const otpDoc = await getRandomOtp()
-           const code = otpDoc?.code || String(Math.floor(1000 + Math.random() * 9000))
-           setExpectedOtp(code)
-           ;(/* removed log */ () => {})('[WA_TRIGGER_C_BILLER_OTP] generated_for_order', {
-             orderRef: editOrder?.orderNo || 'new_order',
-             otpLength: String(code).length,
-           })
-
-           // Place order immediately; OTP will be sent to Cash Manager and verified in Orders page.
-           await submitBill({ otpVerified: false, navigateToOrders: false, otpValue: code })
-          } catch (e) {
-             pushToast('OTP Error: ' + e.message, 'error')
-          } finally {
-             setOtpSending(false)
-          }
+            await submitBill({ navigateToOrders: false })
+           } catch (e) {
+              pushToast('Error: ' + e.message, 'error')
+           }
        } else if (payMethod === 'online') {
          try {
            // Get Razorpay key from environment
@@ -516,7 +456,7 @@ export default function AdminBiller() {
     }
   }
 
-    async function submitBill({ otpVerified = false, navigateToOrders = false, otpValue = null, paymentOverride = null } = {}) {
+    async function submitBill({ navigateToOrders = false, paymentOverride = null } = {}) {
     if (!lines.length) { pushToast('Add items to bill', 'error'); return }
     try {
       setSubmitting(true)
@@ -548,23 +488,7 @@ export default function AdminBiller() {
           guestOrderAt: now.toISOString(),
         } : {}
 
-        const effectiveOtp = otpValue || expectedOtp
-        const shouldAttachOtp = payMethod === 'cod' && !!effectiveOtp
-        if (shouldAttachOtp) {
-          ;(/* removed log */ () => {})('[WA_TRIGGER_C_BILLER_OTP] attached_to_order_payload', {
-            orderRef: createdOrderNo,
-            otpVerified,
-          })
-        }
-        const otpMeta = shouldAttachOtp ? {
-          cashManagerOtp: effectiveOtp,
-          cashManagerOtpFor: 'dine-in-cod',
-          cashManagerOtpVerified: !!otpVerified,
-          cashManagerOtpVerifiedAt: otpVerified ? new Date().toISOString() : null,
-          cashManagerOtpVerifiedBy: otpVerified ? (user?.email || user?.uid || 'pos') : null,
-        } : {}
-
-        const initialStatus = otpVerified || payment?.status === 'paid' ? 'preparing' : 'placed'
+        const initialStatus = payment?.status === 'paid' ? 'preparing' : 'placed'
 
         const id = await createOrder({
           userId: userIdForOrder,
@@ -576,9 +500,7 @@ export default function AdminBiller() {
           totalAmount: grandTotal,
           status: initialStatus,
           ...guestMeta,
-          ...otpMeta,
         })
-        const otpExpiresAt = shouldAttachOtp && !otpVerified ? Date.now() + (5 * 60 * 1000) : null
         setSuccess({
           id,
           userId: userIdForOrder,
@@ -587,27 +509,10 @@ export default function AdminBiller() {
           subtotal,
           totalAmount: grandTotal,
           payment,
-          cashManagerOtp: shouldAttachOtp ? String(effectiveOtp) : null,
-          cashManagerOtpExpiresAt: otpExpiresAt,
           createdAt: new Date().toISOString(),
         })
-        if (shouldAttachOtp && !otpVerified) {
-          setOtpDisplay({
-            orderId: id,
-            orderNo: createdOrderNo,
-            userId: userIdForOrder,
-            code: String(effectiveOtp),
-            expiresAt: otpExpiresAt,
-          })
-        } else {
-          setOtpDisplay(null)
-        }
         pushToast(`Bill created #${createdOrderNo}`, 'success')
         await refreshRecent()
-
-        if (shouldAttachOtp && !otpVerified) {
-          // OTP is shown on-screen
-        }
 
         if (navigateToOrders) {
           navigate('/admin/orders', { state: { highlightOrderId: createdOrderNo, autoOpen: true } })
@@ -621,7 +526,6 @@ export default function AdminBiller() {
 
       setCheckoutStep(0)
       setCustomerDetails({ name: '', phone: '' })
-      setExpectedOtp(null)
       clearBill(); setQ('')
     } catch (e) {
       console.error('submitBill failed', e)
@@ -675,42 +579,11 @@ export default function AdminBiller() {
     } catch { setCalcExpr('Err') }
   }
 
-
-  async function regenerateOnScreenOtp() {
-    if (!otpDisplay?.orderId) return
-
-    try {
-      const otpDoc = await getRandomOtp()
-      const nextOtp = otpDoc?.code || String(Math.floor(1000 + Math.random() * 9000))
-      const nowIso = new Date().toISOString()
-      const nextExpiry = Date.now() + (5 * 60 * 1000)
-
-      await updateOrder(otpDisplay.userId || null, otpDisplay.orderId, {
-        cashManagerOtp: nextOtp,
-        cashManagerOtpFor: 'dine-in-cod',
-        cashManagerOtpVerified: false,
-        cashManagerOtpVerifiedAt: null,
-        cashManagerOtpVerifiedBy: null,
-        cashManagerOtpRegeneratedAt: nowIso,
-        cashManagerOtpRegeneratedBy: user?.email || user?.uid || 'biller',
-      }, user?.uid || user?.email || 'pos')
-
-      setExpectedOtp(nextOtp)
-      setOtpDisplay((prev) => prev ? { ...prev, code: String(nextOtp), expiresAt: nextExpiry } : prev)
-      setSuccess((prev) => prev ? { ...prev, cashManagerOtp: String(nextOtp), cashManagerOtpExpiresAt: nextExpiry } : prev)
-
-      pushToast('OTP regenerated on biller screen', 'success')
-    } catch (e) {
-      pushToast(e?.message || 'Failed to regenerate OTP', 'error')
-    }
-  }
-
   function startNewBill() {
     setSuccess(null)
-    setOtpDisplay(null)
     setCheckoutStep(0)
-    setExpectedOtp(null)
     setCustomerDetails({ name: '', phone: '' })
+
     setGuestMode(false)
     setPayMethod('cod')
     setSelectedCategory(null)
@@ -742,27 +615,6 @@ export default function AdminBiller() {
               <div className="font-semibold">Bill created successfully</div>
               <div className="text-sm opacity-80">Order #{success.orderNo} | Total: ₹{success.totalAmount ?? success.subtotal ?? 0} | Payment: {formatPaymentMethod(success.payment?.method || payMethod)}</div>
               <div className="mt-1"><span className={`badge badge-sm ${paymentStatusBadge(success.payment?.status || 'paid')}`}>{(success.payment?.status || 'paid').toUpperCase()}</span></div>
-              {otpDisplay?.code && (
-                <div className="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide opacity-70">Show this code to the cash manager</div>
-                  <div className="mt-1 text-4xl font-black tracking-[0.45em] leading-none">
-                    {String(otpDisplay.code || '').split('').join(' ')}
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className={`badge ${otpExpired ? 'badge-error' : 'badge-warning'}`}>
-                      Expires in {otpCountdownLabel}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn-xs btn-outline"
-                      disabled={!otpExpired}
-                      onClick={regenerateOnScreenOtp}
-                    >
-                      Regenerate
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
             <div className="flex items-center gap-2">
               <button className="btn btn-sm" onClick={() => navigate('/admin/orders', { state: { highlightOrderId: success.orderNo, autoOpen: true } })}>View Order</button>
@@ -1093,14 +945,6 @@ export default function AdminBiller() {
                         <div className="text-left">
                            <div className="font-bold">{opt.label}</div>
                            <div className="text-xs font-normal opacity-70">{opt.helper}</div>
-                      {opt.key === 'online' && (
-                        <div className="mt-1 flex items-center gap-2">
-                         <span className={`badge badge-xs ${razorpayMode === 'test' ? 'badge-warning' : razorpayMode === 'live' ? 'badge-success' : 'badge-error'}`}>
-                          {razorpayMode === 'test' ? 'TEST MODE' : razorpayMode === 'live' ? 'LIVE MODE' : 'NOT CONFIGURED'}
-                         </span>
-                         {razorpayKeyHint ? <span className="text-[10px] opacity-70">{razorpayKeyHint}...</span> : null}
-                        </div>
-                      )}
                         </div>
                      </button>
                   ))}
@@ -1109,8 +953,8 @@ export default function AdminBiller() {
 
             <div className="modal-action">
                <button className="btn" onClick={() => setCheckoutStep(0)}>Cancel</button>
-               <button className="btn btn-primary" onClick={handleCheckoutNext} disabled={otpSending || submitting}>
-                {otpSending ? 'Sending...' : submitting ? 'Processing...' : (checkoutStep === 1 ? 'Next' : 'Place')}
+               <button className="btn btn-primary" onClick={handleCheckoutNext} disabled={submitting}>
+                {submitting ? 'Processing...' : (checkoutStep === 1 ? 'Next' : 'Place')}
                </button>
             </div>
           </div>

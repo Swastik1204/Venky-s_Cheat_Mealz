@@ -1,9 +1,10 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../models/admin_user.dart';
 import '../models/order.dart';
 import '../services/firestore_service.dart';
-import '../widgets/otp_entry_widget.dart';
 
 class CashManagerScreen extends StatefulWidget {
   final List<Order> orders;
@@ -21,64 +22,39 @@ class CashManagerScreen extends StatefulWidget {
 
 class _CashManagerScreenState extends State<CashManagerScreen> {
   final FirestoreService _fs = FirestoreService();
-  final TextEditingController _otpController = TextEditingController();
-
   Order? _selectedOrder;
-  bool _verifying = false;
-  String? _error;
-  bool _success = false;
+  bool _processing = false;
+  Timer? _timer;
 
-  Future<void> _verifyOtp() async {
-    if (_selectedOrder == null) return;
-    final entered = _otpController.text.trim();
-
-    if (entered.isEmpty) {
-      setState(() {
-        _error = 'Please enter the OTP';
-      });
-      return;
-    }
-
-    if (entered != _selectedOrder!.cashManagerOtp) {
-      setState(() {
-        _error = 'Incorrect OTP. Please try again.';
-      });
-      return;
-    }
-
-    setState(() {
-      _verifying = true;
-      _error = null;
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) setState(() {});
     });
-
-    try {
-      await _fs.verifyOtpAndAccept(
-        orderId: _selectedOrder!.id,
-        verifiedBy: widget.adminUser.email,
-      );
-      setState(() {
-        _success = true;
-        _verifying = false;
-      });
-      await Future.delayed(const Duration(seconds: 2));
-      if (!mounted) return;
-      setState(() {
-        _success = false;
-        _selectedOrder = null;
-        _otpController.clear();
-      });
-    } catch (_) {
-      setState(() {
-        _error = 'Failed to verify. Please try again.';
-        _verifying = false;
-      });
-    }
   }
 
   @override
   void dispose() {
-    _otpController.dispose();
+    _timer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _generateOtp() async {
+    if (_selectedOrder == null) return;
+    setState(() => _processing = true);
+
+    try {
+      final otp = (Random().nextInt(900000) + 100000).toString();
+      await _fs.setOrderOtp(orderId: _selectedOrder!.id, otp: otp);
+      setState(() => _processing = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _processing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to generate OTP: $e')),
+      );
+    }
   }
 
   @override
@@ -91,7 +67,7 @@ class _CashManagerScreenState extends State<CashManagerScreen> {
             Icon(Icons.check_circle, size: 64, color: Colors.green),
             SizedBox(height: 16),
             Text(
-              'No pending OTP verifications',
+              'No pending payments',
               style: TextStyle(color: Colors.white54, fontSize: 16),
             ),
           ],
@@ -115,14 +91,22 @@ class _CashManagerScreenState extends State<CashManagerScreen> {
               itemBuilder: (_, i) {
                 final order = widget.orders[i];
                 final isSelected = _selectedOrder?.id == order.id;
+                final hasOtp = order.cashManagerOtp != null && !order.isOtpExpired;
+                
+                String expiryText = '';
+                if (hasOtp && order.cashManagerOtpGeneratedAt != null) {
+                  final remaining = const Duration(minutes: 30) - DateTime.now().difference(order.cashManagerOtpGeneratedAt!);
+                  if (remaining.isNegative) {
+                    expiryText = 'Expired';
+                  } else {
+                    expiryText = '${remaining.inMinutes}:${(remaining.inSeconds % 60).toString().padLeft(2, '0')}';
+                  }
+                }
 
                 return GestureDetector(
                   onTap: () {
                     setState(() {
                       _selectedOrder = order;
-                      _otpController.clear();
-                      _error = null;
-                      _success = false;
                     });
                   },
                   child: Container(
@@ -164,50 +148,67 @@ class _CashManagerScreenState extends State<CashManagerScreen> {
                         Text(order.customer?['name']?.toString() ?? '—', style: const TextStyle(color: Colors.white70)),
                         if (isSelected) ...[
                           const Divider(color: Colors.white24, height: 24),
-                          if (_success)
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(8),
+                          if (hasOtp) ...[
+                            const Center(
+                              child: Text(
+                                'COLLECT CASH & SHOW CODE:',
+                                style: TextStyle(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.bold),
                               ),
-                              child: const Row(
-                                children: [
-                                  Icon(Icons.check_circle, color: Colors.green),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Payment verified!',
-                                    style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-                                  ),
-                                ],
-                              ),
-                            )
-                          else ...[
-                            const Text(
-                              'Enter OTP from biller screen:',
-                              style: TextStyle(color: Colors.white70, fontSize: 12),
                             ),
                             const SizedBox(height: 8),
-                            OtpEntryWidget(controller: _otpController, error: _error),
-                            const SizedBox(height: 12),
+                            Center(
+                              child: Text(
+                                order.cashManagerOtp!,
+                                style: const TextStyle(
+                                  color: Colors.orange,
+                                  fontSize: 48,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 8,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Center(
+                              child: Text(
+                                'Expires in: $expiryText',
+                                style: TextStyle(
+                                  color: order.isOtpExpired ? Colors.red : Colors.white54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton(
+                                onPressed: _processing ? null : _generateOtp,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white70,
+                                  side: const BorderSide(color: Colors.white24),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                child: const Text('Regenerate OTP'),
+                              ),
+                            ),
+                          ] else ...[
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
-                                onPressed: _verifying ? null : _verifyOtp,
+                                onPressed: _processing ? null : _generateOtp,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.orange,
                                   foregroundColor: Colors.black,
                                   padding: const EdgeInsets.symmetric(vertical: 14),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
-                                child: _verifying
+                                child: _processing
                                     ? const SizedBox(
                                         width: 20,
                                         height: 20,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                                       )
                                     : const Text(
-                                        'Verify & Collect Payment',
+                                        'Generate OTP',
                                         style: TextStyle(fontWeight: FontWeight.bold),
                                       ),
                               ),

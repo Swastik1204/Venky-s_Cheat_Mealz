@@ -9,6 +9,7 @@ class Order {
   final double totalAmount;
   final DateTime? createdAt;
   final String? cashManagerOtp;
+  final DateTime? cashManagerOtpGeneratedAt;
   final bool cashManagerOtpVerified;
   final String? mapUrl;
 
@@ -23,6 +24,7 @@ class Order {
     required this.totalAmount,
     this.createdAt,
     this.cashManagerOtp,
+    this.cashManagerOtpGeneratedAt,
     required this.cashManagerOtpVerified,
     this.mapUrl,
   });
@@ -30,6 +32,12 @@ class Order {
   bool get isDineInCod => orderType == 'dine-in' && payment?['method'] == 'cod';
 
   bool get needsOtpVerification => isDineInCod && cashManagerOtp != null && !cashManagerOtpVerified;
+
+  bool get isOtpExpired {
+    if (cashManagerOtpGeneratedAt == null) return true;
+    final diff = DateTime.now().difference(cashManagerOtpGeneratedAt!);
+    return diff.inMinutes >= 30;
+  }
 
   String get identifier {
     if (orderNo != null && orderNo!.isNotEmpty) return orderNo!;
@@ -48,9 +56,19 @@ class Order {
     final ts = data['createdAt'];
     if (ts != null) {
       try {
-        created = ts.toDate() as DateTime?;
+        created = (ts as dynamic).toDate() as DateTime?;
       } catch (_) {
         created = null;
+      }
+    }
+
+    DateTime? otpAt;
+    final ots = data['cashManagerOtpGeneratedAt'];
+    if (ots != null) {
+      try {
+        otpAt = (ots as dynamic).toDate() as DateTime?;
+      } catch (_) {
+        otpAt = null;
       }
     }
 
@@ -78,6 +96,7 @@ class Order {
       totalAmount: total,
       createdAt: created,
       cashManagerOtp: data['cashManagerOtp']?.toString(),
+      cashManagerOtpGeneratedAt: otpAt,
       cashManagerOtpVerified: data['cashManagerOtpVerified'] == true,
       mapUrl: data['mapUrl']?.toString(),
     );

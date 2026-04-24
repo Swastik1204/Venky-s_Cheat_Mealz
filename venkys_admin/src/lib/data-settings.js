@@ -1,9 +1,34 @@
-// Appearance settings, app settings, business profile (admin)
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
-import { db } from './firebase'
-import { DEFAULT_SPOTLIGHT, normalizeSpotlight } from './data-common'
+import { db, auth } from './firebase'
+import { DEFAULT_SPOTLIGHT, normalizeSpotlight, apiUrl, getAuthHeaders } from './data-common'
 import { logSettingsChange } from './auditLog'
 import { recordChange } from './data-changeHistory'
+
+export async function sendWhatsAppInvoice(phone, payload) {
+  try {
+    const digits = String(phone || '').replace(/\D/g, '')
+    const normalizedPhone = digits.length === 10 ? `91${digits}` : digits
+    if (!normalizedPhone) return { __skipped: 'missing_phone' }
+
+    const url = apiUrl('/api/send-whatsapp')
+    const authHeaders = await getAuthHeaders()
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ phone: normalizedPhone, payload })
+    })
+    let body = null
+    try { body = await res.json() } catch {}
+    if (!res.ok) {
+      const errObj = { __error: 'http_error', status: res.status, ...(body || {}) }
+      try { console.warn('[wa] send failed', JSON.stringify(errObj, null, 2)) } catch {}
+      return errObj
+    }
+    return body || {}
+  } catch (e) {
+    return { __error: 'network_error', message: e.message }
+  }
+}
 
 function resolveActor(performedBy) {
   return String(performedBy || 'system')
