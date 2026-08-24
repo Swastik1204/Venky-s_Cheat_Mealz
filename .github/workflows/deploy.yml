@@ -180,14 +180,14 @@ jobs:
           npm ci
           npm run build
 
-      - name: Atomic Deploy Hosting & Firestore
+      - name: Atomic Deploy Hosting to Firebase
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
         run: |
           if [ -n "$FIREBASE_TOKEN" ]; then
-            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --token "$FIREBASE_TOKEN" --project venky-s-chicken-xperience --non-interactive
+            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin --token "$FIREBASE_TOKEN" --project venky-s-chicken-xperience --non-interactive
           elif [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
             node -e '
               const fs = require("fs");
@@ -202,7 +202,7 @@ jobs:
               } catch (e) {}
               fs.writeFileSync("/tmp/sa.json", val, "utf8");
             '
-            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --project venky-s-chicken-xperience --non-interactive
+            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin --project venky-s-chicken-xperience --non-interactive
             rm -f /tmp/sa.json
           else
             echo "::error::Neither FIREBASE_TOKEN nor FIREBASE_SERVICE_ACCOUNT secret is set in GitHub Repository Secrets!"
