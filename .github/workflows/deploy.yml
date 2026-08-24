@@ -1,0 +1,198 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - prod
+  pull_request:
+    branches:
+      - main
+      - prod
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  rules-check:
+    name: Verify Firestore Rules Synchronization
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compare firestore.rules byte-for-byte
+        run: |
+          cmp -s venkys/firestore.rules venkys_admin/firestore.rules || {
+            echo "::error::venkys/firestore.rules and venkys_admin/firestore.rules are not identical!"
+            diff -u venkys/firestore.rules venkys_admin/firestore.rules
+            exit 1
+          }
+          echo "✅ firestore.rules are 100% synchronized."
+
+  validate-venkys:
+    name: Validate venkys (Customer App)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: venkys/package-lock.json
+
+      - name: Install dependencies
+        working-directory: venkys
+        run: npm ci
+
+      - name: Lint check
+        working-directory: venkys
+        run: npm run lint
+
+      - name: Production build
+        working-directory: venkys
+        run: npm run build
+
+  validate-venkys-admin:
+    name: Validate venkys_admin (Admin POS App)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: venkys_admin/package-lock.json
+
+      - name: Install dependencies
+        working-directory: venkys_admin
+        run: npm ci
+
+      - name: Lint check
+        working-directory: venkys_admin
+        run: npm run lint
+
+      - name: Production build
+        working-directory: venkys_admin
+        run: npm run build
+
+  auto-inject-checklist:
+    name: Prod PR Checklist Safety-Net (Auto-Inject)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.base_ref == 'prod'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inject PR checklist if missing
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+            const marker = '<!-- venkys-prod-checklist-start -->';
+            if (!body.includes(marker)) {
+              const fs = require('fs');
+              const template = fs.readFileSync('.github/pull_request_template.md', 'utf8');
+              const newBody = `${body}\n\n${template}`.trim();
+              
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                body: newBody,
+              });
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: '⚠️ **Production Release Checklist Injected**\n\nThis PR targets `prod`. The required incident-prevention checklist has been automatically appended to the PR description. All items must be verified and checked before merging.',
+              });
+            }
+
+  verify-prod-checklist:
+    name: Verify Prod Release Checklist Completed
+    runs-on: ubuntu-latest
+    needs: auto-inject-checklist
+    if: github.event_name == 'pull_request' && github.base_ref == 'prod'
+    steps:
+      - name: Check PR body for unchecked boxes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const body = pr.data.body || '';
+            const startMarker = '<!-- venkys-prod-checklist-start -->';
+            const endMarker = '<!-- venkys-prod-checklist-end -->';
+            
+            const startIdx = body.indexOf(startMarker);
+            const endIdx = body.indexOf(endMarker);
+            
+            if (startIdx === -1 || endIdx === -1) {
+              core.setFailed('Production release checklist is missing from PR body.');
+              return;
+            }
+            
+            const checklistSection = body.substring(startIdx, endIdx);
+            const unchecked = checklistSection.match(/- \[\s\]/g);
+            if (unchecked && unchecked.length > 0) {
+              core.setFailed(`Cannot merge to prod: ${unchecked.length} checklist item(s) are still unchecked!`);
+            } else {
+              console.log('✅ All production release checklist items are completed.');
+            }
+
+  deploy-production:
+    name: Atomic Deploy to Firebase Hosting & Firestore
+    runs-on: ubuntu-latest
+    needs: [rules-check, validate-venkys, validate-venkys-admin]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/prod'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Customer App (venkys)
+        working-directory: venkys
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Admin App (venkys_admin)
+        working-directory: venkys_admin
+        run: |
+          npm ci
+          npm run build
+
+      - name: Atomic Deploy Hosting & Firestore
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -n "$FIREBASE_TOKEN" ]; then
+            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --token "$FIREBASE_TOKEN" --project venky-s-chicken-xperience
+          elif [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/sa.json
+            export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
+            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --project venky-s-chicken-xperience
+            rm -f /tmp/sa.json
+          else
+            echo "::error::Neither FIREBASE_TOKEN nor FIREBASE_SERVICE_ACCOUNT secret is set in GitHub Repository Secrets!"
+            exit 1
+          fi

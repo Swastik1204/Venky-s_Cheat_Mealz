@@ -6,6 +6,7 @@
 
 import { createRateLimiter } from './lib/rateLimiter.js'
 import { verifyAuth, verifyInternalSecret } from './lib/verifyAuth.js'
+import { handleCors } from './lib/cors.js'
 import nodemailer from 'nodemailer'
 
 const rateLimiter = createRateLimiter({ routeName: 'send-log-email' })
@@ -15,21 +16,7 @@ export default async function handler(req, res) {
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return
 
-  // CORS - restrict to configured origins
-  const allow = process.env.CORS_ORIGIN || ''
-  const origin = req.headers?.origin || ''
-  let allowOrigin = origin || '*'
-  if (allow && allow !== '*') {
-    const list = allow.split(',').map(s => s.trim()).filter(Boolean)
-    allowOrigin = list.includes(origin) ? origin : list[0] || '*'
-  }
-  res.setHeader('Access-Control-Allow-Origin', allowOrigin)
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end()
-  }
+  if (handleCors(req, res, 'POST, OPTIONS')) return
   
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'method_not_allowed' })

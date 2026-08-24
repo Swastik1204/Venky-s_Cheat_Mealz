@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "venky-s-chicken-xperience"
+  },
+  "targets": {
+    "venky-s-chicken-xperience": {
+      "hosting": {
+        "venkys-customer": [
+          "venkys-durgapur"
+        ],
+        "venkys-admin": [
+          "venkys-admin"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

@@ -1,7 +1,7 @@
 // Audit logging system for tracking all changes
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
-import { apiUrl, getAuthHeaders } from './data-common'
+import { apiClient } from '../utils/apiClient'
 
 // ── Email notification for important log events ──
 const EMAIL_WORTHY_EVENTS = new Set([
@@ -70,17 +70,11 @@ export function formatLogEntry(entry) {
  */
 export async function sendLogEmail(type, message, metadata = {}) {
   try {
-    const headers = await getAuthHeaders()
-    const res = await fetch(apiUrl('/api/send-log-email'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify({ type, message, metadata }),
-    })
-    const data = await res.json().catch(() => ({}))
+    const res = await apiClient.post('/api/send-log-email', { type, message, metadata })
     if (!res.ok) {
-      console.warn('[AuditLog] Email API returned', res.status, data)
-    } else if (data?.__skipped) {
-      console.warn('[AuditLog] Email skipped by API:', data.__skipped)
+      console.warn('[AuditLog] Email API returned', res.status, res.body)
+    } else if (res.data?.__skipped) {
+      console.warn('[AuditLog] Email skipped by API:', res.data.__skipped)
     }
   } catch (err) {
     console.warn('[AuditLog] Email send failed:', err.message || err)

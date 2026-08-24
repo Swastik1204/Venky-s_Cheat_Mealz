@@ -1,0 +1,33 @@
+#!/bin/sh
+# Pre-push validation hook for Venky's Cheat Mealz
+# Blocks push to any branch if lint, build, or firestore.rules sync fails.
+
+echo "🔍 Running pre-push verification across all workspaces..."
+
+echo "1/3 Checking firestore.rules synchronization..."
+npm run check-rules
+if [ $? -ne 0 ]; then
+  echo "❌ Push blocked: venkys/firestore.rules and venkys_admin/firestore.rules must be 100% identical!"
+  exit 1
+fi
+
+echo "2/3 Validating Customer App (venkys)..."
+cd venkys || exit 1
+npm run lint && npm run build
+if [ $? -ne 0 ]; then
+  echo "❌ Push blocked: venkys lint or build failed!"
+  exit 1
+fi
+cd .. || exit 1
+
+echo "3/3 Validating Admin App (venkys_admin)..."
+cd venkys_admin || exit 1
+npm run lint && npm run build
+if [ $? -ne 0 ]; then
+  echo "❌ Push blocked: venkys_admin lint or build failed!"
+  exit 1
+fi
+cd .. || exit 1
+
+echo "✅ All pre-push checks passed cleanly. Proceeding with push."
+exit 0

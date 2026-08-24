@@ -129,16 +129,12 @@ export async function fetchBusinessProfile() {
   }
 }
 
+import { apiClient } from '../utils/apiClient'
+
 export async function syncBusinessProfile(placeId) {
-  const url = import.meta.env.VITE_SYNC_BUSINESS_PROFILE_URL || '/api/sync-business-profile'
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ placeId })
-  })
+  const res = await apiClient.post('/api/sync-business-profile', { placeId })
   if (!res.ok) {
-    const error = await res.json().catch(() => ({}))
-    throw new Error(error.error || `Sync failed: ${res.status}`)
+    throw new Error(res.message || `Sync failed: ${res.status}`)
   }
-  return res.json()
+  return res.data
 }

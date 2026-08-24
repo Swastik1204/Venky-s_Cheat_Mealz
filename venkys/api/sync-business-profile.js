@@ -4,6 +4,7 @@
 
 import { createRateLimiter } from './lib/rateLimiter.js'
 import { verifyAuth, verifyInternalSecret } from './lib/verifyAuth.js'
+import { handleCors } from './lib/cors.js'
 import { adminDb, isStaffEmail, FieldValue } from './lib/fcm.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'sync-business-profile' })
@@ -181,20 +182,7 @@ export default async function handler(req, res) {
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return
 
-  const allow = process.env.CORS_ORIGIN || ''
-  const origin = req.headers?.origin || ''
-  let allowOrigin = origin || '*'
-  if (allow && allow !== '*') {
-    const list = allow.split(',').map(s => s.trim()).filter(Boolean)
-    allowOrigin = list.includes(origin) ? origin : list[0] || '*'
-  }
-  res.setHeader('Access-Control-Allow-Origin', allowOrigin)
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end()
-  }
+  if (handleCors(req, res, 'GET, POST, OPTIONS')) return
   
   if (req.method !== 'GET' && req.method !== 'POST') {
     res.setHeader('Allow', 'GET, POST')

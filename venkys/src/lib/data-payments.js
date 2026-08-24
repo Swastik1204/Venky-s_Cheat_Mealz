@@ -1,18 +1,15 @@
-// Razorpay payment functions
-import { apiUrl, getAuthHeaders } from './data-common'
+// Razorpay payment functions routed through resilient apiClient
+import { apiClient } from '../utils/apiClient'
 
 let __publicConfigCache = null
 
 export async function fetchPublicConfig() {
   if (__publicConfigCache) return __publicConfigCache
-  const url = apiUrl('/api/public-config')
-  const res = await fetch(url, { method: 'GET' })
-  let body = null
-  try { body = await res.json() } catch {}
+  const res = await apiClient.get('/api/public-config')
   if (!res.ok) {
-    throw new Error(body?.error || `Failed to load public config (${res.status})`)
+    throw new Error(res.message || `Failed to load public config (${res.status})`)
   }
-  __publicConfigCache = body || {}
+  __publicConfigCache = res.data || {}
   return __publicConfigCache
 }
 
@@ -32,7 +29,6 @@ export async function createRazorpayOrder(amount, items = null, cartChecksum = n
   if (!value || value <= 0) {
     throw new Error('Invalid amount for Razorpay order')
   }
-  const authHeaders = await getAuthHeaders()
   const payload = { amount: value, cartChecksum: cartChecksum || undefined }
   if (Array.isArray(items) && items.length) {
     payload.items = items.map(it => ({
@@ -42,35 +38,20 @@ export async function createRazorpayOrder(amount, items = null, cartChecksum = n
       categoryId: it.categoryId || undefined,
     }))
   }
-  const res = await fetch(apiUrl('/api/create-order'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders },
-    body: JSON.stringify(payload)
-  })
-  let body = null
-  try { body = await res.json() } catch {}
+  const res = await apiClient.post('/api/create-order', payload)
   if (!res.ok) {
-    const message = body?.error || `Failed to create Razorpay order (${res.status})`
-    throw new Error(message)
+    throw new Error(res.message || `Failed to create Razorpay order (${res.status})`)
   }
-  if (!body) {
+  if (!res.data) {
     throw new Error('Received empty response from server when creating Razorpay order')
   }
-  return body
+  return res.data
 }
 
 export async function verifyRazorpayPayment(payload) {
-  const authHeaders = await getAuthHeaders()
-  const res = await fetch(apiUrl('/api/verify-payment'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders },
-    body: JSON.stringify(payload)
-  })
-  let body = null
-  try { body = await res.json() } catch {}
+  const res = await apiClient.post('/api/verify-payment', payload)
   if (!res.ok) {
-    const message = body?.error || `Payment verification failed (${res.status})`
-    throw new Error(message)
+    throw new Error(res.message || `Payment verification failed (${res.status})`)
   }
-  return body
+  return res.data
 }
