@@ -69,9 +69,20 @@ export default function Layout() {
         type="button"
         aria-label="Scroll to top"
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-        className={`scroll-top-fab ${showScrollTop ? 'scroll-top-fab--visible' : ''}`}
+        className={`scroll-top-fab group flex items-center justify-center gap-1.5 ${showScrollTop ? 'scroll-top-fab--visible' : ''}`}
       >
-        Top
+        <svg
+          viewBox="0 0 24 24"
+          className="w-4 h-4 transition-transform duration-200 group-hover:-translate-y-1"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 19V5M5 12l7-7 7 7" />
+        </svg>
+        <span>Top</span>
       </button>
       {/* Toast stack */}
       <div className="fixed z-[60] bottom-20 right-4 flex flex-col gap-2 w-72">

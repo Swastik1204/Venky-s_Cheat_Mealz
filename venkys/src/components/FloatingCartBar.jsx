@@ -25,7 +25,7 @@ export default function FloatingCartBar() {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-16 sm:bottom-20 lg:bottom-6 z-40 pointer-events-none">
+    <div className="fixed inset-x-0 bottom-20 sm:bottom-22 md:bottom-20 z-40 pointer-events-none">
       <div className="px-4 pointer-events-auto">
         <div 
           onClick={handleBarClick}
