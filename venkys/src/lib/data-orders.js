@@ -20,13 +20,13 @@
 // }
 import { collection, doc, getDocs, getDoc, query, where, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
-import { isCounterDocId, formatUserSegment, isPermissionDenied, apiUrl, getAuthHeaders } from './data-common'
+import { isCounterDocId, isPermissionDenied } from './data-common'
+import { apiClient } from '../utils/apiClient'
 
 // ── Order creation (server-owned) ──
 //
-// Order-number generation and document creation both happen server-side in
-// /api/place-order: the daily counter transaction and the order-document
-// create are atomic there (using server time), which closes the ID-collision
+// Order number generation and document creation happen server-side via
+// /api/place-order, eliminating the race-condition (daily counter collision)
 // and timezone-split risks the old client-side generateDailyOrderNo() +
 // setDoc() pair had. Item pricing is always recomputed server-side from the
 // 'menu' collection, so the persisted total is never a client value.
@@ -37,34 +37,28 @@ export async function createOrder({ customer = {}, items, orderType = 'delivery'
   }
 
   const paymentMethod = customer?.payment?.method || 'cod'
-  const authHeaders = await getAuthHeaders()
-  const res = await fetch(apiUrl('/api/place-order'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders },
-    body: JSON.stringify({
-      items: safeItems.map((item) => ({
-        id: item?.id,
-        name: item?.name,
-        rate: item?.rate ?? item?.price ?? 0,
-        qty: item?.qty,
-        variantLabel: item?.variantLabel,
-        mrp: item?.mrp,
-        discountPercent: item?.discountPercent,
-        note: item?.note,
-        modifiers: item?.modifiers,
-      })),
-      customer,
-      orderType,
-      paymentMethod,
-      taxRate,
-    }),
+  const res = await apiClient.post('/api/place-order', {
+    items: safeItems.map((item) => ({
+      id: item?.id,
+      name: item?.name,
+      rate: item?.rate ?? item?.price ?? 0,
+      qty: item?.qty,
+      variantLabel: item?.variantLabel,
+      mrp: item?.mrp,
+      discountPercent: item?.discountPercent,
+      note: item?.note,
+      modifiers: item?.modifiers,
+    })),
+    customer,
+    orderType,
+    paymentMethod,
+    taxRate,
   })
-  let body = null
-  try { body = await res.json() } catch { /* noop */ }
+
   if (!res.ok) {
-    throw new Error(body?.error || 'Please sign in before placing an order.')
+    throw new Error(res.message || 'Please sign in before placing an order.')
   }
-  return body.orderNo
+  return res.data.orderNo
 }
 
 // ── Staff push notification ──
@@ -74,22 +68,15 @@ export async function createOrder({ customer = {}, items, orderType = 'delivery'
 export async function notifyStaffNewOrder(orderNo) {
   try {
     if (!orderNo) return { __skipped: 'missing_orderNo' }
-    const authHeaders = await getAuthHeaders()
-    const res = await fetch(apiUrl('/api/notify-order'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({ orderNo }),
-    })
-    let body = null
-    try { body = await res.json() } catch { /* noop */ }
+    const res = await apiClient.post('/api/notify-order', { orderNo })
     if (!res.ok) {
-      console.warn('[fcm] notify-order failed', res.status, body)
+      console.warn('[fcm] notify-order failed', res.status, res.body)
       return { __error: 'http_error', status: res.status }
     }
-    return body || {}
+    return res.data || {}
   } catch (e) {
-    console.warn('[fcm] notify-order network error', e)
-    return { __error: 'network', message: String(e) }
+    console.warn('[fcm] notifyStaffNewOrder error', e)
+    return { __error: 'exception', error: e?.message }
   }
 }
 

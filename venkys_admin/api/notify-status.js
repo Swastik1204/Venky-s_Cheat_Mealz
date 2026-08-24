@@ -12,6 +12,7 @@
 
 import { createRateLimiter } from './lib/rateLimiter.js'
 import { verifyAuth } from './lib/verifyAuth.js'
+import { handleCors } from './lib/cors.js'
 import { adminDb, sendFCMToUser, isStaffEmail } from './lib/fcm.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'notify-status' })
@@ -47,18 +48,7 @@ export default async function handler(req, res) {
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return
 
-  const allow = process.env.CORS_ORIGIN || ''
-  const origin = req.headers?.origin || ''
-  let allowOrigin = origin || '*'
-  if (allow && allow !== '*') {
-    const list = allow.split(',').map(s => s.trim()).filter(Boolean)
-    allowOrigin = list.includes(origin) ? origin : list[0] || '*'
-  }
-  res.setHeader('Access-Control-Allow-Origin', allowOrigin)
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  res.setHeader('Access-Control-Allow-Credentials', 'true')
-  if (req.method === 'OPTIONS') return res.status(204).end()
+  if (handleCors(req, res, 'POST, OPTIONS')) return
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed' })

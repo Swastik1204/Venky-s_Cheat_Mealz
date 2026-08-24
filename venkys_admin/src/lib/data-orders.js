@@ -21,9 +21,10 @@
 // }
 import { collection, doc, getDocs, getDoc, query, where, serverTimestamp, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion } from 'firebase/firestore'
 import { db } from './firebase'
-import { isCounterDocId, formatUserSegment, apiUrl, getAuthHeaders } from './data-common'
+import { isCounterDocId } from './data-common'
 import { logOrderChange } from './auditLog'
 import { recordChange } from './data-changeHistory'
+import { apiClient } from '../utils/apiClient'
 
 function resolveActor(actor) {
   return String(actor || 'system')
@@ -33,12 +34,7 @@ function resolveActor(actor) {
 
 async function postNotify(path, payload) {
   try {
-    const authHeaders = await getAuthHeaders()
-    const res = await fetch(apiUrl(path), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify(payload),
-    })
+    const res = await apiClient.post(path, payload)
     if (!res.ok) console.warn(`[fcm] ${path} failed`, res.status)
   } catch (err) {
     console.warn(`[fcm] ${path} network error`, err)
@@ -63,16 +59,9 @@ export function notifyCustomerStatus(orderNo, status) {
 // caller can surface the error to the operator.
 export async function recheckPayment(orderNo) {
   if (!orderNo) throw new Error('Missing order number')
-  const authHeaders = await getAuthHeaders()
-  const res = await fetch(apiUrl('/api/recheck-payment'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders },
-    body: JSON.stringify({ orderNo }),
-  })
-  let body = null
-  try { body = await res.json() } catch { /* noop */ }
-  if (!res.ok) throw new Error(body?.error || `Re-check failed (${res.status})`)
-  return body || {}
+  const res = await apiClient.post('/api/recheck-payment', { orderNo })
+  if (!res.ok) throw new Error(res.message || `Re-check failed (${res.status})`)
+  return res.data || {}
 }
 
 async function safeRecordChange(payload) {
@@ -113,40 +102,34 @@ export async function createOrder({
     throw new Error('Order must include at least one item')
   }
 
-  const authHeaders = await getAuthHeaders()
-  const res = await fetch(apiUrl('/api/place-order'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders },
-    body: JSON.stringify({
-      source,
-      userId,
-      customer,
-      items: safeItems.map((item) => ({
-        id: item?.id,
-        name: item?.name,
-        rate: item?.rate ?? item?.price ?? 0,
-        qty: item?.qty,
-        variantLabel: item?.variantLabel,
-        mrp: item?.mrp,
-        discountPercent: item?.discountPercent,
-        note: item?.note,
-        modifiers: item?.modifiers,
-      })),
-      orderType,
-      paymentMethod: customer?.payment?.method || 'cod',
-      taxRate,
-      status,
-      guestOrder,
-      guestOrderDate,
-      guestOrderAt,
-    }),
+  const res = await apiClient.post('/api/place-order', {
+    source,
+    userId,
+    customer,
+    items: safeItems.map((item) => ({
+      id: item?.id,
+      name: item?.name,
+      rate: item?.rate ?? item?.price ?? 0,
+      qty: item?.qty,
+      variantLabel: item?.variantLabel,
+      mrp: item?.mrp,
+      discountPercent: item?.discountPercent,
+      note: item?.note,
+      modifiers: item?.modifiers,
+    })),
+    orderType,
+    paymentMethod: customer?.payment?.method || 'cod',
+    taxRate,
+    status,
+    guestOrder,
+    guestOrderDate,
+    guestOrderAt,
   })
-  let body = null
-  try { body = await res.json() } catch { /* noop */ }
+
   if (!res.ok) {
-    throw new Error(body?.error || `Failed to create order (${res.status})`)
+    throw new Error(res.message || `Failed to create order (${res.status})`)
   }
-  const resolvedOrderNo = body.orderNo
+  const resolvedOrderNo = res.data.orderNo
 
   // Audit trail: log the create by reading the document the server just
   // persisted (creation itself happens server-side now, so there is no

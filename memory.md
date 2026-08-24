@@ -11,14 +11,17 @@ All architectural patterns, hosting conventions, CI/CD designs, and security pol
 ## 2. Standing Development Rules & Process
 1. **Pre-Push Validation**: Always run clean lint and production builds across both workspaces before pushing:
    ```bash
-   cd venkys; npm run lint; npm run build
-   cd ../venkys_admin; npm run lint; npm run build
+   npm run check-rules
+   npm run lint
+   npm run build
    ```
-2. **Git Workflow**:
-   * All development happens on feature branches or staging branch (`main`).
-   * Production deployment occurs exclusively from `prod` branch via CI/CD.
+2. **Git Workflow & Branch Model**:
+   * Staging / Active development branch: `main`
+   * Production release branch: `prod`
+   * Branch Protection Ruleset targets `prod`: PR required, 0 required approvals (solo dev), linear history, blocking status checks (`rules-check`, `validate-venkys`, `validate-venkys-admin`, `verify-prod-checklist`).
    * Never push broken builds or untested security rules directly to production.
-3. **No Direct Secret Commit**: Never commit `.env` files or service account JSON files. Use `.env.example` templates with sanitized placeholders.
+3. **Pre-Push Git Hook**: Installed via `.githooks/pre-push` (configured via `git config core.hooksPath .githooks`). Enforces blocking lint, build, and `firestore.rules` sync checks prior to git pushes.
+4. **No Direct Secret Commit**: Never commit `.env` files or service account JSON files. Use `.env.example` templates with sanitized placeholders.
 
 ---
 
@@ -36,20 +39,39 @@ The system enforces a strict 6-tier authorization model synchronized between `fi
 
 ---
 
-## 4. Hosting & Architecture Split (Target Standard)
-* **Customer SPA (`venkys`)**: Firebase Hosting for static SPA bundle.
-* **Admin POS SPA (`venkys_admin`)**: Firebase Hosting for static SPA bundle.
-* **Backend API (`api/`)**: Vercel Serverless Functions for API-only execution (Razorpay integration, FCM push, order creation, rate limiting).
-* *Note: Separation of frontend hosting from Vercel is queued for execution.*
+## 4. Hosting & Architecture Split (Live Architecture)
+* **Customer SPA (`venkys`)**: Firebase Hosting target `venkys-customer` (site: `venkys-durgapur`). Serves static SPA bundle only (`dist/` with catch-all rewrite to `/index.html`).
+* **Admin POS SPA (`venkys_admin`)**: Firebase Hosting target `venkys-admin` (site: `venkys-admin`). Serves static SPA bundle only (`dist/` with catch-all rewrite to `/index.html`).
+* **Backend API (`api/`)**: Vercel Serverless Functions for API-only execution (`/api/*`). Leftover frontend SPA rewrites (`/(.*) -> index.html`) have been removed to prevent misrouted HTML responses.
+* **Shared `apiClient` (`src/utils/apiClient.js`)**:
+  * Resolves `VITE_API_BASE_URL` from env (never relative path fallback).
+  * Automatically attaches Firebase ID token as `Authorization: Bearer <token>`.
+  * Classifies errors into typed results: `{ ok, type: 'network'|'cors'|'auth'|'forbidden'|'server'|'html_response'|'error', status, body, message }`.
+  * On HTTP 403, forces one `getIdToken(true)` refresh and retries once before surfacing `'forbidden'`.
+  * Detects HTML response bodies where JSON was expected (`html_response` tell).
+* **24-Hour CORS Preflight Caching**: All serverless endpoints send `Access-Control-Max-Age: 86400` on OPTIONS responses via `api/lib/cors.js`.
 
 ---
 
-## 5. Critical Incident Lessons & Gotchas
+## 5. CI/CD Pipeline & Atomic Deployments
+* **GitHub Actions Workflow** (`.github/workflows/deploy.yml`):
+  * Runs on all pushes and PRs to `main` and `prod`.
+  * `rules-check`: Asserts `venkys/firestore.rules` === `venkys_admin/firestore.rules`.
+  * `validate-venkys` & `validate-venkys-admin`: Parallel lint + build validation.
+  * `auto-inject-checklist` & `verify-prod-checklist`: Injects and verifies the incident-specific production release checklist on all PRs targeting `prod`.
+  * `deploy-production`: On push to `prod`, executes atomic deployment:
+    ```bash
+    npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --project venky-s-chicken-xperience
+    ```
+
+---
+
+## 6. Critical Incident Lessons & Gotchas
 
 ### Lesson 1: Firestore Rules Duplication Risk
 * `firestore.rules` exists in two workspace locations: `venkys/firestore.rules` and `venkys_admin/firestore.rules`.
 * **Gotcha**: Firebase only maintains **one live ruleset** per project (`venky-s-chicken-xperience`). Deploying from either directory overwrites the live rules for both applications.
-* **Rule**: Always keep both files 100% byte-for-byte synchronized (verify via `fc.exe`).
+* **Rule**: Always keep both files 100% byte-for-byte synchronized (`npm run check-rules`).
 
 ### Lesson 2: Firebase CLI Multi-Account Scoping
 * Firebase CLI maintains session logins per directory or globally across accounts (`familyshoppingworlddgp@gmail.com` vs `venkysdgp@gmail.com`).
@@ -57,7 +79,6 @@ The system enforces a strict 6-tier authorization model synchronized between `fi
 * **Rule**: Explicitly check and set active account before deploying:
   ```bash
   firebase login:use venkysdgp@gmail.com
-  firebase deploy --only firestore:rules --project venky-s-chicken-xperience
   ```
 
 ### Lesson 3: Webhook vs Client Payment Race & Idempotency

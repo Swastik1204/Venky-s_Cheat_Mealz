@@ -4,6 +4,7 @@
 // Safe to expose: Razorpay Key ID is public.
 
 import { createRateLimiter } from './lib/rateLimiter.js'
+import { handleCors } from './lib/cors.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'public-config' })
 
@@ -11,15 +12,8 @@ export default async function handler(req, res) {
   // Apply rate limiting
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return // Rate limit exceeded
-  // CORS: allow all origins (public config)
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   
-  if (req.method === 'OPTIONS') {
-    res.status(204).end()
-    return
-  }
+  if (handleCors(req, res, 'GET, OPTIONS')) return
 
   res.setHeader('Cache-Control', 'no-store')
   if (req.method !== 'GET') {

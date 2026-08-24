@@ -1,0 +1,10 @@
+{
+  "name": "venkys-cheat-mealz-root",
+  "private": true,
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "lint": "npm --prefix venkys run lint && npm --prefix venkys_admin run lint",
+    "build": "npm --prefix venkys run build && npm --prefix venkys_admin run build",
+    "check-rules": "node -e \"const fs = require('fs'); const r1 = fs.readFileSync('venkys/firestore.rules', 'utf8'); const r2 = fs.readFileSync('venkys_admin/firestore.rules', 'utf8'); if (r1 !== r2) { console.error('ERROR: firestore.rules mismatch between venkys and venkys_admin'); process.exit(1); } else { console.log('OK: firestore.rules synchronized'); }\""
+  }
+}

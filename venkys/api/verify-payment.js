@@ -14,6 +14,7 @@ import crypto from 'crypto'
 import Razorpay from 'razorpay'
 import { createRateLimiter } from './lib/rateLimiter.js'
 import { verifyAuth } from './lib/verifyAuth.js'
+import { handleCors } from './lib/cors.js'
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 
@@ -101,21 +102,8 @@ export default async function handler(req, res) {
   // Apply rate limiting
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return // Rate limit exceeded
-  // CORS: Allow origins from CORS_ORIGIN env (comma-separated), or reflect the request origin if not set
-  const allow = process.env.CORS_ORIGIN || ''
-  const origin = req.headers?.origin || ''
-  let allowOrigin = origin || '*'
-  if (allow && allow !== '*') {
-    const list = allow.split(',').map(s => s.trim()).filter(Boolean)
-    allowOrigin = list.includes(origin) ? origin : list[0] || '*'
-  }
-  res.setHeader('Access-Control-Allow-Origin', allowOrigin)
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  res.setHeader('Access-Control-Allow-Credentials', 'true')
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end()
-  }
+  // CORS with 24-hour preflight caching
+  if (handleCors(req, res, 'POST, OPTIONS')) return
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed' })

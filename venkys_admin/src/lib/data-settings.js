@@ -1,6 +1,6 @@
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
-import { DEFAULT_SPOTLIGHT, normalizeSpotlight, getAuthHeaders } from './data-common'
+import { DEFAULT_SPOTLIGHT, normalizeSpotlight } from './data-common'
 import { logSettingsChange } from './auditLog'
 import { recordChange } from './data-changeHistory'
 
@@ -292,36 +292,12 @@ export async function fetchBusinessProfile() {
   }
 }
 
+import { apiClient } from '../utils/apiClient'
+
 export async function syncBusinessProfile(placeId) {
-  const url = import.meta.env.VITE_SYNC_BUSINESS_PROFILE_URL || '/api/sync-business-profile'
-  let res
-  const authHeaders = await getAuthHeaders()
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders,
-      },
-      body: JSON.stringify({ placeId })
-    })
-  } catch {
-    throw new Error(
-      `Sync failed: cannot reach the sync API. ` +
-      `In dev, Vite doesn't serve /api routes. Run \`vercel dev\` (default http://localhost:3000) ` +
-      `or set VITE_SYNC_BUSINESS_PROFILE_URL to your deployed /api/sync-business-profile URL.`
-    )
-  }
+  const res = await apiClient.post('/api/sync-business-profile', { placeId })
   if (!res.ok) {
-    const error = await res.json().catch(() => ({}))
-    if (res.status === 404 && String(url || '').startsWith('/')) {
-      throw new Error(
-        `Sync failed: /api/sync-business-profile not found (404). ` +
-        `In dev, start \`vercel dev\` so /api routes exist (and keep Vite running), ` +
-        `or set VITE_SYNC_BUSINESS_PROFILE_URL to a deployed API URL.`
-      )
-    }
-    throw new Error(error.error || `Sync failed: ${res.status}`)
+    throw new Error(res.message || `Sync failed: ${res.status}`)
   }
-  return res.json()
+  return res.data
 }

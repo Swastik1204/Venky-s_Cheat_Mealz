@@ -1,0 +1,34 @@
+{
+  "firestore": {
+    "rules": "venkys/firestore.rules",
+    "indexes": "venkys/firestore.indexes.json"
+  },
+  "hosting": [
+    {
+      "target": "venkys-customer",
+      "public": "venkys/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "cleanUrls": true,
+      "rewrites": [
+        { "source": "**", "destination": "/index.html" }
+      ]
+    },
+    {
+      "target": "venkys-admin",
+      "public": "venkys_admin/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "cleanUrls": true,
+      "rewrites": [
+        { "source": "**", "destination": "/index.html" }
+      ]
+    }
+  ]
+}

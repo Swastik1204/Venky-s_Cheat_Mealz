@@ -8,6 +8,7 @@
 import crypto from 'crypto'
 import { createRateLimiter } from './lib/rateLimiter.js'
 import { verifyAuth } from './lib/verifyAuth.js'
+import { handleCors } from './lib/cors.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'verify-payment' })
 
@@ -15,24 +16,8 @@ export default async function handler(req, res) {
   // Apply rate limiting
   await rateLimiter(req, res, () => {})
   if (res.headersSent) return // Rate limit exceeded
-  // CORS: Allow origins from CORS_ORIGIN env (comma-separated), or reflect the request origin if not set
-  const allow = process.env.CORS_ORIGIN || ''
-  const origin = req.headers?.origin || ''
-  let allowOrigin = origin || '*'
-  if (allow && allow !== '*') {
-    const list = allow.split(',').map(s => s.trim()).filter(Boolean)
-    const isLocalhost = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)
-    if (list.includes(origin)) allowOrigin = origin
-    else if (isLocalhost) allowOrigin = origin
-    else if (list.length) allowOrigin = list[0]
-  }
-  res.setHeader('Access-Control-Allow-Origin', allowOrigin)
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  res.setHeader('Access-Control-Allow-Credentials', 'true')
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end()
-  }
+  
+  if (handleCors(req, res, 'POST, OPTIONS')) return
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed' })
