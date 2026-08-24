@@ -121,10 +121,12 @@ export async function sendFCMToStaff({ title, body, data = {} }) {
   }
 }
 
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'swastiksaha1204@gmail.com').trim().toLowerCase()
+
 /** True when the authenticated email belongs to a staff/admin role. */
 export async function isStaffEmail(email) {
   if (!email) return false
-  if (email === 'swastiksaha1204@gmail.com') return true // super admin (mirrors firestore.rules)
+  if (String(email).trim().toLowerCase() === SUPER_ADMIN_EMAIL) return true // super admin (mirrors firestore.rules)
   ensureAdmin()
   try {
     const roleSnap = await getFirestore().collection('roles').doc(email).get()
@@ -142,7 +144,7 @@ export async function isStaffEmail(email) {
  */
 export async function canAccess(email, pageKey) {
   if (!email) return false
-  if (email === 'swastiksaha1204@gmail.com') return true // super admin bypass, mirrors firestore.rules
+  if (String(email).trim().toLowerCase() === SUPER_ADMIN_EMAIL) return true // super admin bypass, mirrors firestore.rules
   ensureAdmin()
   try {
     const roleSnap = await getFirestore().collection('roles').doc(email).get()

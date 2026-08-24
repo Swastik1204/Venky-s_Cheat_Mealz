@@ -1,9 +1,9 @@
-// Shared constants, helpers and utilities for the admin data layer
 import { auth } from './firebase'
+import { RESTAURANT_CONFIG } from '../config/restaurant.config'
 
 // ── Branding ──
-export const BRAND_LONG = "Venky's Chicken Xperience Durgapur"
-export const BRAND_SHORT = "Venky's"
+export const BRAND_LONG = RESTAURANT_CONFIG.brand.name
+export const BRAND_SHORT = RESTAURANT_CONFIG.brand.shortName
 
 // ── Counter / ID helpers ──
 export const DAILY_COUNTER_DOC = 'dailyCounter'

@@ -2,10 +2,10 @@
 // Manages label, loading, and error for delivery address selection.
 
 import { useCallback, useMemo, useState, useEffect } from 'react'
-
 import { geolocate, reverseGeocode, getSavedDeliveryAddress, saveDeliveryAddress } from '../services/location'
+import { RESTAURANT_CONFIG } from '../config/restaurant.config'
 
-function useDeliveryLocation(defaultLabel = 'Durgapur') {
+function useDeliveryLocation(defaultLabel = RESTAURANT_CONFIG.location.city) {
   const saved = typeof window !== 'undefined' ? getSavedDeliveryAddress() : null
   const [label, setLabel] = useState(saved?.label || defaultLabel)
   const [loading, setLoading] = useState(false)
@@ -13,7 +13,13 @@ function useDeliveryLocation(defaultLabel = 'Durgapur') {
   const [location, setLocation] = useState(saved ? { lat: saved.lat, lon: saved.lon } : null)
   const [distance, setDistance] = useState(null)
   const [isWithinRegion, setIsWithinRegion] = useState(true)
-  const [region, setRegion] = useState({ center: { lat: Number(import.meta.env.VITE_DELIVERY_CENTER_LAT ?? 23.5204), lng: Number(import.meta.env.VITE_DELIVERY_CENTER_LNG ?? 87.3119) }, radiusKm: Number(import.meta.env.VITE_DELIVERY_RADIUS_KM ?? 8) })
+  const [region, setRegion] = useState({
+    center: {
+      lat: Number(import.meta.env.VITE_DELIVERY_CENTER_LAT ?? RESTAURANT_CONFIG.location.defaultCoordinates.lat),
+      lng: Number(import.meta.env.VITE_DELIVERY_CENTER_LNG ?? RESTAURANT_CONFIG.location.defaultCoordinates.lng)
+    },
+    radiusKm: Number(import.meta.env.VITE_DELIVERY_RADIUS_KM ?? RESTAURANT_CONFIG.location.defaultRadiusKm)
+  })
 
   // Fetch delivery region from Firestore
   useEffect(() => {

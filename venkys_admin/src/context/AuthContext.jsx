@@ -8,7 +8,7 @@ import { auth, db } from '../lib/firebase'
 import { ensureUserDocument } from '../lib/userData'
 
 const AuthContext = createContext(null)
-const SUPER_ADMIN_EMAIL = 'swastiksaha1204@gmail.com'
+const SUPER_ADMIN_EMAIL = import.meta.env.VITE_SUPER_ADMIN_EMAIL || 'swastiksaha1204@gmail.com'
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase()

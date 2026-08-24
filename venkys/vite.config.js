@@ -4,6 +4,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { RESTAURANT_CONFIG } from './src/config/restaurant.config.js'
+
 // __dirname replacement in ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -60,9 +62,9 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['icons/Logo.png', 'favicon.ico'],
         manifest: {
-          name: 'Venky’s Chicken Xperience Durgapur',
-          short_name: 'Venky’s',
-          description: 'Local food ordering with a fast POS for billers.',
+          name: RESTAURANT_CONFIG.brand.name,
+          short_name: RESTAURANT_CONFIG.brand.shortName,
+          description: RESTAURANT_CONFIG.brand.tagline,
           start_url: '/',
           scope: '/',
           display: 'standalone',

@@ -5,6 +5,7 @@ import { FaGoogle } from 'react-icons/fa'
 import { MdPhone, MdEmail, MdLocationOn, MdAccessTime, MdSend, MdStar, MdRefresh } from 'react-icons/md'
 
 import { fetchBusinessProfile, fetchAppSettings } from '../lib/data'
+import { RESTAURANT_CONFIG } from '../config/restaurant.config'
 
 export default function Contact() {
   const [formData, setFormData] = useState({ name: '', email: '', message: '' })
@@ -20,21 +21,25 @@ export default function Contact() {
         if (!active) return
         setProfile(bp)
         setSettings(app)
+        setLoading(false)
       })
-      .catch(err => console.error('Error fetching contact data:', err))
-      .finally(() => active && setLoading(false))
+      .catch(() => {
+        if (!active) return
+        setLoading(false)
+      })
     return () => { active = false }
   }, [])
 
   // Use Google Business Profile data if available, fallback to app settings
-  const rawPhone = profile?.phone || settings?.shopPhone || ''
-  const hasPhone = rawPhone && rawPhone.trim().length > 0
-  const phoneLink = rawPhone.replace(/\D/g, '')
-  const phoneFormatted = hasPhone ? rawPhone.replace(/(\d{5})(\d{5})/, '$1 $2') : '-'
+  const phone = settings?.contactPhone || profile?.phone
+  const email = settings?.contactEmail || profile?.email || RESTAURANT_CONFIG.contact.email
+  const address = settings?.contactAddress || profile?.address || RESTAURANT_CONFIG.contact.address
   
-  const rawAddress = profile?.address || settings?.shopAddress || ''
-  const hasAddress = rawAddress && rawAddress.trim().length > 0
-  const address = hasAddress ? rawAddress : '-'
+  const hasPhone = phone && phone.trim().length > 0
+  const phoneLink = hasPhone ? phone.replace(/\D/g, '') : ''
+  const phoneFormatted = hasPhone ? phone.replace(/(\d{5})(\d{5})/, '$1 $2') : '-'
+  
+  const hasAddress = address && address.trim().length > 0
   
   const mapsUrl = profile?.mapsUrl || settings?.locationLink || ''
   const hasMapsUrl = mapsUrl && mapsUrl.trim().length > 0
@@ -45,7 +50,7 @@ export default function Contact() {
   const reviewCount = profile?.reviewCount
   const lastSynced = profile?.lastSynced ? new Date(profile.lastSynced) : null
 
-  const CONTACT_EMAIL = 'venkysdgp@gmail.com'
+  const CONTACT_EMAIL = email
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -122,13 +127,13 @@ export default function Contact() {
                       </div>
                     )}
                     
-                    <a href="mailto:venkysdgp@gmail.com" className="flex items-center gap-4 p-3 rounded-xl hover:bg-base-200/50 transition-colors">
+                    <a href={`mailto:${email}`} className="flex items-center gap-4 p-3 rounded-xl hover:bg-base-200/50 transition-colors">
                       <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
                         <MdEmail className="w-6 h-6" />
                       </div>
                       <div>
                         <div className="text-sm opacity-60">Email</div>
-                        <div className="font-semibold">venkysdgp@gmail.com</div>
+                        <div className="font-semibold">{email}</div>
                       </div>
                     </a>
                     
