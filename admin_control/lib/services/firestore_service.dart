@@ -13,7 +13,7 @@ class FirestoreService {
     }
 
     q = q
-        .where('status', whereNotIn: ['delivered', 'rejected', 'cancelled'])
+        .where('status', whereNotIn: ['delivered', 'rejected', 'cancelled', 'pending-payment'])
         .orderBy('status')
         .orderBy('createdAt', descending: true);
 

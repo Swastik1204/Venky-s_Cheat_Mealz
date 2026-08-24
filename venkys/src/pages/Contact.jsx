@@ -1,7 +1,7 @@
 // Contact — Contact information and inquiry form
 import { useState, useEffect } from 'react'
 
-import { FaWhatsapp, FaGoogle } from 'react-icons/fa'
+import { FaGoogle } from 'react-icons/fa'
 import { MdPhone, MdEmail, MdLocationOn, MdAccessTime, MdSend, MdStar, MdRefresh } from 'react-icons/md'
 
 import { fetchBusinessProfile, fetchAppSettings } from '../lib/data'
@@ -45,14 +45,14 @@ export default function Contact() {
   const reviewCount = profile?.reviewCount
   const lastSynced = profile?.lastSynced ? new Date(profile.lastSynced) : null
 
-  // Default WhatsApp number if no phone configured
-  const whatsappNumber = phoneLink || '919999999999'
+  const CONTACT_EMAIL = 'venkysdgp@gmail.com'
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    // Open WhatsApp with pre-filled message
-    const text = `Hi! I'm ${formData.name}.\n\nEmail: ${formData.email}\n\nMessage: ${formData.message}`
-    window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(text)}`, '_blank')
+    // Open the visitor's mail client with a pre-filled message
+    const subject = `Website enquiry from ${formData.name}`
+    const body = `Hi! I'm ${formData.name}.\n\nEmail: ${formData.email}\n\nMessage: ${formData.message}`
+    window.open(`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_self')
     setSent(true)
   }
 
@@ -117,28 +117,6 @@ export default function Contact() {
                         </div>
                         <div>
                           <div className="text-sm opacity-60">Phone</div>
-                          <div className="font-semibold">-</div>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {hasPhone ? (
-                      <a href={`https://wa.me/91${phoneLink}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 p-3 rounded-xl hover:bg-green-500/10 transition-colors">
-                        <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
-                          <FaWhatsapp className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <div className="text-sm opacity-60">WhatsApp</div>
-                          <div className="font-semibold">+91 {phoneFormatted}</div>
-                        </div>
-                      </a>
-                    ) : (
-                      <div className="flex items-center gap-4 p-3 rounded-xl opacity-50">
-                        <div className="w-12 h-12 rounded-full bg-base-200 flex items-center justify-center">
-                          <FaWhatsapp className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <div className="text-sm opacity-60">WhatsApp</div>
                           <div className="font-semibold">-</div>
                         </div>
                       </div>
@@ -244,7 +222,7 @@ export default function Contact() {
                 <div className="text-center py-10">
                   <div className="text-5xl mb-4">✅</div>
                   <h3 className="text-xl font-bold mb-2">Message Sent!</h3>
-                  <p className="opacity-70">We'll get back to you soon via WhatsApp.</p>
+                  <p className="opacity-70">We'll get back to you soon by email — or give us a call for anything urgent.</p>
                   <button className="btn btn-primary mt-4" onClick={() => setSent(false)}>Send Another</button>
                 </div>
               ) : (
@@ -283,9 +261,9 @@ export default function Contact() {
                     ></textarea>
                   </div>
                   <button type="submit" className="btn btn-primary w-full gap-2">
-                    <MdSend className="w-5 h-5" /> Send via WhatsApp
+                    <MdSend className="w-5 h-5" /> Send by Email
                   </button>
-                  <p className="text-xs text-center opacity-60">Your message will be sent via WhatsApp for a faster response.</p>
+                  <p className="text-xs text-center opacity-60">Opens your email app with the message pre-filled. For urgent matters, call us directly.</p>
                 </form>
               )}
             </div>

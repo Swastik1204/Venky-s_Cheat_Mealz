@@ -4,7 +4,7 @@ rules_version = '2';
 // UNIFIED FIRESTORE RULES - Venky's Chicken Xperience
 // =====================================================================
 // This single rules file is used by BOTH customer app and admin app.
-// 
+//
 // ROLE HIERARCHY:
 //   1. Super Admin (hardcoded) - swastiksaha1204@gmail.com - ALWAYS has full access
 //   2. Admin (dynamic) - role: 'admin' in roles collection - Full access
@@ -26,11 +26,21 @@ rules_version = '2';
 //       settings: true/false,    // App settings (admin only typically)
 //       appearance: true/false,  // Theme customization
 //       delivery: true/false,    // Delivery management
+//       cashManager: true/false, // Dine-in COD OTP generation
+//       orderMessenger: true/false, // (legacy — WhatsApp order alerts, unused)
 //     },
 //     createdAt: timestamp,
 //     updatedAt: timestamp,
 //     createdBy: 'admin@email.com'
 //   }
+//
+// `roles/{email}` is the single source of truth for staff/admin access.
+// The former `adminUsers/{uid}` collection (invite-based onboarding) has
+// been retired: it was populated by nobody in production (verified against
+// live data before removal) and every real staff/admin account already
+// resolves through `roles`. There is no `adminUsers` match block below —
+// the collection now falls through to the default-deny at the bottom of
+// this file.
 // =====================================================================
 
 service cloud.firestore {
@@ -40,7 +50,9 @@ service cloud.firestore {
     // HELPER FUNCTIONS
     // =========================================
 
-    // Super admin email - HARDCODED, always has full access
+    // Super admin email - HARDCODED, always has full access, carries zero
+    // custom claims/role-doc dependency by design. This is the recovery
+    // bypass if the roles collection is ever corrupted or misconfigured.
     function superAdminEmail() {
       return 'swastiksaha1204@gmail.com';
     }
@@ -90,24 +102,29 @@ service cloud.firestore {
       return isSuperAdmin() || (hasRoleDoc() && getRoleDoc().role == 'admin');
     }
 
-    // Check if user has a specific page permission
-    function hasPageAccess(pageName) {
-      // IMPORTANT: Only 'staff' role uses page-level permissions.
-      // Delivery users are restricted by role (delivery-only), not by pages.
+    // canAccess(pageName): the single access-check pattern used everywhere
+    // in this file. It is always OR logic — isAdmin() (which already
+    // includes isSuperAdmin()) is checked first and short-circuits, so
+    // admin/superadmin ALWAYS bypass granular per-page permissions. A plain
+    // staff role only passes if it explicitly holds that page's permission.
+    // Do not rewrite call sites as "isStaffUser() && canAccess(...)" — AND
+    // logic here would incorrectly require admins to also hold a staff-style
+    // page permission they were never given.
+    function canAccess(pageName) {
       return isAdmin() || hasStaffPage(pageName);
     }
 
     function isCashManagerUser() {
-      return hasStaffPage('cashManager');
+      return canAccess('cashManager');
     }
 
     function isOrderMessengerUser() {
-      return hasStaffPage('orderMessenger');
+      return canAccess('orderMessenger');
     }
 
     // Check if user can manage orders (includes biller page access)
     function canManageOrders() {
-      return hasPageAccess('orders') || hasPageAccess('biller') || isCashManagerUser();
+      return canAccess('orders') || canAccess('biller') || isCashManagerUser();
     }
 
     // Read-only order access for sub-roles that should not mutate lifecycle.
@@ -117,7 +134,7 @@ service cloud.firestore {
 
     // Check if user can manage inventory
     function canManageInventory() {
-      return hasPageAccess('inventory');
+      return canAccess('inventory');
     }
 
     // Check if user is any type of staff member
@@ -129,8 +146,15 @@ service cloud.firestore {
       return data != null && data.orderType == 'delivery';
     }
 
+    // Delivery-role field restriction: this is a security boundary, not a
+    // UI convenience, and stays separate from the general staff-update
+    // allowlist below. A user holding ONLY the 'delivery' permission may
+    // update a delivery order but ONLY these four fields — admin/superadmin
+    // still bypass this restriction entirely via isAdmin() at the update
+    // rule's top level, but a plain delivery-role user is field-locked
+    // exactly as before, regardless of what other permissions get added to
+    // canAccess() in the future.
     function deliveryCanUpdateOrder() {
-      // Delivery user can only update delivery orders, and only specific fields.
       return isDeliveryUser()
         && isDeliveryOrder(resource.data)
         && request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -141,65 +165,30 @@ service cloud.firestore {
         ]);
     }
 
-    // =========================================
-    // DELIVERY GEOFENCE HELPERS
-    // =========================================
-
-    function deliveryConfig() {
-      return get(/databases/$(database)/documents/miscellaneous/settings).data;
+    // Append-only guard for statusHistory: a write may only grow the array,
+    // never replace or shrink it. This blocks the cheap/common tampering
+    // case (wiping the history, or swapping in a shorter fabricated one).
+    //
+    // LIMITATION: Firestore rules cannot cheaply inspect individual array
+    // elements, so this check is size-based only. A write that keeps the
+    // same array length but replaces one entry's content (e.g. rewriting an
+    // existing entry's `status` or `at` value while adding no new entry)// is NOT caught by this rule. Closing that gap would require either a
+    // security-rules unit-test suite asserting element-by-index equality
+    // (expensive to maintain for a solo developer) or moving all status
+    // writes through a server endpoint that owns statusHistory unilaterally
+    // (not scoped for this pass). This function narrows the tampering
+    // surface; it does not eliminate it.
+    function historyNotShrunk() {
+      return !('statusHistory' in request.resource.data.diff(resource.data).changedKeys())
+        || request.resource.data.statusHistory.size() >= resource.data.statusHistory.size();
     }
 
-    function hasGeo(addr) {
-      return addr.lat is number && addr.lng is number;
-    }
-
-    function withinBounds(lat, lng) {
-      let cfg = deliveryConfig();
-      return !(cfg.minLat is number && cfg.maxLat is number && cfg.minLng is number && cfg.maxLng is number)
-        || (lat >= cfg.minLat && lat <= cfg.maxLat && lng >= cfg.minLng && lng <= cfg.maxLng);
-    }
-
-    function allowDeliveryFor(data) {
-      return (data.orderType != 'delivery') || (
-        data.customer is map && data.customer.address is map && hasGeo(data.customer.address)
-        && withinBounds(data.customer.address.lat, data.customer.address.lng)
-      );
-    }
-
-    function hasCanonicalOrderShape(data) {
-      return data is map
-        && (data.userId == null || data.userId is string)
-        && data.customer is map
-        && data.items is list
-        && data.subtotal is number
-        && data.orderType is string
-        && data.source is string
-        && data.orderNo is string
-        && data.status is string
-        && (!("statusHistory" in data) || data.statusHistory is list)
-        && data.payment is map
-        && data.totalAmount is number
-        && data.revisionCount is number
-        && data.createdAt is timestamp
-        && data.updatedAt is timestamp
-        && (data.taxRate == null || data.taxRate is number)
-        && (data.taxAmount == null || data.taxAmount is number);
-    }
-
-    // =========================================
-    // ORDER COUNTER HELPERS
-    // =========================================
-
-    function isOrderCounterDoc(orderId) {
-      return orderId.matches('^__counter__\\d{8}$');
-    }
-
-    function allowCounterWrite(data) {
-      return data.__meta == 'orderCounter'
-        && data.dateKey.matches('^\\d{8}$')
-        && data.total is number
-        && data.updatedAt is timestamp;
-    }
+    // (hasCanonicalOrderShape() was removed here: it validated client-submitted
+    // order shape on create, but /orders create is now `allow create: if false`
+    // — order documents are only ever written by the Admin SDK from
+    // /api/place-order, which is trusted code, not a rules-validated client
+    // write. The legacy /users/{uid}/orders/{orderId} create is also denied
+    // for the same reason. See the ORDERS COLLECTION section below.)
 
     // =========================================
     // COLLECTION RULES
@@ -213,7 +202,7 @@ service cloud.firestore {
       allow get: if isAdmin() || (isSignedIn() && request.auth.token.email == email);
       // Collection queries on roles are admin-only.
       allow list: if isAdmin();
-      
+
       // Only super admin and admins can create/update/delete roles
       // Super admin can manage all roles, admins cannot modify super admin's role
       allow create: if isAdmin()
@@ -227,14 +216,6 @@ service cloud.firestore {
     }
 
     // -----------------------------------------
-    // ADMIN USERS (Invite-based admin onboarding)
-    // -----------------------------------------
-    match /adminUsers/{uid} {
-      allow read: if isSuperAdmin() || isAdmin() || (isSignedIn() && request.auth.uid == uid);
-      allow write, delete: if isSuperAdmin();
-    }
-
-    // -----------------------------------------
     // USERS COLLECTION (Customer Profiles)
     // -----------------------------------------
     match /users/{uid} {
@@ -242,12 +223,15 @@ service cloud.firestore {
       // Admins can read/write all user documents
       // Billers can write to 'guest' user for POS orders
       allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
-      allow create, update: if isAdmin() || (isSignedIn() && request.auth.uid == uid) || (hasPageAccess('biller') && uid == 'guest');
+      allow create, update: if isAdmin() || (isSignedIn() && request.auth.uid == uid) || (canAccess('biller') && uid == 'guest');
       allow delete: if isAdmin() || ((isSignedIn() && request.auth.uid == uid) && !hasRoleDoc());
 
-      // User's nested orders (legacy - prefer top-level orders collection)
+      // User's nested orders (legacy subcollection). No code path writes
+      // here anymore — order creation is server-owned (see /orders below) —
+      // so create is denied. get/list/update remain for any pre-existing
+      // legacy documents that still need to be read or migrated.
       match /orders/{orderId} {
-        allow create: if isAdmin() || ((isSignedIn() && request.auth.uid == uid) && hasCanonicalOrderShape(request.resource.data) && allowDeliveryFor(request.resource.data));
+        allow create: if false;
         allow get: if isAdmin() || canManageOrders() || isDeliveryUser() || (isSignedIn() && request.auth.uid == uid);
         allow list: if isAdmin() || isStaff() || (isSignedIn() && request.auth.uid == uid);
         allow update: if isAdmin() || canManageOrders() || (isSignedIn() && request.auth.uid == uid);
@@ -266,60 +250,105 @@ service cloud.firestore {
     // ORDERS COLLECTION (Main Orders)
     // -----------------------------------------
     match /orders/{orderId} {
-      // CREATE: Counter docs need special validation, regular orders need auth check
-      allow create: if (
-        isOrderCounterDoc(orderId)
-          ? (allowCounterWrite(request.resource.data) && (isAdmin() || hasPageAccess('biller')))
-          : (
-            isAdmin() || hasPageAccess('biller') ||
-            (
-              (
-                (isSignedIn() && request.auth.uid == request.resource.data.userId) ||
-                (!isSignedIn() && request.resource.data.userId == null)
-              ) && hasCanonicalOrderShape(request.resource.data) && allowDeliveryFor(request.resource.data)
-            )
-          )
-      );
+      // CREATE: order documents are now created exclusively by the
+      // /api/place-order server endpoint (Firebase Admin SDK, which bypasses
+      // these rules entirely). No client — customer or staff — creates an
+      // order document directly anymore: this closes the order-number
+      // collision risk of the old client-side counter-transaction +
+      // client setDoc() pattern, since the counter increment and the
+      // document create now happen in one atomic server-side transaction
+      // with a create-only (never-overwrite) guard. Direct client writes
+      // are denied here so there is no stale permissive path left open
+      // once the app code moved off it.
+      allow create: if false;
 
       // READ (document): Staff can read any order, users can read own order.
-      allow get: if (
-        isOrderCounterDoc(orderId)
-          ? (isAdmin() || hasPageAccess('biller'))
-          : (
-            isAdmin() || canViewOrders() || isDeliveryUser() ||
-            (isSignedIn() && resource.data.userId == request.auth.uid)
-          )
-      );
+      allow get: if isAdmin() || canViewOrders() || isDeliveryUser() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid);
 
-      // READ (collection query): Firestore evaluates list rules at query level.
-      // For staff this is unrestricted; for customers, safety depends on client query
-      // constraints (where('userId','==',uid)) in app code.
-      allow list: if isAdmin() || canViewOrders() || isDeliveryUser() || isSignedIn();
+      // READ (collection query): Staff can list all orders; customers can only list their own orders.
+      allow list: if isAdmin() || canViewOrders() || isDeliveryUser() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid);
 
-      // UPDATE: Staff can update orders, users cannot update their own orders
+      // UPDATE: field-restricted per role. Admin/superadmin bypass every
+      // allowlist below via the isAdmin() branch (canAccess()'s OR-logic
+      // pattern) — a plain staff/delivery/cashManager role is confined to
+      // exactly the fields listed for their case.
       allow update: if (
-        isOrderCounterDoc(orderId)
-          ? (allowCounterWrite(request.resource.data) && (isAdmin() || hasPageAccess('biller')))
-          : (
-            isAdmin() ||
-            deliveryCanUpdateOrder() ||
-            (
-              canManageOrders() && (
-                // 1. Cash Manager generating/regenerating OTP
-                (isCashManagerUser() && request.resource.data.diff(resource.data).changedKeys().hasOnly(['cashManagerOtp', 'cashManagerOtpGeneratedAt', 'updatedAt'])) ||
-                
-                // 2. Kitchen/Staff verifying OTP and marking delivered
-                (hasPageAccess('orders') && request.resource.data.diff(resource.data).changedKeys().hasAny(['status', 'cashManagerOtpVerified', 'cashManagerOtp'])) ||
-                
-                // 3. General order updates (biller/admin)
-                (isAdmin() || hasPageAccess('biller') || hasPageAccess('orders'))
-              )
-            )
+        isAdmin() ||
+        deliveryCanUpdateOrder() ||
+        (
+          canManageOrders() && historyNotShrunk() && (
+            // 1. Cash Manager generating/regenerating the dine-in COD OTP.
+            //    Narrowest allowlist of any staff branch: cash managers
+            //    never touch status, payment, or item/pricing fields.
+            (isCashManagerUser() && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'cashManagerOtp',
+              'cashManagerOtpGeneratedAt',
+              'updatedAt'
+            ])) ||
+
+            // 2. Biller-page staff: full lifecycle + item/pricing control.
+            //    Billers create and edit POS bills directly (AdminBiller.jsx
+            //    lets a biller revise items/subtotal/total on an existing
+            //    order before it's accepted), so this branch must include
+            //    the pricing fields that the 'orders' branch below
+            //    deliberately excludes.
+            (canAccess('biller') && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'items',
+              'subtotal',
+              'totalAmount',
+              'taxRate',
+              'taxAmount',
+              'customer',
+              'orderType',
+              'source',
+              'status',
+              'statusHistory',
+              'payment',
+              'revisionCount',
+              'updatedAt',
+              'cashManagerOtp',
+              'cashManagerOtpFor',
+              'cashManagerOtpGeneratedAt',
+              'cashManagerOtpVerified',
+              'cashManagerOtpVerifiedAt',
+              'cashManagerOtpVerifiedBy',
+              'verificationAttempts',
+              'verificationLockedUntil',
+              'deliveredAt',
+              'mapUrl'
+            ])) ||
+
+            // 3. Orders-page staff (kitchen/front-of-house, no billing
+            //    access): lifecycle and payment-collection fields only —
+            //    deliberately EXCLUDES items/subtotal/totalAmount/customer/
+            //    orderType/source. Orders-page staff verify OTPs, advance
+            //    status (placed -> preparing -> ready -> delivered), and
+            //    record COD cash collection, but must not be able to alter
+            //    what was ordered or its price after the fact — that edit
+            //    capability is reserved for the biller branch above, which
+            //    is the only staff role that also owns bill creation.
+            (canAccess('orders') && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'status',
+              'statusHistory',
+              'payment',
+              'revisionCount',
+              'updatedAt',
+              'cashManagerOtp',
+              'cashManagerOtpVerified',
+              'cashManagerOtpVerifiedAt',
+              'cashManagerOtpVerifiedBy',
+              'verificationAttempts',
+              'verificationLockedUntil',
+              'deliveredAt'
+            ]))
           )
+        )
       );
 
-      // DELETE: Only admins can delete non-counter orders
-      allow delete: if !isOrderCounterDoc(orderId) && isAdmin();
+      // DELETE: Only admins can delete orders.
+      allow delete: if isAdmin();
     }
 
     // -----------------------------------------
@@ -362,15 +391,15 @@ service cloud.firestore {
     // RAW MATERIALS / STOCK
     // -----------------------------------------
     match /raw_materials/{doc} {
-      allow get: if isAdmin() || canManageInventory() || hasPageAccess('biller');
-      allow list: if isAdmin() || canManageInventory() || hasPageAccess('biller');
+      allow get: if isAdmin() || canManageInventory() || canAccess('biller');
+      allow list: if isAdmin() || canManageInventory() || canAccess('biller');
       allow create, update: if isAdmin() || canManageInventory();
       allow delete: if isAdmin();
     }
 
     // DISABLED: OTP collection removed — OTPs now stored directly on order documents
     // match /otps/{otpId} {
-    //   allow read: if isAdmin() || hasPageAccess('biller') || canManageOrders();
+    //   allow read: if isAdmin() || canAccess('biller') || canManageOrders();
     //   allow write: if isAdmin();
     // }
 
@@ -378,22 +407,35 @@ service cloud.firestore {
     // MISCELLANEOUS CONFIG
     // -----------------------------------------
     // NOTE: miscellaneous/settings is intentionally public-read.
-    // It contains delivery geofence config needed before auth.
     // Do NOT store payment secrets or API keys in this document.
+    //
+    // Geofence/delivery-radius fields (minLat/maxLat/minLng/maxLng,
+    // centerLat/centerLng/radiusKm) may still exist on this document for the
+    // delivery-fee-by-distance calculation, but there is no longer a
+    // rules-level geofence gate on order creation — that hard reject was
+    // removed as part of the location policy change (delivery is now
+    // coordinated by phone, not pinpoint GPS; see checkout/profile changes
+    // in the same release). Order creation itself is server-owned (see
+    // /orders above) and does not consult this document for a pass/fail
+    // gate at all.
     match /miscellaneous/{docId} {
       // Public read - needed for app settings, appearance, store status
       allow read: if true;
-      
+
       // Write permissions vary by document
       allow create, update: if (
-        // Settings - admin only (includes delivery geofence, payment config)
+        // Settings - admin only (includes delivery-fee config)
         (docId == 'settings' && isAdmin()) ||
         // Store status - admin only
         (docId == 'store' && isAdmin()) ||
         // Appearance - admin or staff with appearance access
-        (docId == 'appearance' && (isAdmin() || hasPageAccess('appearance'))) ||
-        // Daily counter - staff/admin can write (for order number generation)
-        (docId == 'dailyCounter' && (isAdmin() || isStaff()))
+        (docId == 'appearance' && canAccess('appearance')) ||
+        // Daily counter - admin only. Order creation (and therefore the
+        // counter transaction) now happens exclusively server-side via
+        // /api/place-order (Admin SDK, bypasses these rules); no client
+        // path increments this document anymore. Kept admin-writable only
+        // for manual correction if the counter ever needs a manual reset.
+        (docId == 'dailyCounter' && isAdmin())
       );
       allow delete: if isAdmin();
     }
@@ -424,5 +466,9 @@ service cloud.firestore {
       // Each signed-in user can only write their own token doc
       allow write: if isSignedIn() && request.auth.uid == uid;
     }
+
+    // NOTE: `adminUsers/{uid}` has no match block — the collection is
+    // retired (see header comment) and now falls through to Firestore's
+    // implicit default-deny for any path with no matching rule.
   }
 }

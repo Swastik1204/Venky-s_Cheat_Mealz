@@ -4,24 +4,12 @@
 // Method: POST
 
 import crypto from 'crypto'
-import { initializeApp, getApps, cert } from 'firebase-admin/app'
-import { getFirestore } from 'firebase-admin/firestore'
-
-// Initialize Firebase Admin (singleton)
-if (!getApps().length) {
-  const sa = (process.env.FIREBASE_SERVICE_ACCOUNT || '').trim()
-  if (sa) {
-    try { initializeApp({ credential: cert(JSON.parse(sa)) }) } catch { initializeApp() }
-  } else {
-    initializeApp()
-  }
-}
+import { adminDb, sendFCMToStaff, FieldValue } from './lib/fcm.js'
 
 async function readRawBody(req) {
   if (typeof req.body === 'string') return req.body
   if (Buffer.isBuffer(req.body)) return req.body.toString('utf8')
 
-  // Fallback for environments that parsed JSON before this handler.
   if (req.body && typeof req.body === 'object') {
     return JSON.stringify(req.body)
   }
@@ -66,24 +54,80 @@ export default async function handler(req, res) {
 
     const event = body?.event
     const paymentEntity = body?.payload?.payment?.entity || {}
-    const firestoreOrderId = paymentEntity?.notes?.firestoreOrderId
+    const firestoreOrderId = paymentEntity?.notes?.firestoreOrderId || paymentEntity?.notes?.orderNo || paymentEntity?.notes?.orderId
 
     if (firestoreOrderId) {
-      const db = getFirestore()
+      const db = adminDb()
+      const orderRef = db.collection('orders').doc(String(firestoreOrderId))
+      const orderSnap = await orderRef.get()
+
+      if (!orderSnap.exists) {
+        return res.status(200).json({ received: true, status: 'order_not_found' })
+      }
+
+      const order = orderSnap.data() || {}
+
       if (event === 'payment.captured') {
-        await db.collection('orders').doc(String(firestoreOrderId)).set({
+        const patch = {
           payment: {
+            ...(order.payment || {}),
             status: 'paid',
             razorpayPaymentId: paymentEntity.id || null,
+            razorpayOrderId: paymentEntity.order_id || null,
             capturedAt: new Date().toISOString(),
+            metadata: {
+              ...(order.payment?.metadata || {}),
+              verifiedBy: order.payment?.metadata?.verifiedBy || 'webhook',
+              method: paymentEntity.method || order.payment?.method || null,
+            },
           },
-        }, { merge: true })
+          updatedAt: FieldValue.serverTimestamp(),
+        }
+
+        if (order.status === 'pending-payment') {
+          patch.status = 'placed'
+          const existingHistory = Array.isArray(order.statusHistory) ? order.statusHistory : []
+          patch.statusHistory = [
+            ...existingHistory,
+            { status: 'placed', at: new Date(), actor: 'webhook:razorpay' },
+          ]
+        }
+
+        if (!order.staffNotifiedAt) {
+          const isDineInCod = order.orderType === 'dine-in' && order.payment?.method === 'cod'
+          const orderNo = order.orderNo || firestoreOrderId
+          try {
+            await sendFCMToStaff({
+              title: order.orderType === 'dine-in' ? '🚨 New Dine-in Order' : '🛒 New Online Order',
+              body: `#${orderNo} • ${order.customer?.name || 'Customer'} • ₹${order.totalAmount ?? ''}`,
+              data: {
+                type: 'new_order',
+                orderNo: String(orderNo),
+                orderType: order.orderType || 'online',
+                customerName: order.customer?.name || 'Customer',
+                total: order.totalAmount ?? 0,
+                isDineInCod,
+              },
+            })
+            patch.staffNotifiedAt = FieldValue.serverTimestamp()
+          } catch (fcmErr) {
+            console.error('[razorpay-webhook] Staff FCM notification error:', fcmErr?.message || fcmErr)
+          }
+        }
+
+        await orderRef.set(patch, { merge: true })
       } else if (event === 'payment.failed') {
-        await db.collection('orders').doc(String(firestoreOrderId)).set({
-          payment: {
-            status: 'failed',
-          },
-        }, { merge: true })
+        if (order.payment?.status !== 'paid') {
+          await orderRef.set({
+            payment: {
+              ...(order.payment || {}),
+              status: 'failed',
+              failedAt: new Date().toISOString(),
+              errorDescription: paymentEntity.error_description || null,
+            },
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true })
+        }
       }
     }
 

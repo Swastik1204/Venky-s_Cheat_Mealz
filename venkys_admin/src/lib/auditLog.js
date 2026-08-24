@@ -41,7 +41,10 @@ export function formatLogEntry(entry) {
       }
       if (collectionName === 'raw_materials') return `${who} updated stock details`
       if (collectionName === 'roles') return `${who} updated staff permissions`
-      if (collectionName === 'miscellaneous') return `${who} updated app settings`
+      if (collectionName === 'miscellaneous') {
+        if (e?.metadata?.event === 'sync_business_profile') return `${who} synced Google Business Profile`
+        return `${who} updated app settings`
+      }
       if (collectionName === 'menu') return `${who} updated a menu item`
       return `${who} updated ${collectionName || 'the system'}`
     },

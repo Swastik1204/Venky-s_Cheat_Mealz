@@ -4,7 +4,6 @@ import { createPortal } from 'react-dom'
 
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
 import { Link, useLocation } from 'react-router-dom'
-import { FaWhatsapp } from 'react-icons/fa'
 import { MdPlace, MdApartment, MdLocationCity, MdMap, MdPinDrop, MdLocalPhone, MdGpsFixed, MdPerson, MdMail, MdEdit, MdLocalShipping, MdPolicy, MdGavel, MdCancel, MdReplay, MdRefresh } from 'react-icons/md'
 
 import { useAuth } from '../context/AuthContext'
@@ -28,8 +27,8 @@ export default function Profile() {
   // ── State & refs ──
   // Profile and orders state
   const [profile, setProfile] = useState(null);
-  const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', whatsapp: '', gender: '', email: '' });
-  const [editForm, setEditForm] = useState({ displayName: '', phone: '', whatsapp: '', gender: '', email: '' });
+  const [profileForm, setProfileForm] = useState({ displayName: '', phone: '', gender: '', email: '' });
+  const [editForm, setEditForm] = useState({ displayName: '', phone: '', gender: '', email: '' });
   const [profileSaving, setProfileSaving] = useState(false);
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -49,7 +48,6 @@ export default function Profile() {
   // Edit details modal UI state
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editAlert, setEditAlert] = useState("");
-  const [usePhoneForWhatsapp, setUsePhoneForWhatsapp] = useState(false);
 
   const closeEditModal = useCallback((evt) => {
     if (evt) {
@@ -59,7 +57,6 @@ export default function Profile() {
     if (profileSaving) return;
     setEditModalOpen(false);
     setEditAlert('');
-    setUsePhoneForWhatsapp(false);
   }, [profileSaving]);
 
   // ── Side-effects ──
@@ -141,9 +138,8 @@ export default function Profile() {
   useEffect(() => {
     if (!user) {
       setProfile(null);
-      setProfileForm({ displayName: '', phone: '', whatsapp: '', gender: '', email: '' });
-      setEditForm({ displayName: '', phone: '', whatsapp: '', gender: '', email: '' });
-      setUsePhoneForWhatsapp(false);
+      setProfileForm({ displayName: '', phone: '', gender: '', email: '' });
+      setEditForm({ displayName: '', phone: '', gender: '', email: '' });
       setEditAlert('');
       setEditModalOpen(false);
       setAddrModalOpen(false);
@@ -162,19 +158,14 @@ export default function Profile() {
           ...f,
           displayName: p?.displayName || '',
           phone: p?.phone || '',
-          whatsapp: p?.whatsapp || '',
           gender: p?.gender || '',
           email: p?.email || user?.email || ''
         }));
-        const phoneDigits = ((p?.phone || '').replace(/\D/g, '')).slice(0, 10);
-        const whatsappDigits = ((p?.whatsapp || '').replace(/\D/g, '')).slice(0, 10);
-        setUsePhoneForWhatsapp(Boolean(phoneDigits) && phoneDigits === whatsappDigits);
         if (editModalOpen) {
           setEditForm(f => ({
             ...f,
             displayName: p?.displayName || '',
             phone: p?.phone || '',
-            whatsapp: p?.whatsapp || '',
             gender: p?.gender || '',
             email: p?.email || user?.email || ''
           }));
@@ -236,19 +227,14 @@ export default function Profile() {
     // Check details first (name, phone)
     const nameMissing = !(profileForm.displayName || '').trim();
     const phoneMissing = !/\d{10}/.test((profileForm.phone || '').replace(/\D/g, ''));
-    const phoneDigits = (profileForm.phone || '').replace(/\D/g, '').slice(0, 10);
-    const whatsappDigits = (profileForm.whatsapp || '').replace(/\D/g, '').slice(0, 10);
-    const sameContact = Boolean(phoneDigits) && phoneDigits === whatsappDigits;
     if (nameMissing || phoneMissing) {
       setEditForm({
         displayName: profileForm.displayName || '',
         phone: profileForm.phone || '',
-        whatsapp: profileForm.whatsapp || '',
         email: user?.email || '',
         gender: profileForm.gender || profile?.gender || ''
       });
       setEditAlert('');
-      setUsePhoneForWhatsapp(sameContact);
       setEditModalOpen(true);
       return;
     }
@@ -261,14 +247,12 @@ export default function Profile() {
     setEditForm({
       displayName: profileForm.displayName || '',
       phone: profileForm.phone || '',
-      whatsapp: profileForm.whatsapp || '',
       email: user?.email || '',
       gender: profileForm.gender || profile?.gender || ''
     });
     setEditAlert('');
-    setUsePhoneForWhatsapp(sameContact);
     setEditModalOpen(true);
-  }, [addrState.list, profile, profileForm.displayName, profileForm.gender, profileForm.phone, profileForm.whatsapp, user?.email, openAddAddress]);
+  }, [addrState.list, profile, profileForm.displayName, profileForm.gender, profileForm.phone, user?.email, openAddAddress]);
   async function saveEditModal() {
     if (!user) return;
     // Validation: Full name required
@@ -282,12 +266,6 @@ export default function Profile() {
       setEditAlert('Enter 10 digits');
       return;
     }
-    // WhatsApp validation
-    const whatsappDigits = (editForm.whatsapp || '').replace(/\D/g, '');
-    if (!/^\d{10}$/.test(whatsappDigits)) {
-      setEditAlert('Valid 10-digit WhatsApp number required');
-      return;
-    }
     setEditAlert("");
     setProfileSaving(true);
     try {
@@ -295,11 +273,10 @@ export default function Profile() {
         ...profileForm,
         displayName: editForm.displayName,
         phone: editForm.phone,
-        whatsapp: editForm.whatsapp,
         gender: editForm.gender
       });
-      setProfileForm(f => ({ ...f, displayName: editForm.displayName, phone: editForm.phone, whatsapp: editForm.whatsapp, gender: editForm.gender }));
-      setProfile(p => ({ ...(p||{}), displayName: editForm.displayName, phone: editForm.phone, whatsapp: editForm.whatsapp, gender: editForm.gender }));
+      setProfileForm(f => ({ ...f, displayName: editForm.displayName, phone: editForm.phone, gender: editForm.gender }));
+      setProfile(p => ({ ...(p||{}), displayName: editForm.displayName, phone: editForm.phone, gender: editForm.gender }));
       setEditAlert('Profile updated successfully!');
       setTimeout(() => closeEditModal(), 1200);
     } catch (e) {
@@ -365,13 +342,11 @@ export default function Profile() {
           console.warn('[profile] geocode fallback failed', err)
         }
       }
-      // Geofencing check via centralized hook
+      // Distance note only — addresses are no longer blocked by geofence; delivery is coordinated by phone.
       if (typeof payload.lat === 'number' && typeof payload.lng === 'number' && deliveryLocation.region) {
         const { ok, distance, radiusKm } = deliveryLocation.checkWithin(payload.lat, payload.lng)
         if (!ok) {
-          pushToast(`Address is outside delivery region (${distance.toFixed(2)} km > ${radiusKm} km)`, 'error')
-          setAddrSaving(false)
-          return
+          pushToast(`Heads up: this address is ~${distance.toFixed(1)} km out (usual delivery area is ${radiusKm} km). We'll confirm by phone.`, 'warning')
         }
       }
       if (addrEditing) {
@@ -724,50 +699,10 @@ export default function Profile() {
                       value={editForm.phone}
                       onChange={e => {
                         const digits = e.target.value.replace(/\D/g, '').slice(0, 10)
-                        setEditForm(f => {
-                          const next = { ...f, phone: digits }
-                          if (usePhoneForWhatsapp) next.whatsapp = digits
-                          return next
-                        })
+                        setEditForm(f => ({ ...f, phone: digits }))
                       }}
                     />
                   </div>
-                  <p className="validator-hint text-xs ml-2">Must be 10 digits</p>
-                </div>
-                {/* WhatsApp number with checkbox and +91 prefix */}
-                <div className="flex items-center gap-2 px-2 border-b border-base-300 focus-within:border-primary/60 transition pb-2">
-                  <FaWhatsapp className="w-6 h-6 text-green-500 opacity-90" />
-                  <div className="flex items-center w-full">
-                    <span className="inline-block px-2 py-1 bg-base-100 rounded text-xs font-semibold border border-base-200 mr-2 select-none" style={{minWidth:'44px',textAlign:'center'}}>+91</span>
-                    <input
-                      type="tel"
-                      className="input validator tabular-nums w-full rounded-r bg-transparent border-none focus:ring-0 shadow-none text-base"
-                      required
-                      placeholder="WhatsApp number"
-                      pattern="[0-9]*"
-                      minLength={10}
-                      maxLength={10}
-                      title="Must be 10 digits"
-                      value={editForm.whatsapp}
-                      onChange={e => setEditForm(f => ({ ...f, whatsapp: e.target.value.replace(/\D/g, '').slice(0,10) }))}
-                      disabled={usePhoneForWhatsapp}
-                    />
-                  </div>
-                  <label className="flex items-center gap-2 ml-3 text-xs font-medium cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="checkbox checkbox-xs"
-                      checked={usePhoneForWhatsapp}
-                      onChange={e => {
-                        setUsePhoneForWhatsapp(e.target.checked);
-                        if (e.target.checked) {
-                          setEditForm(f => ({ ...f, whatsapp: f.phone }));
-                        }
-                      }}
-                      disabled={!editForm.phone || editForm.phone.replace(/\D/g, '').length !== 10}
-                    />
-                    <span>Same as phone</span>
-                  </label>
                   <p className="validator-hint text-xs ml-2">Must be 10 digits</p>
                 </div>
                 {/* Gender */}
@@ -956,7 +891,7 @@ export default function Profile() {
                     if (err.code === 1) pushToast('Location access denied. Please enable permissions in browser settings.', 'error');
                     else pushToast('Location failed. Please try again.', 'error');
                   }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }) 
-                }}><span className="inline-flex items-center gap-1"><MdGpsFixed className="w-3.5 h-3.5"/> Press to share location for faster delivery</span></button>
+                }}><span className="inline-flex items-center gap-1"><MdGpsFixed className="w-3.5 h-3.5"/> Share location (optional — helps our rider find you)</span></button>
                 <input type="hidden" value={addrForm.lat ?? ''} readOnly />
                 <input type="hidden" value={addrForm.lng ?? ''} readOnly />
 

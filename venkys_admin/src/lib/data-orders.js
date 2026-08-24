@@ -19,14 +19,60 @@
 //   taxAmount?: number,
 //   // admin extensions may exist (guestOrder, cashManagerOtp, etc.)
 // }
-import { collection, doc, getDocs, getDoc, query, where, setDoc, serverTimestamp, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion } from 'firebase/firestore'
+import { collection, doc, getDocs, getDoc, query, where, serverTimestamp, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion } from 'firebase/firestore'
 import { db } from './firebase'
-import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment } from './data-common'
+import { isCounterDocId, formatUserSegment, apiUrl, getAuthHeaders } from './data-common'
 import { logOrderChange } from './auditLog'
 import { recordChange } from './data-changeHistory'
 
 function resolveActor(actor) {
   return String(actor || 'system')
+}
+
+// ── FCM push notifications (fire-and-forget) ──
+
+async function postNotify(path, payload) {
+  try {
+    const authHeaders = await getAuthHeaders()
+    const res = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) console.warn(`[fcm] ${path} failed`, res.status)
+  } catch (err) {
+    console.warn(`[fcm] ${path} network error`, err)
+  }
+}
+
+// Notify staff devices of a new POS order (server reads the order doc).
+export function notifyStaffNewOrder(orderNo) {
+  if (!orderNo) return Promise.resolve()
+  return postNotify('/api/notify-order', { orderNo })
+}
+
+// Push a status update to the customer's device (skipped server-side for
+// guest/POS orders and customers without a registered token).
+export function notifyCustomerStatus(orderNo, status) {
+  if (!orderNo || !status) return Promise.resolve()
+  return postNotify('/api/notify-status', { orderNo, status })
+}
+
+// Re-check a stuck online payment against Razorpay (staff reconciliation).
+// Returns { status, updated, ... } — throws on HTTP/network failure so the
+// caller can surface the error to the operator.
+export async function recheckPayment(orderNo) {
+  if (!orderNo) throw new Error('Missing order number')
+  const authHeaders = await getAuthHeaders()
+  const res = await fetch(apiUrl('/api/recheck-payment'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: JSON.stringify({ orderNo }),
+  })
+  let body = null
+  try { body = await res.json() } catch { /* noop */ }
+  if (!res.ok) throw new Error(body?.error || `Re-check failed (${res.status})`)
+  return body || {}
 }
 
 async function safeRecordChange(payload) {
@@ -37,178 +83,91 @@ async function safeRecordChange(payload) {
   }
 }
 
-// ── Order number generation ──
-
-// Generate a daily-reset order number
-export async function generateDailyOrderNo(orderType = 'dine-in', userId = null) {
-  const type = String(orderType || 'dine-in').toLowerCase()
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  const dateKey = `${y}${m}${d}`
-  const counterRef = doc(db, 'miscellaneous', DAILY_COUNTER_DOC)
-  const beforeCounterSnap = await getDoc(counterRef)
-
-  const next = await runTransaction(db, async (tx) => {
-    const snap = await tx.get(counterRef)
-    const data = snap.exists() ? snap.data() : {}
-    const currentDateKey = data.currentDate || ''
-    const currentTotal = currentDateKey === dateKey ? (Number(data.total) || 0) : 0
-    const newTotal = currentTotal + 1
-    tx.set(counterRef, {
-      currentDate: dateKey,
-      total: newTotal,
-      lastOrderType: type,
-      updatedAt: serverTimestamp(),
-    }, { merge: true })
-    return newTotal
-  })
-
-  const afterCounterSnap = await getDoc(counterRef)
-  await safeRecordChange({
-    collection: 'miscellaneous',
-    docId: DAILY_COUNTER_DOC,
-    before: beforeCounterSnap.exists() ? beforeCounterSnap.data() : null,
-    after: afterCounterSnap.exists() ? afterCounterSnap.data() : null,
-    action: beforeCounterSnap.exists() ? 'update' : 'create',
-    performedBy: resolveActor(userId ? `user:${userId}` : 'system'),
-    description: `Daily order counter incremented for ${dateKey}`,
-  })
-
-  const seq = String(next).padStart(4, '0')
-  return `${dateKey}-${seq}`
-}
-
+// ── Order creation (server-owned) ──
+//
+// Order-number generation and document creation both happen server-side in
+// /api/place-order: the daily counter transaction and the order-document
+// create are atomic there (using server time), which closes the
+// ID-collision and timezone-split risks the old client-side
+// generateDailyOrderNo() + setDoc() pair had (AdminBiller.jsx used to
+// pre-generate the order number before creating the order — it now awaits
+// this function's returned orderNo instead). Item pricing is always
+// recomputed server-side from the 'menu' collection.
+//
+// Gated server-side on canAccess(email, 'biller') — POS order creation is a
+// biller-page action, not just "any staff role".
 export async function createOrder({
   userId = null,
   customer = {},
   items,
   orderType = 'delivery',
-  source = 'web',
-  orderNo = null,
+  source = 'pos',
   taxRate = null,
-  taxAmount = null,
-  totalAmount = null,
   status = 'placed',
   guestOrder = null,
   guestOrderDate = null,
   guestOrderAt = null,
-  cashManagerOtp = null,
-  cashManagerOtpFor = null,
-  cashManagerOtpVerified = null,
-  cashManagerOtpVerifiedAt = null,
-  cashManagerOtpVerifiedBy = null,
 } = {}) {
   const safeItems = Array.isArray(items) ? items : []
   if (!safeItems.length) {
     throw new Error('Order must include at least one item')
   }
 
-  const normalizedItems = safeItems.map((item, idx) => {
-    const rate = Number(item?.rate ?? item?.price) || 0
-    const qty = Number(item?.qty) || 0
-    const total = Math.round(rate * qty)
-    const normalized = {
-      id: item?.id || `item-${idx + 1}`,
-      name: String(item?.name || `Item ${idx + 1}`).trim(),
-      rate,
-      qty,
-      total,
-    }
-    if (item?.mrp != null) normalized.mrp = Number(item.mrp) || null
-    if (item?.discountPercent != null) normalized.discountPercent = Number(item.discountPercent) || null
-    if (item?.variantLabel) normalized.variantLabel = String(item.variantLabel)
-    if (item?.note) normalized.note = String(item.note)
-    if (item?.modifiers) normalized.modifiers = item.modifiers
-    return normalized
+  const authHeaders = await getAuthHeaders()
+  const res = await fetch(apiUrl('/api/place-order'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: JSON.stringify({
+      source,
+      userId,
+      customer,
+      items: safeItems.map((item) => ({
+        id: item?.id,
+        name: item?.name,
+        rate: item?.rate ?? item?.price ?? 0,
+        qty: item?.qty,
+        variantLabel: item?.variantLabel,
+        mrp: item?.mrp,
+        discountPercent: item?.discountPercent,
+        note: item?.note,
+        modifiers: item?.modifiers,
+      })),
+      orderType,
+      paymentMethod: customer?.payment?.method || 'cod',
+      taxRate,
+      status,
+      guestOrder,
+      guestOrderDate,
+      guestOrderAt,
+    }),
   })
-  const subtotal = Math.round(normalizedItems.reduce((sum, it) => sum + (Number(it.total) || ((it.rate || 0) * it.qty)), 0))
-  const normalizedTaxRate = typeof taxRate === 'number' ? taxRate : (taxRate != null ? Number(taxRate) : null)
-  const normalizedTaxAmount = taxAmount != null ? Math.round(Number(taxAmount)) : (normalizedTaxRate != null ? Math.round(subtotal * normalizedTaxRate) : null)
-  const resolvedTotalAmount = totalAmount != null ? Math.round(Number(totalAmount)) : Math.round(subtotal + (normalizedTaxAmount || 0))
-  const resolvedOrderNo = orderNo || await generateDailyOrderNo(orderType, userId || customer?.servedBy || customer?.phone || null)
-
-  const payment = (() => {
-    const raw = customer?.payment && typeof customer.payment === 'object' ? customer.payment : {}
-    return {
-      method: raw.method || 'cod',
-      status: raw.status || 'pending',
-      reference: raw.reference || null,
-      collectedBy: raw.collectedBy || null,
-      collectedAt: raw.collectedAt || null,
-      metadata: raw.metadata || null,
-    }
-  })()
-
-  const customerPayload = {
-    name: customer?.name ? String(customer.name).trim() : '',
-    phone: customer?.phone ? String(customer.phone).trim() : '',
-    address: customer?.address || '',
-    instructions: customer?.instructions || '',
-    landmark: customer?.landmark || '',
-    servedBy: customer?.servedBy || '',
-    table: customer?.table || '',
-    payment,
+  let body = null
+  try { body = await res.json() } catch { /* noop */ }
+  if (!res.ok) {
+    throw new Error(body?.error || `Failed to create order (${res.status})`)
   }
-  if (customer?.email) customerPayload.email = String(customer.email).trim()
-  if (customer?.geoHash) customerPayload.geoHash = customer.geoHash
-  if (customer?.location) customerPayload.location = customer.location
+  const resolvedOrderNo = body.orderNo
 
-  const statusActor = source === 'pos' ? 'pos' : (userId ? `user:${userId}` : 'guest')
-  const nowTs = Timestamp.now()
-  const normalizedStatus = String(status || 'placed').toLowerCase()
-  const safeStatus = ['placed', 'preparing', 'ready', 'delivered', 'rejected'].includes(normalizedStatus) ? normalizedStatus : 'placed'
-
-  const base = {
-    userId: userId || null,
-    customer: customerPayload,
-    items: normalizedItems,
-    subtotal,
-    orderType,
-    source,
-    orderNo: resolvedOrderNo,
-    status: safeStatus,
-    statusHistory: [{ status: safeStatus, at: nowTs, actor: statusActor }],
-    payment,
-    totalAmount: resolvedTotalAmount,
-    revisionCount: 0,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  // Audit trail: log the create by reading the document the server just
+  // persisted (creation itself happens server-side now, so there is no
+  // client-side "before" snapshot to diff against — this is always a create).
+  try {
+    const afterSnap = await getDoc(doc(db, 'orders', resolvedOrderNo))
+    await safeRecordChange({
+      collection: 'orders',
+      docId: resolvedOrderNo,
+      before: null,
+      after: afterSnap.exists() ? afterSnap.data() : null,
+      action: 'create',
+      performedBy: resolveActor(customer?.servedBy || (userId ? `user:${userId}` : 'system')),
+      description: `Order #${resolvedOrderNo} created`,
+    })
+  } catch (err) {
+    console.error('[changeHistory] order create record failed', err)
   }
 
-  const normalizedOrderType = String(orderType || '').toLowerCase()
-  const normalizedPayMethod = String(payment?.method || '').toLowerCase()
-  const needsManagerOtp = normalizedOrderType === 'dine-in' && normalizedPayMethod === 'cod'
-  if (needsManagerOtp) {
-    base.cashManagerOtp = null
-    base.cashManagerOtpFor = 'dine-in-cod'
-    base.cashManagerOtpVerified = false
-  }
-
-  if (cashManagerOtpVerified != null) base.cashManagerOtpVerified = !!cashManagerOtpVerified
-  if (cashManagerOtpVerifiedAt) base.cashManagerOtpVerifiedAt = cashManagerOtpVerifiedAt
-  if (cashManagerOtpVerifiedBy) base.cashManagerOtpVerifiedBy = cashManagerOtpVerifiedBy
-  if (guestOrder != null) base.guestOrder = !!guestOrder
-  if (guestOrderDate) base.guestOrderDate = String(guestOrderDate)
-  if (guestOrderAt) base.guestOrderAt = String(guestOrderAt)
-  if (normalizedTaxRate != null) base.taxRate = normalizedTaxRate
-  if (normalizedTaxAmount != null) base.taxAmount = normalizedTaxAmount
-
-  const topRef = doc(db, 'orders', resolvedOrderNo)
-  const beforeSnap = await getDoc(topRef)
-  await setDoc(topRef, base)
-
-  const afterSnap = await getDoc(topRef)
-  await safeRecordChange({
-    collection: 'orders',
-    docId: resolvedOrderNo,
-    before: beforeSnap.exists() ? beforeSnap.data() : null,
-    after: afterSnap.exists() ? afterSnap.data() : null,
-    action: beforeSnap.exists() ? 'update' : 'create',
-    performedBy: resolveActor(customerPayload?.servedBy || (userId ? `user:${userId}` : 'system')),
-    description: `Order #${resolvedOrderNo} created`,
-  })
+  // Alert other staff devices (kitchen/cash manager) about the new order.
+  notifyStaffNewOrder(resolvedOrderNo).catch(() => {})
 
   return resolvedOrderNo
 }
@@ -289,6 +248,12 @@ export async function updateOrder(userId, orderId, data = {}, actor = null) {
     performedBy: resolveActor(actor),
     description,
   })
+
+  // Push the status change to the customer's device (no-op for guest/POS
+  // orders and customers without a registered FCM token)
+  if (patch.status && beforeStatus !== afterStatus) {
+    notifyCustomerStatus(orderNo, afterStatus).catch(() => {})
+  }
 }
 
 // ── Order queries ──

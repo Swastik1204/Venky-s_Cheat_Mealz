@@ -5,6 +5,7 @@ import { Routes, Route } from 'react-router-dom'
 
 import Layout from './layouts/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
+import FcmNotifications from './components/FcmNotifications'
 
 // Lazy load all pages for faster initial load
 const Home = lazy(() => import('./pages/Home'))
@@ -31,6 +32,7 @@ function PageLoader() {
 function App() {
   return (
     <ErrorBoundary>
+      <FcmNotifications />
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route element={<Layout />}>

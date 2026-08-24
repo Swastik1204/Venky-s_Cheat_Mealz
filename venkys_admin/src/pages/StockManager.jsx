@@ -335,7 +335,7 @@ export default function StockManager() {
               <h3 className="font-bold text-sm">Low Stock Alert</h3>
               <p className="text-xs">
                 {materials.filter(m => (m.stock || 0) <= (m.lowStockThreshold || 0) && (m.lowStockThreshold || 0) > 0)
-                  .map(m => m.name).join(', ')} — running low. Email &amp; WhatsApp alerts are sent automatically when stock drops below threshold on orders.
+                  .map(m => m.name).join(', ')} — running low. Email alerts are sent automatically when stock drops below threshold on orders.
               </p>
             </div>
           </div>
@@ -570,7 +570,7 @@ export default function StockManager() {
             <p className="font-bold text-sm opacity-80">How auto-deduction works:</p>
             <p>1. Link raw materials to dishes in the <strong>Menu Editor</strong> (Inventory page → Edit item → Recipe / Ingredients).</p>
             <p>2. When an order is <strong>accepted</strong>, stock is automatically reduced based on the ingredient quantities × order quantity.</p>
-            <p>3. If stock drops below the <strong>alert threshold</strong>, an email and WhatsApp message is sent to the cash manager automatically.</p>
+            <p>3. If stock drops below the <strong>alert threshold</strong>, an email alert is sent automatically.</p>
           </div>
         )}
       </div>
@@ -667,7 +667,7 @@ export default function StockManager() {
                 <div className="flex items-center gap-4">
                   <div className="flex-1">
                     <p className="text-xs opacity-60 leading-relaxed">
-                      Automatically notify via Email & WhatsApp when stock drops below this level.
+                      Automatically notify via email when stock drops below this level.
                     </p>
                   </div>
                   <div className="w-24 relative shrink-0">

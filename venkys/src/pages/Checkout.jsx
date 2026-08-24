@@ -1,7 +1,7 @@
 // Checkout — Order checkout flow with address, payment, and confirmation
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore'
+import { doc, onSnapshot } from 'firebase/firestore'
 import { useNavigate } from 'react-router-dom'
 import { MdPlace, MdLocalPhone, MdEmail, MdGpsFixed, MdLocationCity, MdPinDrop, MdPerson, MdApartment, MdMap, MdPayment, MdCreditCard, MdQrCode, MdBookmark, MdAdd, MdArrowForward, MdCheck, MdEdit } from 'react-icons/md'
 
@@ -10,8 +10,9 @@ import { useCart } from '../context/CartContext'
 import { useUI } from '../context/UIContext'
 import useDeliveryLocation from '../hooks/useDeliveryLocation'
 import usePlacesAutocomplete from '../hooks/usePlacesAutocomplete'
-import { createOrder, fetchAddresses, addAddress, setDefaultAddress, createRazorpayOrder, verifyRazorpayPayment, BRAND_LONG, fetchUserProfile, updateAddress, fetchOrder, getRazorpayKeyId } from '../lib/data'
+import { createOrder, fetchAddresses, addAddress, setDefaultAddress, createRazorpayOrder, verifyRazorpayPayment, BRAND_LONG, fetchUserProfile, updateAddress, fetchOrder, getRazorpayKeyId, notifyStaffNewOrder } from '../lib/data'
 import { db } from '../lib/firebase'
+import { registerFcmToken } from '../lib/fcm'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
 
 const CHECKOUT_PAYMENT_OPTIONS = [
@@ -115,14 +116,9 @@ export default function Checkout() {
   const [gettingLocation, setGettingLocation] = useState(false)
   const [currentStep, setCurrentStep] = useState(1) // 1=contact, 2=address, 3=payment
   const [confirmedSteps, setConfirmedSteps] = useState({ contact: false, address: false })
-  const [highlightGPSButton, setHighlightGPSButton] = useState(false)
   const [locationSource, setLocationSource] = useState('manual')
   const [locationPermissionDenied, setLocationPermissionDenied] = useState(false)
 
-  // Location share enforcement
-  const [locationVerifiedByButton, setLocationVerifiedByButton] = useState(false)
-  const [locationWarningShown, setLocationWarningShown] = useState(false)
-  const [showLocationAnimation, setShowLocationAnimation] = useState(false)
   const gpsButtonRef = useRef(null)
 
   // ── Side-effects ──
@@ -169,7 +165,7 @@ export default function Checkout() {
     if (!form.addressLine2) return { step: 2, field: 'addressLine2', ref: addressLine2Ref, label: 'Area/Locality', hint: 'Type your area and pick a Google suggestion' }
     if (!form.pin) return { step: 2, field: 'pin', ref: pinRef, label: 'PIN Code', hint: 'Enter your PIN code' }
     if (form.pin && !CHECKOUT_PIN_REGEX.test(form.pin)) return { step: 2, field: 'pin', ref: pinRef, label: 'PIN Code', hint: 'Enter a valid PIN code' }
-    if (typeof form.lat !== 'number' || typeof form.lng !== 'number') return { step: 2, field: 'location', ref: addressSectionRef, label: 'Location', hint: 'Use "Current location" or pick from Google suggestions' }
+    // Location sharing is optional — delivery is coordinated by phone.
     // Landmark is optional - suggest it after required fields if still empty
     if (!form.landmark) return { step: 2, field: 'landmark', ref: landmarkRef, label: 'Landmark (optional)', hint: 'Add a nearby landmark for faster delivery', optional: true }
     // Step 3: Payment
@@ -232,8 +228,6 @@ export default function Checkout() {
     if (parts.mapUrl) update('mapUrl', parts.mapUrl)
     setLocationSource('places')
     setLocationPermissionDenied(false)
-    // Clear GPS button highlight since location is now set
-    setHighlightGPSButton(false)
   }, [update])
   // Attach autocomplete to Address line 2 (auto-filled), not line 1
   usePlacesAutocomplete(addressLine2Ref, handleAutocompleteSelect)
@@ -517,7 +511,6 @@ export default function Checkout() {
 
   // ── Handlers ──
   const handleAutoFillLocation = useCallback(async () => {
-    setLocationVerifiedByButton(true)
     setLocationPermissionDenied(false)
     if (typeof window === 'undefined' || !('geolocation' in navigator)) {
       setShowAddressForm(true)
@@ -566,17 +559,13 @@ export default function Checkout() {
         setLocationSource('gps')
         setLocationPermissionDenied(false)
         setGeoError('')
-        setHighlightGPSButton(false)
-        
-        // Check if within delivery region
+
+        // Distance note only — location no longer gates checkout; delivery is coordinated by phone.
         const withinCheck = deliveryLocation.checkWithin(latitude, longitude)
         if (!withinCheck.ok) {
-          setFieldError('location')
-          const msg = `We deliver within ${withinCheck.radiusKm} km of Durgapur. This location is ~${withinCheck.distance.toFixed(1)} km away. Please choose a closer address.`
-          setGeoError(msg)
-          pushToast(msg, 'error', 5000)
+          pushToast(`Heads up: this location is ~${withinCheck.distance.toFixed(1)} km from Durgapur (usual delivery area is ${withinCheck.radiusKm} km). We'll confirm by phone.`, 'warning', 5000)
         }
-        
+
         try {
           const parts = await reverseGeocode(latitude, longitude)
           if (parts) {
@@ -631,7 +620,6 @@ export default function Checkout() {
   }, [update, deliveryLocation, pushToast])
 
   const handleGPSOnly = useCallback(async () => {
-    setLocationVerifiedByButton(true)
     setLocationPermissionDenied(false)
     if (typeof window === 'undefined' || !('geolocation' in navigator)) {
       pushToast('Location is not available in this browser.', 'error', 5000)
@@ -649,16 +637,13 @@ export default function Checkout() {
         update('mapUrl', buildGooglePinUrl(latitude, longitude))
         setLocationSource('gps')
         setLocationPermissionDenied(false)
-        setHighlightGPSButton(false)
         
-        // Check if within delivery region
+        // Distance note only — location no longer gates checkout.
         const withinCheck = deliveryLocation.checkWithin(latitude, longitude)
         if (!withinCheck.ok) {
-          const msg = `We deliver within ${withinCheck.radiusKm} km of Durgapur. This location is ~${withinCheck.distance.toFixed(1)} km away.`
-          setGeoError(msg)
-          pushToast(msg, 'error', 5000)
+          pushToast(`Heads up: this location is ~${withinCheck.distance.toFixed(1)} km from Durgapur (usual delivery area is ${withinCheck.radiusKm} km). We'll confirm by phone.`, 'warning', 5000)
         } else {
-          pushToast('GPS location confirmed for delivery!', 'success', 3000)
+          pushToast('GPS location added for delivery!', 'success', 3000)
         }
         setGettingLocation(false)
       },
@@ -729,11 +714,10 @@ export default function Checkout() {
     const phoneOkNow = !form.phone || phoneRegex.test(form.phone)
     const addressPhoneOkNow = !form.addressPhone || phoneRegex.test(form.addressPhone)
     const pinOkNow = !form.pin || pinRegex.test(form.pin)
-    const requiredFilledNow = Boolean(form.name && form.addressLine1 && form.city && form.pin && typeof lat === 'number' && typeof lng === 'number')
-    const withinResult = (typeof lat === 'number' && typeof lng === 'number') ? deliveryLocation.checkWithin(lat, lng) : { ok: false, radiusKm: deliveryLocation.region?.radiusKm || 0, distance: 0 }
-    
+    const requiredFilledNow = Boolean(form.name && form.phone && form.addressLine1 && form.city && form.pin)
+
     // Auto-scroll to the first field that needs attention
-    if (!requiredFilledNow || !phoneOkNow || !pinOkNow || !withinResult.ok || !addressPhoneOkNow) {
+    if (!requiredFilledNow || !phoneOkNow || !pinOkNow || !addressPhoneOkNow) {
       if (!form.name && nameRef.current) {
         setErrorAndScroll('name', 'Please enter your full name.', nameRef)
         return
@@ -764,16 +748,6 @@ export default function Checkout() {
       if (!pinOkNow && pinRef.current) {
         setShowAddressForm(true)
         setErrorAndScroll('pin', 'Please enter a valid PIN code.', pinRef)
-        return
-      }
-      if (typeof lat !== 'number' || typeof lng !== 'number') {
-        setShowAddressForm(true)
-        setErrorAndScroll('location', 'Please select your delivery location: use “Use current location” or pick a suggestion in Address line 2.', addressSectionRef)
-        return
-      }
-      if (!withinResult.ok) {
-        setShowAddressForm(true)
-        setErrorAndScroll('location', `We deliver within ${withinResult.radiusKm} km of Durgapur. Your address is ~${withinResult.distance.toFixed(1)} km away. Please choose a closer address.`, addressSectionRef)
         return
       }
       if (!addressPhoneOkNow) {
@@ -864,7 +838,6 @@ export default function Checkout() {
         : { method: 'cod', status: 'pending' }
 
       const orderIdValue = await createOrder({
-        userId: user?.uid || null,
         customer: {
           name: form.name,
           phone: form.phone,
@@ -898,16 +871,9 @@ export default function Checkout() {
         totalAmount: Number(subtotal)
       })
 
-      if (typeof lat === 'number' && typeof lng === 'number') {
-        const orderMapUrl = resolvedAddressMapUrl || buildGooglePinUrl(lat, lng)
-        if (orderMapUrl) {
-          try {
-            await updateDoc(doc(db, 'orders', orderIdValue), { mapUrl: orderMapUrl })
-          } catch (err) {
-            console.warn('[checkout] Failed to persist root order mapUrl', err)
-          }
-        }
-      }
+      // Note: mapUrl is already embedded in customer.address.mapUrl above —
+      // the order document doesn't need a separate top-level write for it
+      // (customers cannot update orders after creation per firestore.rules).
 
       const firestoreOrderDocId = orderIdValue
 
@@ -1004,7 +970,8 @@ export default function Checkout() {
         const verification = await verifyRazorpayPayment({
           orderId: razorpayOrderId,
           paymentId: paymentResponse.paymentId,
-          signature: paymentResponse.signature
+          signature: paymentResponse.signature,
+          orderNo: orderIdValue, // server records payment.status='paid' on the order doc
         })
         if (!verification?.valid) {
           throw new Error('Payment verification failed. Please contact support.')
@@ -1025,7 +992,15 @@ export default function Checkout() {
       setOrderId(orderIdValue)
       setShowOrderPlacedSuccess(true)
 
-      // WA Bill sending removed
+      // Notify staff devices about the new order (server reads the order doc;
+      // fires here for COD, and only after verified payment for online orders).
+      notifyStaffNewOrder(orderIdValue).catch(() => {})
+
+      // Register for push updates about this order (prompts for notification
+      // permission here, in the context of a just-placed order).
+      if (user?.uid) {
+        registerFcmToken(user.uid, { requestPermission: true }).catch(() => {})
+      }
 
       try {
         let summary = null
@@ -1079,18 +1054,14 @@ export default function Checkout() {
   const phoneOk = !form.phone || /^\+?[0-9]{7,15}$/.test(form.phone)
   const addressPhoneOk = !form.addressPhone || /^\+?[0-9]{7,15}$/.test(form.addressPhone)
   const pinOk = !form.pin || /^[0-9]{4,8}$/.test(form.pin)
-  const requiredFilled = form.name && form.phone && form.addressLine1 && form.addressLine2 && form.city && form.pin && (typeof form.lat === 'number') && (typeof form.lng === 'number')
-  const withinCheck = (typeof form.lat === 'number') && (typeof form.lng === 'number')
-    ? deliveryLocation.checkWithin(form.lat, form.lng)
-    : { ok: false, radiusKm: deliveryLocation.region?.radiusKm || 0, distance: 0 }
-  const withinRegion = withinCheck.ok
-  const isValid = requiredFilled && phoneOk && pinOk && withinRegion && addressPhoneOk
+  const requiredFilled = form.name && form.phone && form.addressLine1 && form.addressLine2 && form.city && form.pin
+  const isValid = requiredFilled && phoneOk && pinOk && addressPhoneOk
 
   // Step completion tracking for step indicator
   const step1Complete = form.name && form.phone && phoneOk
   const step2Complete = (
     (activeAddressId && !showAddressForm) || !!form.addressLine1
-  ) && form.addressLine2 && form.pin && pinOk && (typeof form.lat === 'number') && (typeof form.lng === 'number') && withinRegion && addressPhoneOk
+  ) && form.addressLine2 && form.pin && pinOk && addressPhoneOk
   const step3Complete = !!orderId
 
   const step1Done = confirmedSteps.contact
@@ -1115,23 +1086,6 @@ export default function Checkout() {
       }
       else guideToNextField()
     } else if (currentStep === 2) {
-        // Enforce location button click once
-        if (!locationVerifiedByButton && !locationWarningShown) {
-            setLocationWarningShown(true)
-            setShowLocationAnimation(true)
-            // Auto hide animation after 3s
-            setTimeout(() => setShowLocationAnimation(false), 3000)
-            
-            // Scroll to the lower button
-            try {
-                gpsButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            } catch {/*ignore*/}
-            
-            // Humble message
-            pushToast('Please help us locate you better for hassle-free delivery!', 'info', 4000)
-            return
-        }
-
       if (step2Complete) {
         // Save/Update address if form is open
         if (user && showAddressForm) {
@@ -1417,37 +1371,19 @@ export default function Checkout() {
                                     </div>
                                 </div>
 
-                                {/* Confirm Location Only Button */}
+                                {/* Optional GPS assist — prefills the address, never required */}
                                 <div className="relative">
-                                  {showLocationAnimation && (
-                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-64 flex flex-col items-center animate-in zoom-in slide-in-from-bottom-5 duration-500 pointer-events-none">
-                                        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl shadow-xl border border-red-100 text-center mb-1">
-                                            <p className="text-sm font-bold">Small request! 🙏</p>
-                                            <p className="text-xs mt-0.5 leading-tight">Please share location for easy, hassle-free delivery.</p>
-                                        </div>
-                                        <div className="text-5xl animate-bounce drop-shadow-lg filter pt-2">👇</div>
-                                    </div>
-                                  )}
-
                                   <button
                                     ref={gpsButtonRef}
                                     type="button"
-                                    className={`btn btn-block rounded-xl min-h-[3.25rem] text-base font-semibold border-none bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 shadow-lg shadow-red-500/20 hover:shadow-red-500/40 transition-all duration-300 ease-in-out ${gettingLocation ? 'loading opacity-70' : 'opacity-100'} ${highlightGPSButton || showLocationAnimation ? 'ring-4 ring-offset-2 ring-red-500/50 scale-[1.02]' : ''}`}
+                                    className={`btn btn-block btn-outline rounded-xl min-h-[3.25rem] text-base font-medium transition-all duration-300 ease-in-out ${gettingLocation ? 'loading opacity-70' : 'opacity-100'}`}
                                     onClick={handleGPSOnly}
                                   >
-                                    <MdGpsFixed className={showLocationAnimation ? "animate-pulse" : ""} /> Press to share location for faster delivery
+                                    <MdGpsFixed /> Share location (optional — helps our rider find you)
                                   </button>
-                                  {highlightGPSButton && !showLocationAnimation && (
-                                    <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-error text-error-content px-4 py-2 rounded-xl text-xs font-bold shadow-xl z-50 whitespace-nowrap animate-in fade-in slide-in-from-bottom-4 duration-300 after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-transparent after:border-t-error">
-                                      👆 Click here to share your location!
-                                    </div>
-                                  )}
                                 </div>
-                                {(fieldError === 'location' || geoError) && (
-                                  <div className="space-y-1">
-                                    {fieldError === 'location' && <p className="text-error text-xs mt-1">Please share your current location.</p>}
-                                    {geoError && <p className="text-error text-xs mt-1">{geoError}</p>}
-                                  </div>
+                                {geoError && (
+                                  <p className="text-error text-xs mt-1">{geoError}</p>
                                 )}
                                 
                                 {hasSavedAddresses && (

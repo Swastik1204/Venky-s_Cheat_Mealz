@@ -1,5 +1,5 @@
 // Orders — Order management and fulfilment dashboard
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { useLocation } from 'react-router-dom'
@@ -8,21 +8,17 @@ import { MdWarningAmber, MdPrint } from 'react-icons/md'
 import AdminLayout from '../layouts/AdminLayout'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, fetchAppSettings, isCounterDocId } from '../lib/data'
+import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, isCounterDocId, recheckPayment } from '../lib/data'
 import { db } from '../lib/firebase'
 import { printOrderReceiptViaRawBT, shouldUseRawBT } from '../lib/rawbtPrint'
 
 export default function Orders() {
   const location = useLocation()
   const { confirmState, resolveConfirm, pushToast } = useUI()
-  const { user, roleLoading, isStaffMember, canAccess, role, adminUserDoc, isCashManager, isOrderMessenger } = useAuth()
+  const { user, roleLoading, isStaffMember, canAccess, role, isCashManager, isOrderMessenger } = useAuth()
   const hasPageAccess = canAccess('orders')
-  const activeRole = adminUserDoc?.status === 'active'
-    ? String(adminUserDoc.role || '').toLowerCase()
-    : String(role?.role || '').toLowerCase()
-  const activePages = adminUserDoc?.status === 'active'
-    ? (adminUserDoc.pages && typeof adminUserDoc.pages === 'object' ? adminUserDoc.pages : {})
-    : (role?.pages && typeof role.pages === 'object' ? role.pages : {})
+  const activeRole = String(role?.role || '').toLowerCase()
+  const activePages = role?.pages && typeof role.pages === 'object' ? role.pages : {}
   const hasCoreOrdersAccess = activeRole === 'admin' || !!activePages.orders || !!activePages.biller
   const canHandlePlacedOrders = hasCoreOrdersAccess || isCashManager
   const canAdvanceOrderStatus = hasCoreOrdersAccess
@@ -38,30 +34,7 @@ export default function Orders() {
   const [orderModalOpen, setOrderModalOpen] = useState(false)
   const historyHeaderRefs = useRef({})
   const [openHistoryKey, setOpenHistoryKey] = useState(null)
-  const [cashManagerPhones, setCashManagerPhones] = useState([])
-  const [orderMessengerPhones, setOrderMessengerPhones] = useState([])
   const notifiedRef = useRef(new Set())
-
-  // ── Helpers ──
-  const buildOrderAddressString = useCallback((o) => {
-    const raw = o?.address ?? o?.customer?.address ?? o?.deliveryAddress ?? ''
-    if (!raw) return '-'
-    if (typeof raw === 'string') return raw.trim() || '-'
-    if (typeof raw === 'object') {
-      const parts = [raw.line1, raw.line2, raw.landmark, raw.city, raw.state, raw.pin]
-        .map(v => (v == null ? '' : String(v).trim()))
-        .filter(Boolean)
-      return parts.length ? parts.join(', ') : '-'
-    }
-    return String(raw).trim() || '-'
-  }, [])
-
-  const buildOrderMessengerData = useCallback((o) => {
-    const customerName = String(o?.customer?.name || o?.name || 'Customer').trim() || 'Customer'
-    const totalAmount = Number(o?.totalAmount ?? o?.subtotal ?? 0) // schema: matches data-orders.js canonical write
-    const address = buildOrderAddressString(o)
-    return { customerName, totalAmount, address }
-  }, [buildOrderAddressString])
 
   function playNewOrderSound() {
     try {
@@ -87,7 +60,43 @@ export default function Orders() {
   const [otpModalOrder, setOtpModalOrder] = useState(null)
   const [otpValue, setOtpValue] = useState('')
   const [otpBusy, setOtpBusy] = useState(false)
-  const [otpResendBusy, setOtpResendBusy] = useState(false)
+
+  // ── Payment reconciliation ──
+  const [recheckBusyId, setRecheckBusyId] = useState(null)
+
+  // Online order whose payment never got confirmed (webhook + writeback both
+  // missed) and is old enough that it's not just in-flight.
+  function isPaymentUnverified(o) {
+    const method = String(o?.payment?.method || '').toLowerCase()
+    if (!method || method === 'cod') return false
+    if (String(o?.payment?.status || '').toLowerCase() !== 'initiated') return false
+    const createdSec = o?.createdAt?.seconds
+    if (typeof createdSec !== 'number') return true
+    return (Date.now() / 1000 - createdSec) > 180 // older than 3 minutes
+  }
+
+  async function handleRecheckPayment(o) {
+    if (!o || recheckBusyId) return
+    setRecheckBusyId(o.id)
+    try {
+      const result = await recheckPayment(o.id)
+      if (result.status === 'paid' || result.status === 'already_paid') {
+        pushToast(`Payment confirmed for #${o.orderNo || o.id}`, 'success')
+        setOrders(arr => arr.map(x => x.id === o.id ? { ...x, payment: { ...(x.payment || {}), status: 'paid', reference: result.paymentId || x.payment?.reference } } : x))
+      } else if (result.status === 'amount_mismatch') {
+        pushToast(`⚠ Paid ₹${result.paidAmount} but order total is ₹${result.expectedAmount} — check manually (payment ${result.paymentId})`, 'warning', 8000)
+      } else if (result.status === 'unpaid') {
+        pushToast(`No successful payment found (${result.attempts} failed attempt${result.attempts === 1 ? '' : 's'}). Treat as unpaid.`, 'warning', 6000)
+      } else {
+        pushToast('No payment attempt found on Razorpay for this order.', 'info', 6000)
+      }
+    } catch (err) {
+      console.error('[Orders] Payment re-check failed:', err)
+      pushToast(err?.message || 'Payment re-check failed', 'error')
+    } finally {
+      setRecheckBusyId(null)
+    }
+  }
 
   // ── OTP verification ──
   function isDineInCod(o) {
@@ -174,34 +183,6 @@ export default function Orders() {
       pushToast('Failed to verify OTP', 'error')
     } finally {
       setOtpBusy(false)
-    }
-  }
-
-  async function resendOtpForOrder(o) {
-    if (!canHandlePlacedOrders) return
-    if (!o) return
-    if (!isDineInCod(o)) {
-      pushToast('OTP resend only applies to dine-in COD orders', 'warning')
-      return
-    }
-    if (!o.cashManagerOtp) {
-      pushToast('OTP not found on this order', 'warning')
-      return
-    }
-    if (!Array.isArray(cashManagerPhones) || cashManagerPhones.length === 0) {
-      pushToast('Cash manager phone(s) not configured', 'error')
-      return
-    }
-
-    setOtpResendBusy(true)
-    try {
-      // WA OTP resend disabled; on-screen code should be used
-      pushToast('OTP resend via WhatsApp is currently disabled. Please use the on-screen code.', 'info')
-    } catch (err) {
-      console.error('[Orders] OTP resend failed:', err)
-      pushToast(err?.message || 'Failed to resend OTP', 'error')
-    } finally {
-      setOtpResendBusy(false)
     }
   }
 
@@ -367,23 +348,6 @@ export default function Orders() {
 
   // ── Side-effects ──
   useEffect(() => {
-    fetchAppSettings().then(s => {
-      const to10 = (v) => {
-        const digits = String(v || '').replace(/\D/g, '')
-        const no91 = digits.startsWith('91') && digits.length === 12 ? digits.slice(2) : digits
-        return no91.length === 10 ? no91 : ''
-      }
-
-      const cm = Array.isArray(s?.cashManagerPhones) ? s.cashManagerPhones : []
-      const cmList = cm.map(to10).filter(Boolean)
-      setCashManagerPhones(cmList)
-
-      const list = Array.isArray(s?.orderMessengerPhones) ? s.orderMessengerPhones : []
-      setOrderMessengerPhones(list.map(to10).filter(Boolean))
-    })
-  }, [])
-
-  useEffect(() => {
     // Wait for role to load before setting up listener
     if (!liveEnabled || roleLoading || !user || !isStaffMember) return undefined
     const qy = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
@@ -425,7 +389,7 @@ export default function Orders() {
       console.error('[Orders] onSnapshot error:', err)
     })
     return () => unsub()
-  }, [liveEnabled, roleLoading, user, isStaffMember, cashManagerPhones, orderMessengerPhones, buildOrderMessengerData])
+  }, [liveEnabled, roleLoading, user, isStaffMember])
 
   async function loadOrders() {
     setLoadingOrders(true)
@@ -543,7 +507,7 @@ export default function Orders() {
               </button>
               <button
                 className="btn btn-primary"
-                disabled={otpBusy || otpResendBusy}
+                disabled={otpBusy}
                 onClick={() => verifyOtpAndDeliver(otpModalOrder, otpValue)}
               >
                 {otpBusy ? 'Verifying…' : 'Verify & Deliver'}
@@ -667,7 +631,26 @@ export default function Orders() {
                     {o.items?.slice(0,5).map((it, idx) => (<span key={it.id || `item-${idx}`} className="px-2 py-0.5 rounded-full bg-base-200/70 border border-base-300/60 group-hover:border-primary/50 transition">{it.name}×{it.qty}</span>))}
                     {o.items?.length > 5 && (<span className="opacity-60">+{o.items.length - 5} more</span>)}
                   </div>
-                  {o.payment?.method && (<div className="mt-2 text-[10px] uppercase tracking-wide opacity-60">{o.payment.method}</div>)}
+                  {o.payment?.method && (
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] uppercase tracking-wide opacity-60">{o.payment.method}</span>
+                      {String(o.payment?.status || '').toLowerCase() === 'paid' && (
+                        <span className="badge badge-success badge-xs gap-0.5">✓ paid</span>
+                      )}
+                      {isPaymentUnverified(o) && (
+                        <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <span className="badge badge-warning badge-xs gap-0.5"><MdWarningAmber className="w-3 h-3" /> payment unverified</span>
+                          <button
+                            className={`btn btn-xs btn-outline btn-warning ${recheckBusyId === o.id ? 'loading' : ''}`}
+                            disabled={!!recheckBusyId}
+                            onClick={() => handleRecheckPayment(o)}
+                          >
+                            Re-check
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {(() => { const idx = statusFlow.indexOf(o.status); const pending = statusFlow.slice(idx + 1); if (!pending.length) return null; const nextMissing = pending[0]; return (
                     <div className="mt-2 text-[11px] text-warning flex items-center gap-1"><MdWarningAmber className="w-4 h-4" /><span>Not marked as {nextMissing} yet</span></div>
                   )})()}

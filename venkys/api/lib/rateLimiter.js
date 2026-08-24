@@ -72,13 +72,14 @@ function getRedisRateLimiter(routeName, config) {
 
 const RATE_LIMITS = {
   // Route-specific limits (requests per window)
-  'send-whatsapp': { requests: 10, windowMs: 60000, burst: 3 },       // 10/min, burst 3
   'send-order-messenger': { requests: 20, windowMs: 60000, burst: 5 }, // 20/min, burst 5 (multiple recipients per order)
   'create-order': { requests: 30, windowMs: 60000, burst: 10 },        // 30/min, burst 10
+  'place-order': { requests: 20, windowMs: 60000, burst: 8 },          // 20/min, burst 8 (server-owned order creation)
+  'notify-order': { requests: 20, windowMs: 60000, burst: 5 },         // 20/min, burst 5 (staff new-order push)
+  'notify-status': { requests: 60, windowMs: 60000, burst: 15 },       // 60/min, burst 15 (customer status push)
   'verify-payment': { requests: 50, windowMs: 60000, burst: 15 },      // 50/min, burst 15
   'public-config': { requests: 100, windowMs: 60000, burst: 20 },      // 100/min, burst 20
   'sync-business-profile': { requests: 5, windowMs: 300000, burst: 2 }, // 5/5min, burst 2
-  'wa-webhook': { requests: 100, windowMs: 60000, burst: 30 },         // 100/min, burst 30
   'send-log-email': { requests: 20, windowMs: 60000, burst: 5 },       // 20/min, burst 5
   'default': { requests: 60, windowMs: 60000, burst: 15 }              // Default: 60/min, burst 15
 }

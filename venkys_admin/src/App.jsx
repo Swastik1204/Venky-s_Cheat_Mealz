@@ -1,7 +1,7 @@
 // App — Admin root component with role-based routing
 import { Suspense, lazy } from 'react'
 
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 
 import { useAuth } from './context/AuthContext'
 import { useUI } from './context/UIContext'
@@ -21,7 +21,6 @@ const AdminBiller = lazy(() => import('./pages/AdminBiller'))
 const AuditLogs = lazy(() => import('./pages/AuditLogs'))
 const ChangeHistory = lazy(() => import('./pages/ChangeHistory'))
 const Delivery = lazy(() => import('./pages/Delivery'))
-const InviteAccept = lazy(() => import('./pages/InviteAccept'))
 
 // Access denied component for guests/unregistered users
 function AccessDenied() {
@@ -50,10 +49,8 @@ function AccessDenied() {
 }
 
 export default function App() {
-  const location = useLocation()
   const { authMode } = useUI()
-  const { user, loading, roleLoading, isStaffMember, canAccess, role, adminUserDoc, isSuperAdmin } = useAuth()
-  const isInviteRoute = location.pathname.startsWith('/invite')
+  const { user, loading, roleLoading, isStaffMember, canAccess, role, isSuperAdmin } = useAuth()
 
   // Show skeleton while loading auth or role
   if (loading || roleLoading) {
@@ -62,27 +59,6 @@ export default function App() {
         <InstallPWA />
         <AuthSkeleton />
         <AuthModal />
-      </>
-    )
-  }
-
-  if (isInviteRoute) {
-    return (
-      <>
-        <InstallPWA />
-        <ErrorBoundary>
-          <div className="admin-shell">
-            <main className={`page-wrap pb-16 pt-6 transition-all duration-200 ${authMode ? 'blur-when-auth-open' : ''}`}>
-              <Suspense fallback={<div className="py-20 text-center text-sm opacity-70">Loading module…</div>}>
-                <Routes>
-                  <Route path="/invite" element={<InviteAccept />} />
-                  <Route path="*" element={<Navigate to="/invite" replace />} />
-                </Routes>
-              </Suspense>
-            </main>
-            <AuthModal />
-          </div>
-        </ErrorBoundary>
       </>
     )
   }
@@ -122,12 +98,8 @@ export default function App() {
 
   const canAccessPage = (pageKey) => (pageKey === 'logs' ? isSuperAdmin : canAccess(pageKey))
   const allowedPages = pageDefs.filter((p) => canAccessPage(p.key))
-  const effectiveRoleName = adminUserDoc?.status === 'active'
-    ? String(adminUserDoc.role || '').toLowerCase()
-    : String(role?.role || '').toLowerCase()
-  const effectivePages = adminUserDoc?.status === 'active'
-    ? (adminUserDoc.pages && typeof adminUserDoc.pages === 'object' ? adminUserDoc.pages : {})
-    : (role?.pages && typeof role.pages === 'object' ? role.pages : {})
+  const effectiveRoleName = String(role?.role || '').toLowerCase()
+  const effectivePages = role?.pages && typeof role.pages === 'object' ? role.pages : {}
   const isSubRoleOnlyStaff = effectiveRoleName === 'staff'
     && !effectivePages.orders
     && !effectivePages.biller
