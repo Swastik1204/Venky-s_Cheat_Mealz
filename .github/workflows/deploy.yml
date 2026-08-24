@@ -184,12 +184,24 @@ jobs:
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
         run: |
           if [ -n "$FIREBASE_TOKEN" ]; then
             npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --token "$FIREBASE_TOKEN" --project venky-s-chicken-xperience --non-interactive
           elif [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            node -e 'fs.writeFileSync("/tmp/sa.json", process.env.FIREBASE_SERVICE_ACCOUNT.trim(), "utf8")'
-            export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
+            node -e '
+              const fs = require("fs");
+              let val = (process.env.FIREBASE_SERVICE_ACCOUNT || "").trim();
+              if ((val.startsWith("\"") && val.endsWith("\"")) || (val.startsWith("\x27") && val.endsWith("\x27"))) {
+                val = val.slice(1, -1);
+              }
+              try {
+                const parsed = JSON.parse(val);
+                if (typeof parsed === "string") val = parsed;
+                else val = JSON.stringify(parsed);
+              } catch (e) {}
+              fs.writeFileSync("/tmp/sa.json", val, "utf8");
+            '
             npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --project venky-s-chicken-xperience --non-interactive
             rm -f /tmp/sa.json
           else
