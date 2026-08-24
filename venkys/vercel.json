@@ -1,5 +1,8 @@
 {
   "version": 2,
+  "framework": null,
+  "buildCommand": "echo 'Vercel API only, frontend served by Firebase Hosting'",
+  "outputDirectory": "public-empty",
   "headers": [
     {
       "source": "/api/(.*)",

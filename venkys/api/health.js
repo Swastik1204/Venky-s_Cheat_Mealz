@@ -3,7 +3,7 @@
 // GET /api/health
 // Returns basic configuration and environment info without exposing secrets.
 
-import { handleCors } from './lib/cors.js'
+import { handleCors } from './_lib/cors.js'
 
 export default async function handler(req, res) {
   if (handleCors(req, res, 'GET, OPTIONS')) return

@@ -10,10 +10,10 @@
 // request body except the order id. A staffNotifiedAt field on the order
 // deduplicates repeat calls.
 
-import { createRateLimiter } from './lib/rateLimiter.js'
-import { verifyAuth } from './lib/verifyAuth.js'
-import { handleCors } from './lib/cors.js'
-import { adminDb, sendFCMToStaff, isStaffEmail, FieldValue } from './lib/fcm.js'
+import { createRateLimiter } from './_lib/rateLimiter.js'
+import { verifyAuth } from './_lib/verifyAuth.js'
+import { handleCors } from './_lib/cors.js'
+import { adminDb, sendFCMToStaff, isStaffEmail, FieldValue } from './_lib/fcm.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'notify-order' })
 

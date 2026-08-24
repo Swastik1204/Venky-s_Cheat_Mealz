@@ -82,11 +82,13 @@ function formatDate(order) {
   return new Date().toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
 }
 
+import { RESTAURANT_CONFIG } from '../config/restaurant.config'
+
 export function buildEscPosReceiptForOrder(order, opts = {}) {
   const width = Number(opts.width || 42) // ~72mm at small font
   const sep = '-'.repeat(width)
 
-  const title = String(opts.title || "Venky's Cheat Mealz")
+  const title = String(opts.title || RESTAURANT_CONFIG.brand.receiptTitle)
   const orderRef = String(order?.orderNo || order?.id || '').slice(-8)
   const dateStr = formatDate(order)
 

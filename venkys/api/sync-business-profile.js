@@ -2,10 +2,10 @@
 // Serverless function to fetch Google Business Profile data via Places API
 // and cache it in Firestore. Gated for admin/staff manual sync and Vercel Cron.
 
-import { createRateLimiter } from './lib/rateLimiter.js'
-import { verifyAuth, verifyInternalSecret } from './lib/verifyAuth.js'
-import { handleCors } from './lib/cors.js'
-import { adminDb, isStaffEmail, FieldValue } from './lib/fcm.js'
+import { createRateLimiter } from './_lib/rateLimiter.js'
+import { verifyAuth, verifyInternalSecret } from './_lib/verifyAuth.js'
+import { handleCors } from './_lib/cors.js'
+import { adminDb, isStaffEmail, FieldValue } from './_lib/fcm.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'sync-business-profile' })
 

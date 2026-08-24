@@ -8,7 +8,6 @@ import { auth, db } from '../lib/firebase'
 import { ensureUserDocument } from '../lib/userData'
 
 const AuthContext = createContext(null)
-const SUPER_ADMIN_EMAIL = 'swastiksaha1204@gmail.com'
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase()
@@ -23,7 +22,7 @@ function canAccessForRole(roleName, pages, pageKey) {
   const page = String(pageKey || '').trim().toLowerCase()
   const role = String(roleName || '').trim().toLowerCase()
   if (!role || !page) return false
-  if (role === 'admin') return true
+  if (role === 'admin' || role === 'superadmin') return true
   if (role === 'delivery') return page === 'delivery'
   if (role !== 'staff') return false
 
@@ -41,7 +40,7 @@ function canAccessForRole(roleName, pages, pageKey) {
     delivery: has('delivery') || has('orders'),
     cashmanager: has('cashManager'),
     ordermessenger: has('orderMessenger'),
-    logs: false,
+    logs: has('logs'),
   }
 
   return !!matrix[page]
@@ -55,15 +54,12 @@ export function AuthProvider({ children }) {
 
   const canAccess = useCallback((pageKey) => {
     const page = String(pageKey || '').trim().toLowerCase()
-    if (page === 'logs') {
-      return normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL
-    }
-    if (normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL) {
+    if (!role?.isStaffMember) return false
+    if (role?.isSuperAdmin || role?.isAdmin) {
       return true
     }
-    if (!role?.isStaffMember) return false
     return canAccessForRole(role?.role, role?.pages, page)
-  }, [role, user?.email])
+  }, [role])
 
   // roles/{email} is the single source of truth for staff/admin access —
   // the legacy adminUsers/{uid} invite-based collection has been retired
@@ -82,24 +78,28 @@ export function AuthProvider({ children }) {
 
       if (roleSnap.exists()) {
         const data = roleSnap.data()
-        const userRole = data.role || 'staff'
+        const userRole = String(data.role || 'staff').toLowerCase()
+        const isSuperAdminRole = userRole === 'superadmin' || !!data.isSuperAdmin
+        const isAdminRole = userRole === 'admin' || isSuperAdminRole
+
         setRole({
           isStaffMember: true,
           role: userRole,
           name: data.name || '',
           pages: data.pages && typeof data.pages === 'object' ? data.pages : null,
           defaultPage: data.defaultPage || null,
-          isAdmin: userRole === 'admin',
+          isSuperAdmin: isSuperAdminRole || (isAdminRole && !!data.pages?.logs),
+          isAdmin: isAdminRole,
           isStaff: userRole === 'staff',
           isDelivery: userRole === 'delivery',
         })
       } else {
-        // No role document = no access (unless super admin, checked separately)
-        setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
+        // No role document = no access
+        setRole({ isStaffMember: false, role: null, isSuperAdmin: false, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
       }
     } catch (err) {
       console.error('[AuthContext] Role check failed:', err)
-      setRole({ isStaffMember: false, role: null, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
+      setRole({ isStaffMember: false, role: null, isSuperAdmin: false, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
     } finally {
       setRoleLoading(false)
     }
@@ -163,9 +163,9 @@ export function AuthProvider({ children }) {
     loading,
     role,
     roleLoading,
-    isSuperAdmin: normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL,
-    isStaffMember: (normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL) || (role?.isStaffMember || false),
-    isAdmin: (normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL) || (role?.isAdmin || false),
+    isSuperAdmin: role?.isSuperAdmin || false,
+    isStaffMember: role?.isStaffMember || false,
+    isAdmin: role?.isAdmin || false,
     isStaff: role?.isStaff || false,
     isDelivery: role?.isDelivery || false,
     isCashManager: String(role?.role || '').toLowerCase() === 'staff' && !!role?.pages?.cashManager,

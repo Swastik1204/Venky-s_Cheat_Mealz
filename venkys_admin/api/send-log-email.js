@@ -4,9 +4,9 @@
 // Uses Nodemailer with Gmail SMTP (free, unlimited)
 // Requires env: EMAIL_USER (Gmail address), EMAIL_PASS (Gmail App Password)
 
-import { createRateLimiter } from './lib/rateLimiter.js'
-import { verifyAuth, verifyInternalSecret } from './lib/verifyAuth.js'
-import { handleCors } from './lib/cors.js'
+import { createRateLimiter } from './_lib/rateLimiter.js'
+import { verifyAuth, verifyInternalSecret } from './_lib/verifyAuth.js'
+import { handleCors } from './_lib/cors.js'
 import nodemailer from 'nodemailer'
 
 const rateLimiter = createRateLimiter({ routeName: 'send-log-email' })

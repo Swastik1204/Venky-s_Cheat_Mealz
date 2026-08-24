@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+.firebase
+.git
+.env*
+public
+src
+scripts

@@ -42,14 +42,19 @@ The system enforces a strict 6-tier authorization model synchronized between `fi
 ## 4. Hosting & Architecture Split (Live Architecture)
 * **Customer SPA (`venkys`)**: Firebase Hosting target `venkys-customer` (site: `venkys-durgapur`). Serves static SPA bundle only (`dist/` with catch-all rewrite to `/index.html`).
 * **Admin POS SPA (`venkys_admin`)**: Firebase Hosting target `venkys-admin` (site: `venkys-admin`). Serves static SPA bundle only (`dist/` with catch-all rewrite to `/index.html`).
-* **Backend API (`api/`)**: Vercel Serverless Functions for API-only execution (`/api/*`). Leftover frontend SPA rewrites (`/(.*) -> index.html`) have been removed to prevent misrouted HTML responses.
+* **Backend API (`api/`)**: Vercel Serverless Functions for API-only execution (`/api/*`).
+  * **Frontend Disabled on Vercel**:
+    * Framework Preset set to `Other` (`--framework other`).
+    * Build command set to `echo 'Vercel API only, frontend served by Firebase Hosting'`.
+    * Output directory set to empty placeholder `public-empty` (requests to `/` and `/menu` return HTTP 404 NOT_FOUND).
+    * Helper modules stored in `api/_lib/` (leading underscore ensures Vercel does not treat helpers as standalone Serverless Functions, keeping function count safely within Hobby limits).
 * **Shared `apiClient` (`src/utils/apiClient.js`)**:
   * Resolves `VITE_API_BASE_URL` from env (never relative path fallback).
   * Automatically attaches Firebase ID token as `Authorization: Bearer <token>`.
   * Classifies errors into typed results: `{ ok, type: 'network'|'cors'|'auth'|'forbidden'|'server'|'html_response'|'error', status, body, message }`.
   * On HTTP 403, forces one `getIdToken(true)` refresh and retries once before surfacing `'forbidden'`.
   * Detects HTML response bodies where JSON was expected (`html_response` tell).
-* **24-Hour CORS Preflight Caching**: All serverless endpoints send `Access-Control-Max-Age: 86400` on OPTIONS responses via `api/lib/cors.js`.
+* **24-Hour CORS Preflight Caching**: All serverless endpoints send `Access-Control-Max-Age: 86400` on OPTIONS responses via `api/_lib/cors.js`.
 
 ---
 
@@ -95,3 +100,56 @@ The system enforces a strict 6-tier authorization model synchronized between `fi
 * Firestore evaluates `list` queries at the query constraint level.
 * **Gotcha**: An open `allow list: if isSignedIn();` rule exposes all customers' names, phone numbers, and addresses.
 * **Rule**: Rules must enforce `(isSignedIn() && resource.data.userId == request.auth.uid)` on `list`, and all client queries must explicitly supply `where('userId', '==', user.uid)`.
+
+---
+
+## 7. Restaurant Configuration & Cloning Guide
+
+All restaurant-specific values (branding, location defaults, contact info, receipt printing headers, PWA manifests) are centralized in `src/config/restaurant.config.js` within both `venkys/` and `venkys_admin/`.
+
+### Config Shape (`src/config/restaurant.config.js`):
+```javascript
+export const RESTAURANT_CONFIG = {
+  brand: {
+    name: "Venky's Chicken Xperience Durgapur",
+    shortName: "Venky's",
+    tagline: "...",
+    receiptTitle: "Venky's Cheat Mealz",
+    receiptSubtitle: "Durgapur, West Bengal",
+  },
+  location: {
+    city: "Durgapur",
+    state: "West Bengal",
+    country: "India",
+    defaultCoordinates: { lat: 23.5204, lng: 87.3119 },
+    defaultRadiusKm: 8,
+  },
+  contact: {
+    email: "venkysdgp@gmail.com",
+    supportEmail: "venkysdgp@gmail.com",
+    phone: "+91 98765 43210",
+    address: "City Centre, Durgapur, West Bengal 713216",
+  },
+  defaults: {
+    currency: "₹",
+    currencyCode: "INR",
+  },
+}
+```
+
+### Steps to Clone & Redeploy for a New Restaurant:
+1. **Update Central Config**:
+   * Edit `venkys/src/config/restaurant.config.js` and `venkys_admin/src/config/restaurant.config.js`.
+2. **Configure Super Admin (Server-Side / Security Rules Only)**:
+   * Edit `superAdminEmail()` in `venkys/firestore.rules` and `venkys_admin/firestore.rules`.
+   * Set `SUPER_ADMIN_EMAIL` in Vercel backend environment variables and `VITE_SUPER_ADMIN_EMAIL` in frontend build envs.
+   * *Security Reminder*: Vite client bundles are public; superadmin email is kept out of public client configs.
+3. **Configure Firebase Infrastructure**:
+   * Update `.firebaserc` (default project and hosting target aliases: `venkys-customer`, `venkys-admin`).
+   * Update `firebase.json` target names if renamed.
+   * Update `.env` / `VITE_FIREBASE_*` credentials.
+4. **Configure Vercel API & CORS**:
+   * Set `CORS_ORIGIN` env in Vercel with your frontend domain(s) if using custom domains outside standard hosting patterns.
+5. **Verify Pre-Deploy**:
+   * Run `npm run check-rules`, `npm run lint`, `npm run build`.
+

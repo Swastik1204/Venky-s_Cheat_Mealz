@@ -6,9 +6,9 @@
 // Returns: { valid: boolean }
 
 import crypto from 'crypto'
-import { createRateLimiter } from './lib/rateLimiter.js'
-import { verifyAuth } from './lib/verifyAuth.js'
-import { handleCors } from './lib/cors.js'
+import { createRateLimiter } from './_lib/rateLimiter.js'
+import { verifyAuth } from './_lib/verifyAuth.js'
+import { handleCors } from './_lib/cors.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'verify-payment' })
 
