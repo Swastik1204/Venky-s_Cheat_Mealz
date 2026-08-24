@@ -42,14 +42,19 @@ The system enforces a strict 6-tier authorization model synchronized between `fi
 ## 4. Hosting & Architecture Split (Live Architecture)
 * **Customer SPA (`venkys`)**: Firebase Hosting target `venkys-customer` (site: `venkys-durgapur`). Serves static SPA bundle only (`dist/` with catch-all rewrite to `/index.html`).
 * **Admin POS SPA (`venkys_admin`)**: Firebase Hosting target `venkys-admin` (site: `venkys-admin`). Serves static SPA bundle only (`dist/` with catch-all rewrite to `/index.html`).
-* **Backend API (`api/`)**: Vercel Serverless Functions for API-only execution (`/api/*`). Leftover frontend SPA rewrites (`/(.*) -> index.html`) have been removed to prevent misrouted HTML responses.
+* **Backend API (`api/`)**: Vercel Serverless Functions for API-only execution (`/api/*`).
+  * **Frontend Disabled on Vercel**:
+    * Framework Preset set to `Other` (`--framework other`).
+    * Build command set to `echo 'Vercel API only, frontend served by Firebase Hosting'`.
+    * Output directory set to empty placeholder `public-empty` (requests to `/` and `/menu` return HTTP 404 NOT_FOUND).
+    * Helper modules stored in `api/_lib/` (leading underscore ensures Vercel does not treat helpers as standalone Serverless Functions, keeping function count safely within Hobby limits).
 * **Shared `apiClient` (`src/utils/apiClient.js`)**:
   * Resolves `VITE_API_BASE_URL` from env (never relative path fallback).
   * Automatically attaches Firebase ID token as `Authorization: Bearer <token>`.
   * Classifies errors into typed results: `{ ok, type: 'network'|'cors'|'auth'|'forbidden'|'server'|'html_response'|'error', status, body, message }`.
   * On HTTP 403, forces one `getIdToken(true)` refresh and retries once before surfacing `'forbidden'`.
   * Detects HTML response bodies where JSON was expected (`html_response` tell).
-* **24-Hour CORS Preflight Caching**: All serverless endpoints send `Access-Control-Max-Age: 86400` on OPTIONS responses via `api/lib/cors.js`.
+* **24-Hour CORS Preflight Caching**: All serverless endpoints send `Access-Control-Max-Age: 86400` on OPTIONS responses via `api/_lib/cors.js`.
 
 ---
 

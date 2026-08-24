@@ -12,9 +12,9 @@
 
 import crypto from 'crypto'
 import Razorpay from 'razorpay'
-import { createRateLimiter } from './lib/rateLimiter.js'
-import { verifyAuth } from './lib/verifyAuth.js'
-import { handleCors } from './lib/cors.js'
+import { createRateLimiter } from './_lib/rateLimiter.js'
+import { verifyAuth } from './_lib/verifyAuth.js'
+import { handleCors } from './_lib/cors.js'
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 

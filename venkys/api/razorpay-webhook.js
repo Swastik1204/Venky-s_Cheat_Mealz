@@ -4,7 +4,7 @@
 // Method: POST
 
 import crypto from 'crypto'
-import { adminDb, sendFCMToStaff, FieldValue } from './lib/fcm.js'
+import { adminDb, sendFCMToStaff, FieldValue } from './_lib/fcm.js'
 
 async function readRawBody(req) {
   if (typeof req.body === 'string') return req.body

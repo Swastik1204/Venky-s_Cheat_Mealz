@@ -36,10 +36,10 @@
 // page permission specifically (canAccess(email, 'biller')), not just "any
 // staff role" — creating orders is a biller-page action.
 
-import { createRateLimiter } from './lib/rateLimiter.js'
-import { verifyAuth } from './lib/verifyAuth.js'
-import { handleCors } from './lib/cors.js'
-import { adminDb, canAccess } from './lib/fcm.js'
+import { createRateLimiter } from './_lib/rateLimiter.js'
+import { verifyAuth } from './_lib/verifyAuth.js'
+import { handleCors } from './_lib/cors.js'
+import { adminDb, canAccess } from './_lib/fcm.js'
 import { Timestamp, FieldValue } from 'firebase-admin/firestore'
 
 const rateLimiter = createRateLimiter({ routeName: 'place-order' })
