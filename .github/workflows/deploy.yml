@@ -186,11 +186,11 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           if [ -n "$FIREBASE_TOKEN" ]; then
-            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --token "$FIREBASE_TOKEN" --project venky-s-chicken-xperience
+            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --token "$FIREBASE_TOKEN" --project venky-s-chicken-xperience --non-interactive
           elif [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/sa.json
+            node -e 'fs.writeFileSync("/tmp/sa.json", process.env.FIREBASE_SERVICE_ACCOUNT.trim(), "utf8")'
             export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
-            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --project venky-s-chicken-xperience
+            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --project venky-s-chicken-xperience --non-interactive
             rm -f /tmp/sa.json
           else
             echo "::error::Neither FIREBASE_TOKEN nor FIREBASE_SERVICE_ACCOUNT secret is set in GitHub Repository Secrets!"
