@@ -6,7 +6,7 @@
 export { BRAND_LONG, BRAND_SHORT, isCounterDocId, apiUrl, getAuthHeaders, DEFAULT_SPOTLIGHT } from './data-common'
 
 // ── Orders ──
-export { generateDailyOrderNo, createOrder, updateOrder, fetchOrder, fetchAllOrders, fetchRecentOrders, nextOrderStatus, fetchLatestUserOrder, fetchUserOrders } from './data-orders'
+export { createOrder, updateOrder, fetchOrder, fetchAllOrders, fetchRecentOrders, nextOrderStatus, fetchLatestUserOrder, fetchUserOrders, recheckPayment } from './data-orders'
 
 // ── Menu ──
 export { fetchMenuCategories, upsertMenuCategory, appendMenuItems, addMenuItems, setMenuItems, removeMenuItem, renameMenuCategory, fetchMenuItems, fetchItems, addItem, upsertCategory, upsertMenuItem, migrateRemoveCategoryNameFields } from './data-menu'
@@ -23,7 +23,7 @@ export { saveBase64Image, fetchImagesByIds, fetchImagesByIdsCached, getImageData
 export { fetchPublicConfig, getRazorpayKeyId, createRazorpayOrder, verifyRazorpayPayment } from './data-payments'
 
 // ── Settings & appearance ──
-export { fetchAppearanceSettings, saveCategoriesOrder, saveAppearanceSpotlight, fetchAppSettings, saveAppSettings, fetchBusinessProfile, syncBusinessProfile, sendWhatsAppInvoice } from './data-settings'
+export { fetchAppearanceSettings, saveCategoriesOrder, saveAppearanceSpotlight, fetchAppSettings, saveAppSettings, fetchBusinessProfile, syncBusinessProfile } from './data-settings'
 
 // ── Inventory ──
 export { fetchRawMaterials, saveRawMaterial, deleteRawMaterial, updateRawMaterialStock, deductStockForOrder } from './data-inventory'

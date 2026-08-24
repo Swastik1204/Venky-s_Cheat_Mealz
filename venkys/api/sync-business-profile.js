@@ -1,29 +1,15 @@
 /* eslint-env node */
 // Serverless function to fetch Google Business Profile data via Places API
-// and cache it in Firestore. Can be called manually or scheduled.
-import { initializeApp, getApps, cert } from 'firebase-admin/app'
-import { getFirestore } from 'firebase-admin/firestore'
+// and cache it in Firestore. Gated for admin/staff manual sync and Vercel Cron.
+
 import { createRateLimiter } from './lib/rateLimiter.js'
-import { verifyAuth } from './lib/verifyAuth.js'
+import { verifyAuth, verifyInternalSecret } from './lib/verifyAuth.js'
+import { adminDb, isStaffEmail, FieldValue } from './lib/fcm.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'sync-business-profile' })
 
-// Initialize Firebase Admin
-if (!getApps().length) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}')
-  if (serviceAccount.project_id) {
-    initializeApp({ credential: cert(serviceAccount) })
-  } else {
-    initializeApp()
-  }
-}
-
-const db = getFirestore()
-
-// Google Places API (New) endpoint
 const PLACES_API_URL = 'https://places.googleapis.com/v1/places'
 
-// Fields we want to fetch from Google
 const PLACE_FIELDS = [
   'displayName',
   'formattedAddress',
@@ -59,11 +45,9 @@ async function fetchPlaceDetails(placeId, apiKey) {
 }
 
 function transformPlaceData(data) {
-  // Transform Google's format to our app's format
   const hours = data.regularOpeningHours?.weekdayDescriptions || []
   const currentHours = data.currentOpeningHours?.weekdayDescriptions || hours
   
-  // Parse opening hours into structured format
   const businessHours = {}
   const dayMap = {
     'Monday': 'mon', 'Tuesday': 'tue', 'Wednesday': 'wed',
@@ -85,9 +69,9 @@ function transformPlaceData(data) {
     phoneInternational: data.internationalPhoneNumber || '',
     website: data.websiteUri || '',
     mapsUrl: data.googleMapsUri || '',
-    rating: data.rating || null,
+    rating: data.rating ?? null,
     reviewCount: data.userRatingCount || 0,
-    priceLevel: data.priceLevel || null,
+    priceLevel: data.priceLevel ?? null,
     businessStatus: data.businessStatus || 'OPERATIONAL',
     businessHours,
     hoursRaw: hours,
@@ -98,12 +82,105 @@ function transformPlaceData(data) {
   }
 }
 
-export default async function handler(req, res) {
-  // Apply rate limiting
-  await rateLimiter(req, res, () => {})
-  if (res.headersSent) return // Rate limit exceeded
+function filterPublicProfile(profile = {}) {
+  return {
+    name: profile.name || '',
+    address: profile.address || '',
+    phone: profile.phone || '',
+    phoneInternational: profile.phoneInternational || '',
+    website: profile.website || '',
+    mapsUrl: profile.mapsUrl || '',
+    rating: profile.rating ?? null,
+    reviewCount: profile.reviewCount || 0,
+    priceLevel: profile.priceLevel ?? null,
+    businessStatus: profile.businessStatus || 'OPERATIONAL',
+    businessHours: profile.businessHours || {},
+    hoursRaw: profile.hoursRaw || [],
+    currentHoursRaw: profile.currentHoursRaw || [],
+    isOpen: profile.isOpen ?? null,
+    lastSynced: profile.lastSynced || null,
+  }
+}
 
-  // CORS - restrict to configured origins
+async function pruneOldSyncLogs(db) {
+  try {
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+    const oldLogsSnap = await db.collection('logs')
+      .where('metadata.event', '==', 'sync_business_profile')
+      .where('timestamp', '<', ninetyDaysAgo)
+      .limit(50)
+      .get()
+
+    if (!oldLogsSnap.empty) {
+      const batch = db.batch()
+      oldLogsSnap.docs.forEach((d) => batch.delete(d.ref))
+      await batch.commit()
+    }
+  } catch (err) {
+    console.warn('[sync-business-profile] Prune old logs failed:', err?.message || err)
+  }
+}
+
+async function performSync(db, placeIdOverride, syncSource, actorEmail = null) {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY
+  if (!apiKey) {
+    throw new Error('GOOGLE_PLACES_API_KEY not configured')
+  }
+
+  let placeId = placeIdOverride
+  if (!placeId) {
+    const settingsDoc = await db.collection('miscellaneous').doc('settings').get()
+    placeId = settingsDoc.data()?.googlePlaceId
+  }
+
+  if (!placeId) {
+    throw new Error('No Google Place ID configured in settings or request')
+  }
+
+  const placeData = await fetchPlaceDetails(placeId, apiKey)
+  const transformed = transformPlaceData(placeData)
+
+  await db.collection('miscellaneous').doc('businessProfile').set({
+    ...transformed,
+    placeId,
+    updatedAt: FieldValue.serverTimestamp(),
+    syncSource,
+    syncedBy: actorEmail || syncSource,
+  }, { merge: true })
+
+  // Log sync event to logs collection for admin visibility
+  try {
+    await db.collection('logs').add({
+      action: 'update',
+      collection: 'miscellaneous',
+      documentId: 'businessProfile',
+      performedBy: syncSource === 'vercel_cron' ? 'Vercel Cron' : (actorEmail || 'Admin'),
+      userEmail: syncSource === 'vercel_cron' ? 'cron@system' : (actorEmail || 'admin'),
+      timestamp: FieldValue.serverTimestamp(),
+      metadata: {
+        event: 'sync_business_profile',
+        syncSource,
+        placeId,
+        rating: transformed.rating,
+        reviewCount: transformed.reviewCount,
+        businessStatus: transformed.businessStatus,
+        isOpen: transformed.isOpen,
+      },
+    })
+  } catch (logErr) {
+    console.warn('[sync-business-profile] Audit log write failed:', logErr?.message || logErr)
+  }
+
+  // 90-day retention cleanup of older sync log entries
+  await pruneOldSyncLogs(db)
+
+  return transformed
+}
+
+export default async function handler(req, res) {
+  await rateLimiter(req, res, () => {})
+  if (res.headersSent) return
+
   const allow = process.env.CORS_ORIGIN || ''
   const origin = req.headers?.origin || ''
   let allowOrigin = origin || '*'
@@ -119,65 +196,70 @@ export default async function handler(req, res) {
     return res.status(200).end()
   }
   
-  // Support both GET (scheduled/cron) and POST (admin trigger)
   if (req.method !== 'GET' && req.method !== 'POST') {
+    res.setHeader('Allow', 'GET, POST')
     return res.status(405).json({ error: 'Method not allowed' })
   }
-  
-  // Verify cron requests come from Vercel (for scheduled jobs)
-  const isCron = req.headers['x-vercel-cron'] === '1'
 
-  // POST requests require Firebase Auth (admin-triggered sync)
-  if (req.method === 'POST') {
-    const auth = await verifyAuth(req)
-    if (auth.error) return res.status(auth.status).json({ error: auth.error })
-  }
-  
-  try {
-    // Get API key from environment
-    const apiKey = process.env.GOOGLE_PLACES_API_KEY
-    if (!apiKey) {
-      return res.status(500).json({ error: 'GOOGLE_PLACES_API_KEY not configured' })
+  const db = adminDb()
+  const isCron = req.headers['x-vercel-cron'] === '1' || verifyInternalSecret(req)
+
+  // ---------------------------------------------------------
+  // GET: Public read of cached business profile, or Vercel Cron sync
+  // ---------------------------------------------------------
+  if (req.method === 'GET') {
+    if (isCron) {
+      try {
+        const transformed = await performSync(db, null, 'vercel_cron')
+        return res.status(200).json({
+          success: true,
+          message: 'Business profile synced successfully via cron',
+          data: transformed
+        })
+      } catch (err) {
+        console.error('[sync-business-profile] Cron sync error:', err)
+        return res.status(500).json({ error: err.message || 'Failed to sync business profile' })
+      }
     }
-    
-    // Get Place ID from request or Firestore settings
-    let placeId = req.body?.placeId || req.query?.placeId
-    
-    if (!placeId) {
-      // Try to get from app settings (miscellaneous/settings collection)
-      const settingsDoc = await db.collection('miscellaneous').doc('settings').get()
-      placeId = settingsDoc.data()?.googlePlaceId
-    }
-    
-    if (!placeId) {
-      return res.status(400).json({ 
-        error: 'No Google Place ID configured',
-        hint: 'Set googlePlaceId in admin settings or pass ?placeId=xxx'
+
+    // Public cached read
+    try {
+      const profileDoc = await db.collection('miscellaneous').doc('businessProfile').get()
+      if (!profileDoc.exists) {
+        return res.status(200).json({ success: true, data: null })
+      }
+      return res.status(200).json({
+        success: true,
+        data: filterPublicProfile(profileDoc.data())
       })
+    } catch (err) {
+      console.error('[sync-business-profile] Read profile error:', err)
+      return res.status(500).json({ error: 'Failed to fetch business profile' })
     }
-    
-    // Fetch from Google Places API
-    const placeData = await fetchPlaceDetails(placeId, apiKey)
-    const transformed = transformPlaceData(placeData)
-    
-    // Save to Firestore cache (miscellaneous/businessProfile)
-    await db.collection('miscellaneous').doc('businessProfile').set({
-      ...transformed,
-      placeId,
-      updatedAt: new Date(),
-      syncSource: isCron ? 'vercel_cron' : 'manual'
-    }, { merge: true })
-    
+  }
+
+  // ---------------------------------------------------------
+  // POST: Admin/Staff manual sync trigger
+  // ---------------------------------------------------------
+  const auth = await verifyAuth(req)
+  if (auth.error) {
+    return res.status(auth.status || 401).json({ error: auth.error })
+  }
+
+  if (!(await isStaffEmail(auth.user?.email))) {
+    return res.status(403).json({ error: 'Admin or staff access required' })
+  }
+
+  try {
+    const placeId = req.body?.placeId || null
+    const transformed = await performSync(db, placeId, 'manual', auth.user?.email)
     return res.status(200).json({
       success: true,
       message: 'Business profile synced successfully',
       data: transformed
     })
-    
-  } catch (error) {
-    console.error('Sync business profile error:', error)
-    return res.status(500).json({
-      error: error.message || 'Failed to sync business profile'
-    })
+  } catch (err) {
+    console.error('[sync-business-profile] Manual sync error:', err)
+    return res.status(500).json({ error: err.message || 'Failed to sync business profile' })
   }
 }

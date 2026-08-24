@@ -18,7 +18,6 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/send-whatsapp", "destination": "/api/send-whatsapp.js" },
     { "source": "/api/:match*", "destination": "/api/:match*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

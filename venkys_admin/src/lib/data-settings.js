@@ -1,34 +1,8 @@
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
-import { db, auth } from './firebase'
-import { DEFAULT_SPOTLIGHT, normalizeSpotlight, apiUrl, getAuthHeaders } from './data-common'
+import { db } from './firebase'
+import { DEFAULT_SPOTLIGHT, normalizeSpotlight, getAuthHeaders } from './data-common'
 import { logSettingsChange } from './auditLog'
 import { recordChange } from './data-changeHistory'
-
-export async function sendWhatsAppInvoice(phone, payload) {
-  try {
-    const digits = String(phone || '').replace(/\D/g, '')
-    const normalizedPhone = digits.length === 10 ? `91${digits}` : digits
-    if (!normalizedPhone) return { __skipped: 'missing_phone' }
-
-    const url = apiUrl('/api/send-whatsapp')
-    const authHeaders = await getAuthHeaders()
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({ phone: normalizedPhone, payload })
-    })
-    let body = null
-    try { body = await res.json() } catch {}
-    if (!res.ok) {
-      const errObj = { __error: 'http_error', status: res.status, ...(body || {}) }
-      try { console.warn('[wa] send failed', JSON.stringify(errObj, null, 2)) } catch {}
-      return errObj
-    }
-    return body || {}
-  } catch (e) {
-    return { __error: 'network_error', message: e.message }
-  }
-}
 
 function resolveActor(performedBy) {
   return String(performedBy || 'system')
@@ -165,7 +139,6 @@ export async function fetchAppSettings() {
       gstRate: 0.05,
       adminMobile: '',
       cashManagerPhones: [],
-      orderMessengerPhones: [],
       shopAddress: '',
       shopPhone: '',
       chefName: '',
@@ -187,9 +160,6 @@ export async function fetchAppSettings() {
     }
     const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
     const adminMobile = d.adminMobile || ''
-    const orderMessengerPhones = Array.isArray(d.orderMessengerPhones)
-      ? d.orderMessengerPhones.map((p) => normalize10(p)).filter(Boolean)
-      : []
     const shopAddress = d.shopAddress || ''
     const shopPhone = d.shopPhone || ''
     const chefName = d.chefName || ''
@@ -209,7 +179,6 @@ export async function fetchAppSettings() {
       gstRate,
       cashManagerPhones,
       adminMobile,
-      orderMessengerPhones,
       shopAddress,
       shopPhone,
       chefName,
@@ -228,7 +197,6 @@ export async function fetchAppSettings() {
       gstRate: 0.05,
       cashManagerPhones: [],
       adminMobile: '',
-      orderMessengerPhones: [],
       shopAddress: '',
       shopPhone: '',
       chefName: '',
@@ -257,11 +225,6 @@ export async function saveAppSettings(partial, performedBy = null) {
   if (partial.cashManagerPhones !== undefined) {
     payload.cashManagerPhones = Array.isArray(partial.cashManagerPhones)
       ? partial.cashManagerPhones.map((p) => normalize10(p)).filter(Boolean)
-      : []
-  }
-  if (partial.orderMessengerPhones !== undefined) {
-    payload.orderMessengerPhones = Array.isArray(partial.orderMessengerPhones)
-      ? partial.orderMessengerPhones.map((p) => normalize10(p)).filter(Boolean)
       : []
   }
   if (partial.shopAddress !== undefined) payload.shopAddress = String(partial.shopAddress || '')
@@ -332,10 +295,14 @@ export async function fetchBusinessProfile() {
 export async function syncBusinessProfile(placeId) {
   const url = import.meta.env.VITE_SYNC_BUSINESS_PROFILE_URL || '/api/sync-business-profile'
   let res
+  const authHeaders = await getAuthHeaders()
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
+      },
       body: JSON.stringify({ placeId })
     })
   } catch {

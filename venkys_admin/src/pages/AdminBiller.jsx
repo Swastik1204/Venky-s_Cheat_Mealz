@@ -6,7 +6,7 @@ import { MdPayment, MdQrCode, MdSearch, MdKeyboardReturn, MdRestaurantMenu } fro
 
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, generateDailyOrderNo, updateOrder, fetchAppSettings, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
+import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, updateOrder, fetchAppSettings, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
 
 const PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash', helper: 'Collect cash at counter', icon: MdPayment },
@@ -445,7 +445,22 @@ export default function AdminBiller() {
              orderId: razorpayOrder.orderId,
            }
 
-           await submitBill({ otpVerified: true, navigateToOrders: false, paymentOverride })
+           try {
+             await submitBill({ otpVerified: true, navigateToOrders: false, paymentOverride })
+           } catch (billError) {
+             // Payment already captured by Razorpay at this point — a failure
+             // here means the charge succeeded but no order was recorded.
+             // Rare (staff is present and can act immediately, unlike an
+             // unattended web checkout), so no dedicated recovery endpoint —
+             // just surface the payment ID so it can be found in the
+             // Razorpay dashboard and resolved manually.
+             console.error('Order creation failed after payment capture', billError)
+             pushToast(
+               `Payment captured (ID: ${paymentResponse.razorpay_payment_id}) but the order was NOT saved: ${billError.message || 'unknown error'}. Note this payment ID — do not re-charge the customer.`,
+               'error',
+               15000
+             )
+           }
          } catch (e) {
            console.error('Online payment failed', e)
            pushToast(e.message || 'Online payment failed', 'error')
@@ -480,7 +495,6 @@ export default function AdminBiller() {
         setEditOrder(null)
         await refreshRecent()
       } else {
-        createdOrderNo = await generateDailyOrderNo('dine-in', user?.uid || user?.email || 'POS')
         const now = new Date()
         const guestMeta = guestMode ? {
           guestOrder: true,
@@ -490,19 +504,20 @@ export default function AdminBiller() {
 
         const initialStatus = payment?.status === 'paid' ? 'preparing' : 'placed'
 
-        const id = await createOrder({
+        // The server assigns the order number (atomic counter + create,
+        // using server time) and recomputes item pricing from the menu —
+        // it is no longer pre-generated client-side.
+        createdOrderNo = await createOrder({
           userId: userIdForOrder,
           customer,
           items: orderItems,
           orderType: 'dine-in',
           source: 'pos',
-          orderNo: createdOrderNo,
-          totalAmount: grandTotal,
           status: initialStatus,
           ...guestMeta,
         })
         setSuccess({
-          id,
+          id: createdOrderNo,
           userId: userIdForOrder,
           orderNo: createdOrderNo,
           items: orderItems,

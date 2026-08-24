@@ -54,7 +54,7 @@ export async function fetchUserProfile(uid) {
 
 export async function updateUserProfile(uid, data) {
   if (!uid) return
-  const allowed = ['displayName', 'phone', 'whatsapp', 'gender', 'email']
+  const allowed = ['displayName', 'phone', 'gender', 'email']
   const out = {}
   for (const k of allowed) {
     if (data[k] !== undefined) out[k] = data[k]

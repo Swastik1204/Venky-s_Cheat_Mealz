@@ -99,33 +99,6 @@ export function normalizeSpotlight(raw) {
   }
 }
 
-// ── Phone normalizer (WhatsApp) ──
-export function normalizeWhatsappPhone(phone) {
-  let raw = ''
-  if (typeof phone === 'string') {
-    raw = phone.trim()
-  } else if (typeof phone === 'number') {
-    raw = String(phone).trim()
-  } else if (phone && typeof phone === 'object') {
-    raw = String(phone.phone || phone.value || phone.number || '').trim()
-  } else {
-    raw = String(phone || '').trim()
-  }
-  if (!raw) return ''
-  let digits = raw.replace(/\D/g, '')
-
-  // Common local formats: 0XXXXXXXXXX or 0091XXXXXXXXXX
-  if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1)
-  if (digits.length === 14 && digits.startsWith('0091')) digits = digits.slice(2)
-  if (digits.length === 13 && digits.startsWith('091')) digits = digits.slice(1)
-
-  if (digits.length === 10) digits = `91${digits}`
-  if (digits.length === 12 && digits.startsWith('91')) return digits
-
-  // Reject non-Indian or malformed numbers for WA sends.
-  return ''
-}
-
 // ── API URL builder ──
 export function apiUrl(path) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`

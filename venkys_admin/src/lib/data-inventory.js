@@ -3,7 +3,6 @@ import { collection, doc, getDocs, getDoc, setDoc, addDoc, deleteDoc, serverTime
 import { db } from './firebase'
 import { logInventoryChange, sendLogEmail } from './auditLog'
 import { fetchMenuCategories } from './data-menu'
-import { normalizeWhatsappPhone, apiUrl, getAuthHeaders } from './data-common'
 
 function normalizeMaterialName(name) {
   return String(name || '').trim()
@@ -138,8 +137,9 @@ export async function deductStockForOrder(orderItems) {
 }
 
 /**
- * Check materials against their alert thresholds and send email + WhatsApp alerts
+ * Check materials against their alert thresholds and send an email alert
  * for any that have dropped below the threshold.
+ * (WhatsApp alerts removed with the WhatsApp Cloud API integration.)
  */
 async function checkLowStockAlerts(materialIds) {
   if (!materialIds.length) return
@@ -162,47 +162,8 @@ async function checkLowStockAlerts(materialIds) {
   const lines = lowItems.map(m => `• ${m.name}: ${m.stock} ${m.unit} remaining (alert at ${m.threshold} ${m.unit})`)
   const message = `🚨 Low Stock Alert\n\nThe following items are running low:\n${lines.join('\n')}\n\nPlease restock soon.`
 
-  // 1) Send email alert
+  // Send email alert
   sendLogEmail('stock_low_alert', message, {
     items: lowItems.map(m => ({ name: m.name, stock: m.stock, threshold: m.threshold, unit: m.unit })),
   })
-
-  // 2) Send WhatsApp alert to cash manager phones
-  try {
-    const { fetchAppSettings } = await import('./data-settings')
-    const settings = await fetchAppSettings()
-    const phones = Array.isArray(settings?.cashManagerPhones) ? [...settings.cashManagerPhones] : []
-
-    if (phones.length > 0) {
-      const headers = await getAuthHeaders()
-      for (const phone of phones) {
-        const normalized = normalizeWhatsappPhone(phone)
-        if (!normalized) continue
-        fetch(apiUrl('/api/send-whatsapp'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...headers },
-          body: JSON.stringify({
-            phone: normalized,
-            payload: {
-              templateName: 'venkys_stock_alert',
-              templateLanguage: 'en',
-              components: [
-                {
-                  type: 'body',
-                  parameters: lowItems.slice(0, 3).map(m => ({
-                    type: 'text',
-                    text: `${m.name}: ${m.stock} ${m.unit}`
-                  }))
-                }
-              ],
-              // Fallback: send as plain text if template doesn't exist
-              fallbackText: message,
-            }
-          })
-        }).catch(() => { /* silent */ })
-      }
-    }
-  } catch {
-    // WhatsApp alert is best-effort, don't block
-  }
 }

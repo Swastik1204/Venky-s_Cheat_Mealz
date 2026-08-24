@@ -18,175 +18,78 @@
 //   taxRate?: number,
 //   taxAmount?: number,
 // }
-import { collection, doc, getDocs, getDoc, query, where, setDoc, serverTimestamp, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion } from 'firebase/firestore'
+import { collection, doc, getDocs, getDoc, query, where, orderBy, runTransaction, increment, limit as fsLimit, startAfter, Timestamp, arrayUnion, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
-import { isCounterDocId, DAILY_COUNTER_DOC, formatUserSegment, isPermissionDenied, apiUrl, getAuthHeaders } from './data-common'
+import { isCounterDocId, formatUserSegment, isPermissionDenied, apiUrl, getAuthHeaders } from './data-common'
 
-// ── Order number generation ──
-
-// Generate a daily-reset order number like YYYYMMDD-SEQ-USERSEGMENT
-export async function generateDailyOrderNo(orderType = 'dine-in', userId = null) {
-  const type = String(orderType || 'dine-in').toLowerCase()
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  const dateKey = `${y}${m}${d}`
-  const counterRef = doc(db, 'miscellaneous', DAILY_COUNTER_DOC)
-  let next = null
-  try {
-    next = await runTransaction(db, async (tx) => {
-      const snap = await tx.get(counterRef)
-      const data = snap.exists() ? snap.data() : {}
-      const currentDateKey = data.currentDate || ''
-      const currentTotal = currentDateKey === dateKey ? (Number(data.total) || 0) : 0
-      const newTotal = currentTotal + 1
-      tx.set(counterRef, {
-        currentDate: dateKey,
-        total: newTotal,
-        lastOrderType: type,
-        updatedAt: serverTimestamp(),
-      }, { merge: true })
-      return newTotal
-    })
-  } catch (err) {
-    if (!isPermissionDenied(err)) throw err
-    next = null
-  }
-  const seq = next != null
-    ? String(next).padStart(4, '0')
-    : String((Date.now() % 10000)).padStart(4, '0')
-  return `${dateKey}-${seq}`
-}
-
-export async function createOrder({ userId = null, customer = {}, items, orderType = 'delivery', source = 'web', orderNo = null, taxRate = null, taxAmount = null, totalAmount = null }) {
-  if (String(source || '').toLowerCase() === 'web' && !userId) {
-    throw new Error('Please sign in before placing an order.')
-  }
+// ── Order creation (server-owned) ──
+//
+// Order-number generation and document creation both happen server-side in
+// /api/place-order: the daily counter transaction and the order-document
+// create are atomic there (using server time), which closes the ID-collision
+// and timezone-split risks the old client-side generateDailyOrderNo() +
+// setDoc() pair had. Item pricing is always recomputed server-side from the
+// 'menu' collection, so the persisted total is never a client value.
+export async function createOrder({ customer = {}, items, orderType = 'delivery', taxRate = null }) {
   const safeItems = Array.isArray(items) ? items : []
   if (!safeItems.length) {
     throw new Error('Order must include at least one item')
   }
 
-  const normalizedItems = safeItems.map((item, idx) => {
-    const rate = Number(item?.rate ?? item?.price) || 0
-    const qty = Number(item?.qty) || 0
-    const total = Math.round(rate * qty)
-    const normalized = {
-      id: item?.id || `item-${idx + 1}`,
-      name: String(item?.name || `Item ${idx + 1}`).trim(),
-      rate,
-      qty,
-      total,
-    }
-    if (item?.mrp != null) normalized.mrp = Number(item.mrp) || null
-    if (item?.discountPercent != null) normalized.discountPercent = Number(item.discountPercent) || null
-    if (item?.variantLabel) normalized.variantLabel = String(item.variantLabel)
-    if (item?.note) normalized.note = String(item.note)
-    if (item?.modifiers) normalized.modifiers = item.modifiers
-    return normalized
+  const paymentMethod = customer?.payment?.method || 'cod'
+  const authHeaders = await getAuthHeaders()
+  const res = await fetch(apiUrl('/api/place-order'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: JSON.stringify({
+      items: safeItems.map((item) => ({
+        id: item?.id,
+        name: item?.name,
+        rate: item?.rate ?? item?.price ?? 0,
+        qty: item?.qty,
+        variantLabel: item?.variantLabel,
+        mrp: item?.mrp,
+        discountPercent: item?.discountPercent,
+        note: item?.note,
+        modifiers: item?.modifiers,
+      })),
+      customer,
+      orderType,
+      paymentMethod,
+      taxRate,
+    }),
   })
-  const subtotal = Math.round(normalizedItems.reduce((sum, it) => sum + (Number(it.total) || ((it.rate || 0) * it.qty)), 0))
-  const normalizedTaxRate = typeof taxRate === 'number' ? taxRate : (taxRate != null ? Number(taxRate) : null)
-  const normalizedTaxAmount = taxAmount != null ? Math.round(Number(taxAmount)) : (normalizedTaxRate != null ? Math.round(subtotal * normalizedTaxRate) : null)
-  const resolvedTotalAmount = totalAmount != null ? Math.round(Number(totalAmount)) : Math.round(subtotal + (normalizedTaxAmount || 0))
-  const resolvedOrderNo = orderNo || await generateDailyOrderNo(orderType, userId || customer?.servedBy || customer?.phone || null)
-
-  const payment = (() => {
-    const raw = customer?.payment && typeof customer.payment === 'object' ? customer.payment : {}
-    return {
-      method: raw.method || 'cod',
-      status: raw.status || 'pending',
-      reference: raw.reference || null,
-      collectedBy: raw.collectedBy || null,
-      collectedAt: raw.collectedAt || null,
-      metadata: raw.metadata || null,
-    }
-  })()
-
-  const customerPayload = {
-    name: customer?.name ? String(customer.name).trim() : '',
-    phone: customer?.phone ? String(customer.phone).trim() : '',
-    address: customer?.address || '',
-    instructions: customer?.instructions || '',
-    landmark: customer?.landmark || '',
-    servedBy: customer?.servedBy || '',
-    table: customer?.table || '',
-    payment,
+  let body = null
+  try { body = await res.json() } catch { /* noop */ }
+  if (!res.ok) {
+    throw new Error(body?.error || 'Please sign in before placing an order.')
   }
-  if (customer?.email) customerPayload.email = String(customer.email).trim()
-  if (customer?.geoHash) customerPayload.geoHash = customer.geoHash
-  if (customer?.location) customerPayload.location = customer.location
-
-  const statusActor = source === 'pos' ? 'pos' : (userId ? `user:${userId}` : 'guest')
-  const nowTs = Timestamp.now()
-
-  const base = {
-    userId: userId || null,
-    customer: customerPayload,
-    items: normalizedItems,
-    subtotal,
-    orderType,
-    source,
-    orderNo: resolvedOrderNo,
-    status: 'placed',
-    statusHistory: [{ status: 'placed', at: nowTs, actor: statusActor }],
-    payment,
-    totalAmount: resolvedTotalAmount,
-    revisionCount: 0,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  }
-
-  if (normalizedTaxRate != null) base.taxRate = normalizedTaxRate
-  if (normalizedTaxAmount != null) base.taxAmount = normalizedTaxAmount
-
-  const topRef = doc(db, 'orders', resolvedOrderNo)
-  let topLevelPersisted = false
-  try {
-    await setDoc(topRef, base)
-    topLevelPersisted = true
-  } catch (err) {
-    if (err?.code !== 'permission-denied') {
-      throw err
-    }
-    if (import.meta.env?.DEV) {
-      console.warn('[orders] Skipping top-level order write due to permission-denied rule.')
-    }
-  }
-
-  if (topLevelPersisted) return resolvedOrderNo
-  throw new Error('You need to sign in before placing an order.')
+  return body.orderNo
 }
 
-// ── WhatsApp messaging ──
+// ── Staff push notification ──
 
-// Optional WhatsApp sender
-export async function sendWhatsAppInvoice(phone, payload) {
+// Notify staff of a newly placed order via FCM. Fire-and-forget: the server
+// reads the order document itself, so only the orderNo is sent.
+export async function notifyStaffNewOrder(orderNo) {
   try {
-    const digits = String(phone || '').replace(/\D/g, '')
-    const normalizedPhone = digits.length === 10 ? `91${digits}` : digits
-    if (!normalizedPhone) return { __skipped: 'missing_phone' }
-
-    const url = apiUrl('/api/send-whatsapp')
+    if (!orderNo) return { __skipped: 'missing_orderNo' }
     const authHeaders = await getAuthHeaders()
-    const res = await fetch(url, {
+    const res = await fetch(apiUrl('/api/notify-order'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({ phone: normalizedPhone, payload })
+      body: JSON.stringify({ orderNo }),
     })
     let body = null
-    try { body = await res.json() } catch {}
+    try { body = await res.json() } catch { /* noop */ }
     if (!res.ok) {
-      const errObj = { __error: 'http_error', status: res.status, ...(body || {}) }
-      try { console.warn('[wa] send failed', JSON.stringify(errObj, null, 2)) } catch {}
-      return errObj
+      console.warn('[fcm] notify-order failed', res.status, body)
+      return { __error: 'http_error', status: res.status }
     }
     return body || {}
   } catch (e) {
-    const errObj = { __error: 'network', message: String(e) }
-    try { console.warn('[wa] send failed', errObj) } catch {}
-    return errObj
+    console.warn('[fcm] notify-order network error', e)
+    return { __error: 'network', message: String(e) }
   }
 }
 

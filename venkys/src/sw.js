@@ -44,6 +44,47 @@ self.addEventListener('activate', (event) => {
   self.clients.claim()
 })
 
+// ── Push notifications (FCM web push) ──
+// Background messages arrive here as raw Push API events. The FCM webpush
+// payload shape is { notification: { title, body }, data: { ... } }.
+self.addEventListener('push', (event) => {
+  if (!event.data) return
+  let payload = {}
+  try { payload = event.data.json() } catch { return }
+  const notification = payload.notification || {}
+  const data = payload.data || {}
+  const title = notification.title || data.title || 'Venky’s'
+  const body = notification.body || data.body || ''
+  const url = data.url || (data.orderNo ? `/active-orders?id=${encodeURIComponent(data.orderNo)}` : '/')
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      tag: data.orderNo ? `order-${data.orderNo}` : undefined,
+      data: { url },
+    })
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = event.notification.data?.url || '/'
+  event.waitUntil(
+    (async () => {
+      const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      for (const client of clientList) {
+        if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+          await client.focus()
+          if ('navigate' in client) { try { await client.navigate(url) } catch { /* noop */ } }
+          return
+        }
+      }
+      await self.clients.openWindow(url)
+    })()
+  )
+})
+
 self.addEventListener('fetch', (event) => {
   const req = event.request
   const url = new URL(req.url)

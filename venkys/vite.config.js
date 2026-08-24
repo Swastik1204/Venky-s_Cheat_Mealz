@@ -29,6 +29,7 @@ export default defineConfig(({ mode }) => {
             'firebase-app': ['firebase/app'],
             'firebase-auth': ['firebase/auth'],
             'firebase-firestore': ['firebase/firestore'],
+            'firebase-messaging': ['firebase/messaging'],
           }
         }
       },

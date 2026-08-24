@@ -18,14 +18,13 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/send-whatsapp", "destination": "/api/send-whatsapp.js" },
     { "source": "/api/:match*", "destination": "/api/:match*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "crons": [
     {
       "path": "/api/sync-business-profile",
-      "schedule": "0 6 */2 * *"
+      "schedule": "0 6 * * 1"
     }
   ]
 }
