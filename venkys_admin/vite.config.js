@@ -55,6 +55,18 @@ export default defineConfig({
     },
     dedupe: ['react', 'react-dom', 'react/jsx-runtime'],
   },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-router-dom',
+      'workbox-window',
+      'firebase/app',
+      'firebase/auth',
+      'firebase/firestore',
+      'recharts',
+    ],
+  },
   plugins: [
     react(),
     VitePWA({
