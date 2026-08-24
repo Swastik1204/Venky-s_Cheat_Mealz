@@ -127,26 +127,26 @@ function CategoriesBarInner({ items = [] }) {
         aria-label="Scroll categories left"
         onClick={() => scrollBy(-1)}
         aria-disabled={!showLeft}
-        className={`group absolute left-1 md:left-2 top-1/2 -translate-y-1/2 z-30 w-11 h-11 md:w-14 md:h-14 rounded-full flex items-center justify-center
-        transition-opacity duration-300 border
-        ${showLeft ? 'opacity-95 cursor-pointer' : 'opacity-0 pointer-events-none'}
+        className={`group absolute left-1 md:left-2 top-1/2 -translate-y-1/2 z-30 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center
+        transition-all duration-300 border-2
+        ${showLeft ? 'opacity-95 cursor-pointer hover:scale-110 active:scale-95' : 'opacity-0 pointer-events-none'}
         ${pulse && showLeft ? 'animate-pulse' : ''}
-        bg-gradient-to-br from-neutral/80 via-neutral/60 to-neutral/40 border-base-100/40 shadow-lg hover:shadow-xl`}
+        bg-base-100/90 text-primary border-primary/40 shadow-lg hover:border-primary hover:bg-base-100 hover:shadow-primary/20 backdrop-blur-md dark:bg-base-200/95 dark:text-amber-400 dark:border-amber-400/60 dark:hover:border-amber-400 dark:shadow-[0_0_15px_rgba(250,204,21,0.25)]`}
       >
-        <svg viewBox="0 0 24 24" className="w-6 h-6 md:w-7 md:h-7 text-base-100 drop-shadow" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+        <svg viewBox="0 0 24 24" className="w-6 h-6 text-primary dark:text-amber-400 transition-transform duration-200 group-hover:-translate-x-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
       </button>
       <button
         type="button"
         aria-label="Scroll categories right"
         onClick={() => scrollBy(1)}
         aria-disabled={!showRight}
-        className={`group absolute right-1 md:right-2 top-1/2 -translate-y-1/2 z-30 w-11 h-11 md:w-14 md:h-14 rounded-full flex items-center justify-center
-        transition-opacity duration-300 border
-        ${showRight ? 'opacity-95 cursor-pointer' : 'opacity-0 pointer-events-none'}
+        className={`group absolute right-1 md:right-2 top-1/2 -translate-y-1/2 z-30 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center
+        transition-all duration-300 border-2
+        ${showRight ? 'opacity-95 cursor-pointer hover:scale-110 active:scale-95' : 'opacity-0 pointer-events-none'}
         ${pulse && showRight ? 'animate-pulse' : ''}
-        bg-gradient-to-br from-neutral/80 via-neutral/60 to-neutral/40 border-base-100/40 shadow-lg hover:shadow-xl`}
+        bg-base-100/90 text-primary border-primary/40 shadow-lg hover:border-primary hover:bg-base-100 hover:shadow-primary/20 backdrop-blur-md dark:bg-base-200/95 dark:text-amber-400 dark:border-amber-400/60 dark:hover:border-amber-400 dark:shadow-[0_0_15px_rgba(250,204,21,0.25)]`}
       >
-        <svg viewBox="0 0 24 24" className="w-6 h-6 md:w-7 md:h-7 text-base-100 drop-shadow" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+        <svg viewBox="0 0 24 24" className="w-6 h-6 text-primary dark:text-amber-400 transition-transform duration-200 group-hover:translate-x-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7"/></svg>
       </button>
       <div
         ref={scrollerRef}
