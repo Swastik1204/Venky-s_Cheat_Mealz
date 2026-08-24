@@ -3,8 +3,8 @@
 // Public (non-secret) runtime config for the frontend.
 // Safe to expose: Razorpay Key ID is public.
 
-import { createRateLimiter } from './lib/rateLimiter.js'
-import { handleCors } from './lib/cors.js'
+import { createRateLimiter } from './_lib/rateLimiter.js'
+import { handleCors } from './_lib/cors.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'public-config' })
 

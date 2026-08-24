@@ -15,6 +15,7 @@ import { fetchUserOrders, fetchUserProfile, updateUserProfile, fetchAddresses, a
 import { getProfileCompletion } from '../lib/data-user'
 import { db } from '../lib/firebase'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
+import { RESTAURANT_CONFIG } from '../config/restaurant.config'
 
 // ── Helpers ──
 
@@ -39,7 +40,7 @@ export default function Profile() {
   const [orderModal, setOrderModal] = useState(null);
   const [addrModalOpen, setAddrModalOpen] = useState(false);
   const [addrEditing, setAddrEditing] = useState(null);
-  const [addrForm, setAddrForm] = useState({ name: '', line1: '', line2: '', city: 'Durgapur', state: 'West Bengal', zip: '', landmark: '', phone: '', tag: 'Home', lat: null, lng: null, placeId: '', mapUrl: '' });
+  const [addrForm, setAddrForm] = useState({ name: '', line1: '', line2: '', city: RESTAURANT_CONFIG.location.city, state: RESTAURANT_CONFIG.location.state, zip: '', landmark: '', phone: '', tag: 'Home', lat: null, lng: null, placeId: '', mapUrl: '' });
   const [addrSaving, setAddrSaving] = useState(false);
   const addrLine1Ref = useRef(null);
   const addrLine2Ref = useRef(null);
@@ -144,7 +145,7 @@ export default function Profile() {
       setEditModalOpen(false);
       setAddrModalOpen(false);
       setAddrEditing(null);
-      setAddrForm({ name: '', line1: '', line2: '', city: 'Durgapur', state: 'West Bengal', zip: '', landmark: '', phone: '', tag: 'Home', lat: null, lng: null, placeId: '', mapUrl: '' });
+      setAddrForm({ name: '', line1: '', line2: '', city: RESTAURANT_CONFIG.location.city, state: RESTAURANT_CONFIG.location.state, zip: '', landmark: '', phone: '', tag: 'Home', lat: null, lng: null, placeId: '', mapUrl: '' });
       setSetAsDefault(false);
       return;
     }
@@ -207,8 +208,8 @@ export default function Profile() {
       name: '',
       line1: '',
       line2: '',
-      city: 'Durgapur',
-      state: 'West Bengal',
+      city: RESTAURANT_CONFIG.location.city,
+      state: RESTAURANT_CONFIG.location.state,
       zip: '',
       landmark: '',
       phone: user?.phoneNumber || profile?.phone || '',
@@ -312,7 +313,7 @@ export default function Profile() {
       ...f,
       // Keep line 1 for manual entry; put autofill into line 2
       line2: parts.formatted || [parts.line1, parts.line2].filter(Boolean).join(', ') || f.line2,
-      city: 'Durgapur',
+      city: RESTAURANT_CONFIG.location.city,
       state: parts.state || f.state,
       zip: parts.zip || f.zip,
       placeId: parts.placeId || f.placeId,
@@ -812,7 +813,7 @@ export default function Profile() {
                             ...f, 
                             // Auto-fill line 2
                             line2: parts.formatted || [parts.line1, parts.line2].filter(Boolean).join(', ') || f.line2, 
-                            city: 'Durgapur', 
+                            city: RESTAURANT_CONFIG.location.city, 
                             state: parts.state || f.state, 
                             zip: parts.zip || f.zip, 
                             placeId: parts.placeId || f.placeId, 
@@ -867,7 +868,7 @@ export default function Profile() {
                   </div>
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent opacity-70 cursor-not-allowed">
                       <MdLocationCity className="w-5 h-5 opacity-50" />
-                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0" value="Durgapur" readOnly />
+                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0" value={RESTAURANT_CONFIG.location.city} readOnly />
                   </div>
               </div>
 

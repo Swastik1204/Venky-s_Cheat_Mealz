@@ -6,9 +6,9 @@
 // Returns: { orderId, amount, currency }
 
 import Razorpay from 'razorpay'
-import { createRateLimiter } from './lib/rateLimiter.js'
-import { verifyAuth } from './lib/verifyAuth.js'
-import { handleCors } from './lib/cors.js'
+import { createRateLimiter } from './_lib/rateLimiter.js'
+import { verifyAuth } from './_lib/verifyAuth.js'
+import { handleCors } from './_lib/cors.js'
 
 // NOTE: Staff new-order pushes moved to /api/notify-order, which fires after
 // the order document is persisted (covers COD orders and uses real order data

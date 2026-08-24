@@ -101,7 +101,7 @@ export default function NavBar() {
     return () => window.removeEventListener('resize', updateNavHeight)
   }, [])
   const isDark = theme === 'venkys_dark'
-  const { label: locLabel, loading: isLocating, locate } = useDeliveryLocation('Durgapur')
+  const { label: locLabel, loading: isLocating, locate } = useDeliveryLocation()
   // user obtained earlier
   const { openAuth } = useUI()
   const displayLabel = (() => {

@@ -14,6 +14,7 @@ import { createOrder, fetchAddresses, addAddress, setDefaultAddress, createRazor
 import { db } from '../lib/firebase'
 import { registerFcmToken } from '../lib/fcm'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
+import { RESTAURANT_CONFIG } from '../config/restaurant.config'
 
 const CHECKOUT_PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash on Delivery', helper: 'Pay when the order arrives.', icon: MdPayment },
@@ -91,8 +92,8 @@ export default function Checkout() {
     email: user?.email || '',
     addressLine1: '',
     addressLine2: '',
-    city: 'Durgapur',
-    state: 'West Bengal',
+    city: RESTAURANT_CONFIG.location.city,
+    state: RESTAURANT_CONFIG.location.state,
     pin: '',
     landmark: '',
     addressTag: 'Home',
@@ -215,11 +216,10 @@ export default function Checkout() {
     // Address line 1 is for house/flat/building; line 2 is for Area/Locality.
     const placeName = typeof place?.name === 'string' ? place.name.trim() : ''
     const partsCity = typeof parts.city === 'string' ? parts.city.trim() : ''
-    const partsCityOk = partsCity && partsCity.toLowerCase() !== 'durgapur' ? partsCity : ''
+    const partsCityOk = partsCity && partsCity.toLowerCase() !== RESTAURANT_CONFIG.location.city.toLowerCase() ? partsCity : ''
     const locality = (parts.line2 || '').trim() || placeName || partsCityOk
     update('addressLine2', locality || '')
-    // City is fixed to Durgapur; do not override from Google
-    update('city', 'Durgapur')
+    update('city', RESTAURANT_CONFIG.location.city)
     if (parts.state) update('state', parts.state)
     if (parts.zip) update('pin', parts.zip)
     if (typeof parts.lat === 'number') update('lat', parts.lat)
@@ -255,8 +255,8 @@ export default function Checkout() {
       ...prev,
       addressLine1: a.line1 || '',
       addressLine2: a.line2 || '',
-      city: 'Durgapur',
-      state: a.state || prev.state || 'West Bengal',
+      city: RESTAURANT_CONFIG.location.city,
+      state: a.state || prev.state || RESTAURANT_CONFIG.location.state,
       pin: a.zip || '',
       landmark: a.landmark || '',
       addressTag: a.tag || prev.addressTag || 'Other',
@@ -298,8 +298,8 @@ export default function Checkout() {
       ...prev,
       addressLine1: '',
       addressLine2: '',
-      city: 'Durgapur',
-      state: 'West Bengal',
+      city: RESTAURANT_CONFIG.location.city,
+      state: RESTAURANT_CONFIG.location.state,
       pin: '',
       landmark: '',
       addressTag: 'Home',
@@ -453,8 +453,8 @@ export default function Checkout() {
       // Address: preserve on login, clear on logout / account-switch
       addressLine1: isLogin ? prev.addressLine1 : '',
       addressLine2: isLogin ? prev.addressLine2 : '',
-      city: prev.city || 'Durgapur',
-      state: prev.state || 'West Bengal',
+      city: prev.city || RESTAURANT_CONFIG.location.city,
+      state: prev.state || RESTAURANT_CONFIG.location.state,
       pin: isLogin ? prev.pin : '',
       landmark: isLogin ? prev.landmark : '',
       addressTag: isLogin ? (prev.addressTag || 'Home') : 'Home',
@@ -563,7 +563,7 @@ export default function Checkout() {
         // Distance note only — location no longer gates checkout; delivery is coordinated by phone.
         const withinCheck = deliveryLocation.checkWithin(latitude, longitude)
         if (!withinCheck.ok) {
-          pushToast(`Heads up: this location is ~${withinCheck.distance.toFixed(1)} km from Durgapur (usual delivery area is ${withinCheck.radiusKm} km). We'll confirm by phone.`, 'warning', 5000)
+          pushToast(`Heads up: this location is ~${withinCheck.distance.toFixed(1)} km from ${RESTAURANT_CONFIG.location.city} (usual delivery area is ${withinCheck.radiusKm} km). We'll confirm by phone.`, 'warning', 5000)
         }
 
         try {
@@ -573,8 +573,7 @@ export default function Checkout() {
             // Keep line 1 for manual entry; put autofill into line 2
             const autoAddress = parts.formatted || [parts.line1, parts.line2].filter(Boolean).join(', ')
             update('addressLine2', autoAddress || '')
-            // City fixed to Durgapur
-            update('city', 'Durgapur')
+            update('city', RESTAURANT_CONFIG.location.city)
             if (parts.state) update('state', parts.state)
             if (parts.zip) update('pin', parts.zip)
             if (parts.placeId) update('placeId', parts.placeId)
@@ -641,7 +640,7 @@ export default function Checkout() {
         // Distance note only — location no longer gates checkout.
         const withinCheck = deliveryLocation.checkWithin(latitude, longitude)
         if (!withinCheck.ok) {
-          pushToast(`Heads up: this location is ~${withinCheck.distance.toFixed(1)} km from Durgapur (usual delivery area is ${withinCheck.radiusKm} km). We'll confirm by phone.`, 'warning', 5000)
+          pushToast(`Heads up: this location is ~${withinCheck.distance.toFixed(1)} km from ${RESTAURANT_CONFIG.location.city} (usual delivery area is ${withinCheck.radiusKm} km). We'll confirm by phone.`, 'warning', 5000)
         } else {
           pushToast('GPS location added for delivery!', 'success', 3000)
         }
@@ -693,8 +692,7 @@ export default function Checkout() {
           // Keep line 1 manual; put geocoded address into line 2
           const autoAddress = geo.formatted || [geo.line1, geo.line2].filter(Boolean).join(', ')
           if (autoAddress) update('addressLine2', autoAddress)
-          // City fixed to Durgapur
-          update('city', 'Durgapur')
+          update('city', RESTAURANT_CONFIG.location.city)
           if (geo.state) update('state', geo.state)
           if (geo.zip) update('pin', geo.zip)
           if (geo.placeId) update('placeId', geo.placeId)
@@ -1367,7 +1365,7 @@ export default function Checkout() {
                                     </div>
                                     <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent opacity-70 cursor-not-allowed">
                                         <MdLocationCity className="w-5 h-5 opacity-50" />
-                                        <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0" value="Durgapur" readOnly />
+                                        <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0" value={RESTAURANT_CONFIG.location.city} readOnly />
                                     </div>
                                 </div>
 

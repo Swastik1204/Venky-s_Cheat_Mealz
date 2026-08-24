@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { RESTAURANT_CONFIG } from './src/config/restaurant.config.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -60,9 +61,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/Logo.png', 'favicon.ico'],
       manifest: {
-        name: "Venky's Admin",
-        short_name: 'VenkyAdmin',
-        description: 'Admin dashboard and POS for Venky\'s',
+        name: `${RESTAURANT_CONFIG.brand.shortName} Admin`,
+        short_name: `${RESTAURANT_CONFIG.brand.shortName}Admin`,
+        description: RESTAURANT_CONFIG.brand.tagline,
         start_url: '/',
         scope: '/',
         display: 'standalone',

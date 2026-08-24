@@ -11,6 +11,7 @@ import { useUI } from '../context/UIContext'
 import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getAvatarUrl, isCounterDocId, recheckPayment } from '../lib/data'
 import { db } from '../lib/firebase'
 import { printOrderReceiptViaRawBT, shouldUseRawBT } from '../lib/rawbtPrint'
+import { RESTAURANT_CONFIG } from '../config/restaurant.config'
 
 export default function Orders() {
   const location = useLocation()
@@ -192,7 +193,7 @@ export default function Orders() {
     // Mobile/tablet/PWA: use RawBT deep-link printing (Android)
     if (shouldUseRawBT()) {
       try {
-        printOrderReceiptViaRawBT(order, { title: "Venky's Cheat Mealz", width: 42 })
+        printOrderReceiptViaRawBT(order, { title: RESTAURANT_CONFIG.brand.receiptTitle, width: 42 })
       } catch (e) {
         console.error('[Orders] RawBT print failed', e)
         pushToast('RawBT print failed. Please ensure RawBT is installed and try again.', 'error', 5000)
@@ -296,7 +297,7 @@ export default function Orders() {
       </head>
       <body>
         <div class="header center">
-          <div class="title">Venky's Cheat Mealz</div>
+          <div class="title">${RESTAURANT_CONFIG.brand.receiptTitle}</div>
           <div class="small">Order #${orderRef}</div>
           <div class="small">${dateStr}</div>
         </div>
