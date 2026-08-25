@@ -5,7 +5,6 @@ This section is the freelancer build-cost estimate you asked for. It’s written
 Assumptions (what the estimate includes)
 - Two separate React apps (Customer: venkys, Admin: venkys_admin) built to production quality.
 - Firebase/Firestore integration + schema + rules.
-- Serverless API endpoints for Razorpay (create order + signature verify) + WhatsApp/SMS forwarding.
 - Deployment + environment configuration + basic staging.
 - Clean production UI (Tailwind/DaisyUI style), not a custom agency design system.
 
@@ -42,7 +41,6 @@ C) Shared backend/integrations: 80–200 hrs
 - Firestore schema + migrations/backfills: 20–60
 - Security rules + auth hardening: 15–40
 - Razorpay integration (create/verify/webhooks & failure handling): 25–70
-- WhatsApp/SMS integration + retries/templates: 20–50
 - Deployment + env config + monitoring: 10–30
 
 Total effort (both apps + shared): 480–1,000 hrs
@@ -64,7 +62,6 @@ Milestone 1: Foundations (₹0.8L – ₹2.0L)
 - Project setup, Firebase schema/rules, auth, deploy pipeline
 
 Milestone 2: Customer Ordering MVP (₹2.0L – ₹4.5L)
-- Menu → cart → checkout → Razorpay payment → order confirmation + WhatsApp/SMS trigger
 
 Milestone 3: Admin Inventory + Orders (₹2.5L – ₹6.0L)
 - Inventory + variants/pricing + images + orders dashboard + status updates
@@ -74,7 +71,6 @@ Milestone 4: Ops polish (₹1.5L – ₹4.0L)
 
 Recurring non-dev costs (operational)
 - Firebase: usually ₹0–₹10k/month early, scales with usage
-- WhatsApp Cloud API: conversation-based charges (varies)
 - SMS: per-message costs depending on provider
 - Razorpay: transaction fees per order
 
@@ -144,7 +140,6 @@ Customer app reads the same `menu` data and explodes variants into separate visi
 
 6) Payment endpoints
 
-Payments and WhatsApp/SMS endpoints live in each app’s `api/` folder as Vercel serverless functions.
 For Razorpay, see:
 - create order: /api/create-order
 - verify signature: /api/verify-payment

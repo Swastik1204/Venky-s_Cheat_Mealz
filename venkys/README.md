@@ -74,7 +74,6 @@ This is the **Customer-Facing Application** of the Venky's Cheat Mealz food orde
 │  │                 │     │                 │                        │
 │  │ • create-order  │     │ • Process UPI   │                        │
 │  │ • verify-payment│     │ • Process Cards │                        │
-│  │ • send-whatsapp │     │ • Verify Sigs   │                        │
 │  └─────────────────┘     └─────────────────┘                        │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -165,7 +164,6 @@ The application uses a **unidirectional data flow**:
 | 🔒 **Payment Verification** | HMAC-SHA256 signature validation | Prevents payment fraud and replay attacks |
 | 🗄️ **Real-time Database** | Firestore with live listeners | Instant order status updates without polling |
 | 🔐 **Secure Auth** | Firebase Authentication | Industry-standard security, no password storage |
-| 📲 **WhatsApp Integration** | Order notifications via WhatsApp Cloud API | High delivery rate, customers prefer WhatsApp |
 
 ---
 
@@ -196,9 +194,7 @@ The application uses a **unidirectional data flow**:
 | **Firebase Auth** | User authentication | Email/password, Google OAuth, Phone OTP verification |
 | **Firestore** | NoSQL database | Stores menu, orders, user profiles, settings |
 | **Firebase Storage** | File storage | Menu item images, category images |
-| **Vercel Functions** | Serverless backend | API routes for payment processing, WhatsApp integration |
 | **Google Places API** | Address autocomplete | Suggests addresses as user types, provides geocoding |
-| **WhatsApp Cloud API** | Notifications | Order confirmations, status updates to customers |
 
 ### Development Tools
 
@@ -220,9 +216,7 @@ venkys/
 │   │   └── rateLimiter.js  # Prevents too many requests
 │   ├── create-order.js     # Creates Razorpay payment order
 │   ├── verify-payment.js   # Verifies payment was successful
-│   ├── send-whatsapp.js    # Sends WhatsApp messages
 │   ├── send-order-messenger.js # Notifies staff of new orders
-│   ├── wa-webhook.js       # Receives WhatsApp replies
 │   ├── public-config.js    # Public settings endpoint
 │   ├── send-log-email.js   # Sends email notifications
 │   ├── sync-business-profile.js # Syncs Google Business data
@@ -269,7 +263,6 @@ venkys/
 │   │   ├── deliverySettings.js # Delivery zone settings
 │   │   ├── google.js       # Google API helpers
 │   │   ├── imageCache.js   # Image caching utilities
-│   │   └── whatsapp.js     # WhatsApp API helpers
 │   │
 │   ├── pages/              # 📄 Full pages
 │   │   ├── Home.jsx        # Main menu page
@@ -361,9 +354,6 @@ VITE_GOOGLE_PLACES_API_KEY=your_google_api_key
 # API URL (where your backend APIs are hosted)
 VITE_API_BASE_URL=https://your-app.vercel.app
 
-# WhatsApp Cloud API (from Meta Business)
-WA_PHONE_NUMBER_ID=your_whatsapp_phone_id
-WA_ACCESS_TOKEN=your_whatsapp_access_token
 
 # CORS Settings
 CORS_ORIGIN=https://your-domain.com,http://localhost:5173
@@ -402,11 +392,9 @@ Here's what each environment variable does:
 | `RAZORPAY_KEY_ID` | Same key for backend | Same as above |
 | `RAZORPAY_KEY_SECRET` | Secret key (NEVER share!) | Same as above (click "Show") |
 
-### WhatsApp Variables (for notifications)
 
 | Variable | Purpose | Where to Find |
 |----------|---------|---------------|
-| `WA_PHONE_NUMBER_ID` | Your WhatsApp Business number ID | Meta Business Suite → WhatsApp → API Setup |
 | `WA_ACCESS_TOKEN` | Authentication token | Same as above |
 
 ---
@@ -721,8 +709,6 @@ Delivery zone configuration.
 | `isWithinDeliveryZone(lat, lng)` | Checks if address is deliverable |
 | `calculateDeliveryFee(distance)` | Calculates delivery charge |
 
-### whatsapp.js
-WhatsApp notification functions.
 
 **Key Functions:**
 
@@ -776,8 +762,6 @@ These are backend functions that run on Vercel's servers.
 }
 ```
 
-### POST `/api/send-whatsapp`
-**Purpose:** Sends a WhatsApp message.
 
 **Request:**
 ```json
@@ -789,7 +773,6 @@ These are backend functions that run on Vercel's servers.
 ```
 
 ### POST `/api/send-order-messenger`
-**Purpose:** Notifies staff about a new order via WhatsApp.
 
 **Request:**
 ```json
@@ -816,7 +799,6 @@ These are backend functions that run on Vercel's servers.
 **Purpose:** Gets public configuration settings.
 
 ### POST `/api/wa-webhook`
-**Purpose:** Receives incoming WhatsApp messages.
 
 ### POST `/api/sync-business-profile`
 **Purpose:** Syncs data from Google Business Profile.
@@ -860,7 +842,6 @@ These are backend functions that run on Vercel's servers.
    └─→ createOrder() saves to Firestore
 
 7. Staff is notified
-   └─→ /api/send-order-messenger sends WhatsApp
 
 8. Customer tracks order
    └─→ ActiveOrders.jsx shows real-time status
@@ -1205,10 +1186,8 @@ This runs `npm run build` followed by `firebase deploy`.
 2. Check user is authenticated
 3. Check browser console for specific errors
 
-#### "WhatsApp notifications not sending"
 **Solution:**
 1. Check `WA_PHONE_NUMBER_ID` and `WA_ACCESS_TOKEN`
-2. Make sure WhatsApp template is approved
 3. Check phone number format (10 digits, no country code stored)
 
 ### Debug Mode
@@ -1273,7 +1252,6 @@ Both applications share:
 - **Firebase Project** - Same authentication, database, and storage
 - **API Functions** - Both use Vercel serverless functions
 - **Database Collections** - `menu`, `orders`, `users`, `images`, etc.
-- **WhatsApp Integration** - Same Meta Business account
 
 ### Development Workflow
 

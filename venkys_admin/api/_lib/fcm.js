@@ -87,10 +87,8 @@ export async function sendFCMToStaff({ title, body, data = {} }) {
   ensureAdmin()
   const db = getFirestore()
   const tokensSnap = await db.collection('fcmTokens').get()
-  const tokens = tokensSnap.docs
-    .filter((d) => d.data()?.kind !== 'customer')
-    .map((d) => d.data()?.token)
-    .filter(Boolean)
+  const staffDocs = tokensSnap.docs.filter((d) => d.data()?.kind !== 'customer')
+  const tokens = staffDocs.map((d) => d.data()?.token).filter(Boolean)
   if (!tokens.length) {
     console.info('[FCM] No staff tokens registered')
     return { skipped: true, reason: 'no-tokens' }
@@ -110,8 +108,20 @@ export async function sendFCMToStaff({ title, body, data = {} }) {
     const response = await getMessaging().sendEachForMulticast(message)
     console.info('[FCM] Staff push:', response.successCount, 'sent,', response.failureCount, 'failed')
     if (response.failureCount > 0) {
-      response.responses.forEach((r, i) => {
-        if (!r.success) console.error(`[FCM] Staff token ${i} failed:`, r.error?.code || r.error?.message)
+      response.responses.forEach(async (r, i) => {
+        if (!r.success) {
+          const errCode = String(r.error?.code || r.error?.message || '')
+          console.error(`[FCM] Staff token ${i} failed:`, errCode)
+          if (errCode.includes('registration-token-not-registered') || errCode.includes('invalid-registration-token')) {
+            const staleDoc = staffDocs[i]
+            if (staleDoc) {
+              try {
+                await db.collection('fcmTokens').doc(staleDoc.id).delete()
+                console.info(`[FCM] Auto-removed stale staff token doc=${staleDoc.id}`)
+              } catch { /* noop */ }
+            }
+          }
+        }
       })
     }
     return { sent: response.successCount, failed: response.failureCount }

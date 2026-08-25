@@ -15,7 +15,6 @@ venkys/
 │   ├── verify-payment.js          # ✅ Razorpay HMAC verification (timing-safe)
 │   ├── razorpay-webhook.js        # Payment confirmation webhook
 │   ├── public-config.js           # Public config endpoint (Razorpay key ID only)
-│   ├── send-whatsapp.js           # ⚠️ DISABLED - Meta Display Name not approved
 │   ├── send-log-email.js          # Admin email logger for errors/rate limits
 │   ├── health.js                  # Health check endpoint
 │   └── lib/
@@ -30,7 +29,6 @@ venkys/
 │   │   ├── data-cart.js           # Cart state
 │   │   ├── data-common.js         # Shared helpers
 │   │   ├── data-images.js         # Image uploads
-│   │   ├── whatsapp.js            # ⚠️ DISABLED - sendBillToCustomer function
 │   │   ├── firebase.js            # Firebase config (public keys only)
 │   │   ├── google.js              # Google Maps/Places autocomplete
 │   │   └── deliverySettings.js    # Geofence validation
@@ -39,7 +37,6 @@ venkys/
 │   │   ├── ActiveOrders.jsx       # Order tracking (real-time listener)
 │   │   ├── Profile.jsx            # User profile, addresses
 │   │   ├── Home.jsx               # Menu display
-│   │   └── Contact.jsx            # WhatsApp contact link
 │   ├── components/
 │   │   ├── CartDrawer.jsx         # Cart UI
 │   │   ├── ItemModal.jsx          # Item detail modal
@@ -102,7 +99,6 @@ venkys_admin/
 ### Orphaned/Unused Files
 **None identified.** Both apps have clean structures:
 - Legacy menu collections (`categories`, `menuItems`, `items`) are **read-only** via Firestore rules but **not actively used** in code. New menu system uses single `menu` collection.
-- WhatsApp functionality is fully commented out and disabled (awaiting Meta Display Name approval).
 - No dead import chains detected.
 
 ---
@@ -115,7 +111,6 @@ venkys_admin/
 |-----------|-----------|---------|----------|-------|
 | **orders** (main) | `userId`, `customer`, `items`, `subtotal`, `status`, `statusHistory`, `payment`, `totalAmount`, `revisionCount`, `createdAt`, `updatedAt`, `taxRate?`, `taxAmount?`, `cashManagerOtp?`, `cashManagerOtpVerified?` | Staff, Owner, Customer | API (create-order), Admin (update), Customer (create own) | Single source of truth. Supports both web orders and POS guest orders. |
 | **users/{uid}/orders** | Same as above | Customer, Admin | Customer, Admin | Legacy nested subcollection. Prefer top-level `orders`. |
-| **users/{uid}** | `displayName`, `phone`, `email`, `whatsapp`, `gender`, `profileComplete`, `addresses`, `cart` | Self, Admin | Self, Admin | Customer profiles. |
 | **users/{uid}/cart** | `items[]`, `lastUpdated` | Self | Self | Cart state (rarely persisted, mostly client-side). |
 | **roles/{email}** | `role`, `name`, `email`, `pages{}`, `nickname`, `createdAt`, `updatedAt`, `createdBy` | Self (own), Admin (all) | Admin, Super Admin | Staff/admin role assignments. Three roles: `admin`, `staff`, `delivery`. Page-level perms for staff. |
 | **adminUsers/{uid}** | `displayName`, `email`, `status`, `invitedBy`, `registeredAt`, `role` | Admin (self + all) | Super Admin | Invite-based admin onboarding. |
@@ -279,7 +274,6 @@ venkys_admin/
   - Location: [venkys/api/create-order.js:sendFCMToStaff()](venkys/api/create-order.js) lines 16-54
   - Data: order number, customer name, total, order type.
   - Sent asynchronously (fire-and-forget).
-- **⚠️ Missing:** WhatsApp notification disabled (awaiting Meta approval).
 
 **Step 8: Staff Processing (Admin POS)**
 - Staff views order in [venkys_admin/src/pages/Orders.jsx](venkys_admin/src/pages/Orders.jsx) or AdminBiller.
@@ -342,13 +336,10 @@ venkys_admin/
 - **Storage:** FCM tokens stored in `fcmTokens/{uid}` collection.
 - **Token Registration:** Handled by client app (Firebase SDK `getToken()`).
 
-#### B. WhatsApp Cloud API — ⚠️ DISABLED
 **Status:** Commented out, awaiting Meta Display Name approval.
 **Was Used For:**
 - Bill/invoice delivery to customer.
 - Template: `venkys_bill`.
-- Location: [venkys/src/lib/whatsapp.js](venkys/src/lib/whatsapp.js) (lines 1-35, all commented).
-- API endpoint: [venkys/api/send-whatsapp.js](venkys/api/send-whatsapp.js) (lines 1-80, all commented).
 - **Env vars:**
   - `WA_BUSINESS_ACCOUNT_ID` = "1173375044851268"
   - `WA_PHONE_NUMBER_ID` = (not in .env, commented endpoint expects it)
@@ -365,7 +356,6 @@ venkys_admin/
   - `EMAIL_PASS` = (app password, masked in .env)
   - `LOG_EMAIL_RECIPIENT` = "swastiksaha1204@gmail.com"
 
-#### D. Contact Page WhatsApp Link — ✅ ACTIVE
 - Location: [venkys/src/pages/Contact.jsx](venkys/src/pages/Contact.jsx)
 - Opens `https://wa.me/{phoneNumber}` with pre-filled message.
 - **Not a server notification.**
@@ -375,16 +365,11 @@ venkys_admin/
 | Notification Type | Status | Trigger | Recipients | Implementation | Env Vars |
 |--|--|--|--|--|--|
 | FCM Push (New Order) | ✅ Active | Order placed | Staff/Admin | Firebase Admin SDK | VITE_FIREBASE_* + fcmTokens collection |
-| WhatsApp (Bill) | ⚠️ Disabled | Order confirmed | Customer | Meta Cloud API | WA_TOKEN, WA_PHONE_NUMBER_ID, WA_BUSINESS_ACCOUNT_ID |
 | Email (Alerts) | ✅ Active | Rate limit, errors | Admin | Nodemailer | EMAIL_USER, EMAIL_PASS, LOG_EMAIL_RECIPIENT |
-| WhatsApp (Contact) | ✅ Active (Link only) | User initiated | Customer | Browser link | None |
 
-### Migration Path for WhatsApp → FCM
 **Currently:** FCM only sends to staff. No customer push notifications.
-**To Replace WhatsApp:**
 1. Enable FCM for customers (store tokens in `fcmTokens` or separate collection).
 2. Send order status updates via FCM (placed → ready → delivered).
-3. Disable WhatsApp API entirely.
 
 ---
 
@@ -534,7 +519,6 @@ GOOGLE_PLACES_API_KEY=(on server)               ✅ Server-only (reverse geocodi
 **Limits:**
 - `create-order`: 30 req/min (burst 10)
 - `verify-payment`: 50 req/min (burst 15)
-- `send-whatsapp`: 10 req/min (burst 3) — disabled anyway
 
 **Assessment:** ✅ Strong. Prevents abuse.
 
@@ -586,8 +570,6 @@ GOOGLE_PLACES_API_KEY=(on server)               ✅ Server-only (reverse geocodi
 
 ### Commented-Out Code
 
-- [venkys/src/lib/whatsapp.js](venkys/src/lib/whatsapp.js) — Entire WhatsApp client disabled (lines 2-35).
-- [venkys/api/send-whatsapp.js](venkys/api/send-whatsapp.js) — Entire WhatsApp API disabled (lines 1-80).
 - **Reason:** Awaiting Meta Display Name approval.
 - **Assessment:** ✅ Clean. Code is isolated and well-commented.
 
@@ -705,7 +687,6 @@ manualChunks: {
 
 | Category | Issue | Severity | Fix Effort | Impact |
 |--|--|--|--|--|
-| **Notifications** | WhatsApp disabled, no fallback | Medium | Low | Customers don't get bill notifications |
 | **Orders** | Subtotal recalculated multiple times (client) | Low | Low | No impact if Razorpay verification works |
 | **Orders** | Order list readable by any signed-in user (rules gap) | Low | Low | UI enforces constraints; rules should too |
 | **Auth** | Dual role system (roles vs adminUsers) | Low | Medium | Confusion, inconsistent state |
@@ -729,12 +710,9 @@ manualChunks: {
 2. **Test FCM push notifications end-to-end**
    - Verify staff receives order alerts
    - Effort: 30 min
-   - Impact: Ensures notification flow works before WhatsApp removal
 
-3. **Plan WhatsApp → FCM migration**
    - Design FCM for customer notifications (order status updates)
    - Effort: 2 hours
-   - Impact: Replaces WhatsApp entirely with FCM
 
 ### Medium Priority (Fix Auth & Data)
 4. **Consolidate dual role system**

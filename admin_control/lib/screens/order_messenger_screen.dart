@@ -60,8 +60,6 @@ class OrderMessengerScreen extends StatelessWidget {
       itemBuilder: (_, i) {
         final order = orders[i];
         final phone = order.customer?['phone']?.toString() ?? '';
-        final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
-        final waPhone = cleanPhone.startsWith('91') ? cleanPhone : '91$cleanPhone';
 
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
@@ -116,25 +114,6 @@ class OrderMessengerScreen extends StatelessWidget {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: phone.isEmpty
-                          ? null
-                          : () async {
-                              final url = Uri.parse('https://wa.me/$waPhone');
-                              if (await canLaunchUrl(url)) {
-                                await launchUrl(url);
-                              }
-                            },
-                      icon: const Icon(Icons.message, size: 16),
-                      label: const Text('WhatsApp'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.green,
-                        side: const BorderSide(color: Colors.green),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () {

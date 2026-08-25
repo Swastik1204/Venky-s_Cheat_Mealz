@@ -6,8 +6,7 @@
 //
 // Called by the admin POS after a status transition. Staff-only. The push
 // content is derived server-side from the order document; the notification
-// deep-links to /active-orders?id={orderNo} on the customer app rather than
-// embedding itemized pricing (this replaces the old WhatsApp bill).
+// deep-links to /active-orders?id={orderNo} on the customer app.
 // Skips silently when the customer has no registered FCM token.
 
 import { createRateLimiter } from './_lib/rateLimiter.js'
