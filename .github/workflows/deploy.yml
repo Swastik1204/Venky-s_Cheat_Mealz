@@ -56,6 +56,10 @@ jobs:
 
       - name: Production build
         working-directory: venkys
+        env:
+          # Only this one — see the comment in venkys/.env.production for why
+          # it can't be committed like the other VITE_* values.
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
         run: npm run build
 
   validate-venkys-admin:
@@ -170,6 +174,10 @@ jobs:
 
       - name: Build Customer App (venkys)
         working-directory: venkys
+        env:
+          # Only this one — see the comment in venkys/.env.production for why
+          # it can't be committed like the other VITE_* values.
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
         run: |
           npm ci
           npm run build
