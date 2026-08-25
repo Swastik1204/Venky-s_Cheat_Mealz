@@ -10,6 +10,9 @@ const __dirname = path.dirname(__filename)
 
 export default defineConfig({
   server: {
+    watch: {
+      ignored: ['**/node_modules/**', '**/.git/**'],
+    },
     proxy: {
       // Vite doesn't serve Vercel-style /api routes. In dev, run `vercel dev` (default :3000)
       // and proxy these calls so buttons like "Sync Now" work locally.

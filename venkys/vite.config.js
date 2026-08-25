@@ -60,6 +60,9 @@ export default defineConfig(({ mode }) => {
       ],
     },
     server: {
+      watch: {
+        ignored: ['**/node_modules/**', '**/.git/**'],
+      },
       proxy: {
         '/api': {
           target: proxyTarget,
