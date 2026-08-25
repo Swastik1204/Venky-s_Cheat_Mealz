@@ -9,10 +9,16 @@ build/
 .firebase/
 .vercel/
 
-# Environment files
+# Environment & credentials
 .env
+.env.*
 .env.local
 .env.*.local
+!.env.example
+!**/.env.example
+google-services.json
+**/google-services.json
+!**/google-services.json.example
 
 # Logs
 npm-debug.log*

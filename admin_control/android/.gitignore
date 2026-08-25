@@ -12,3 +12,11 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Credentials & configs
+google-services.json
+**/google-services.json
+!**/google-services.json.example
+.env
+.env.*
+!.env.example
