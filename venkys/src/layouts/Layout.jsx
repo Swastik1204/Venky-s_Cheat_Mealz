@@ -55,7 +55,7 @@ export default function Layout() {
     <CartDrawer>
       <div className={`app-shell ${authMode ? 'blur-when-auth-open' : ''}`}>
         <NavBar />
-        <main className="flex-1 pb-24">
+        <main className="flex-1 pb-32 sm:pb-36">
           <Outlet />
         </main>
   <FloatingCartBar />
