@@ -9,10 +9,21 @@ build/
 .firebase/
 .vercel/
 
-# Environment files
+# Environment & credentials
 .env
+.env.*
 .env.local
 .env.*.local
+!.env.example
+!**/.env.example
+# .env.production holds PUBLIC client-side (VITE_*) values only — intended to
+# be committed so CI builds don't need secrets injected for values that ship
+# in the browser bundle anyway. See venkys/.env.production's header comment.
+!.env.production
+!**/.env.production
+google-services.json
+**/google-services.json
+!**/google-services.json.example
 
 # Logs
 npm-debug.log*

@@ -47,7 +47,22 @@ export default defineConfig(({ mode }) => {
       },
       dedupe: ['react', 'react-dom', 'react/jsx-runtime'],
     },
+    optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        'react-router-dom',
+        'workbox-window',
+        'firebase/app',
+        'firebase/auth',
+        'firebase/firestore',
+        'firebase/messaging',
+      ],
+    },
     server: {
+      watch: {
+        ignored: ['**/node_modules/**', '**/.git/**'],
+      },
       proxy: {
         '/api': {
           target: proxyTarget,

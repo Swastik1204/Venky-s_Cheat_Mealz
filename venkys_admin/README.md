@@ -20,7 +20,6 @@
 12. [Library Functions](#-library-functions)
 13. [API Routes](#-api-routes)
 14. [How Things Work](#-how-things-work)
-15. [WhatsApp Integration](#-whatsapp-integration)
 16. [Thermal Printing](#-thermal-printing)
 17. [Data Models](#-data-models)
 18. [Deployment](#-deployment)
@@ -57,7 +56,6 @@ This is the **Staff-Facing Administrative Application** of the Venky's Cheat Mea
 │   (Hot Deals, Chef Specials)            (Appearance page)           │
 │                                                                     │
 │   Customer places order ─────────────► Order appears in Orders page │
-│                                         Staff receives WhatsApp     │
 │                                                                     │
 │   Customer tracks status ◄───────────── Staff updates order status  │
 │   (Real-time updates)                   (Orders page)               │
@@ -115,7 +113,6 @@ This is the **Staff-Facing Administrative Application** of the Venky's Cheat Mea
 │  │                  EXTERNAL SERVICES                        │  │
 │  │  ├─ Firebase (Auth + Firestore + Storage)                 │  │
 │  │  ├─ Razorpay (POS payment processing)                     │  │
-│  │  ├─ WhatsApp Cloud API (OTP, Order alerts)                │  │
 │  │  └─ RawBT (Thermal printing via Bluetooth)                │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │                                                                 │
@@ -169,10 +166,8 @@ AuthContext checks:
 | Feature | Implementation | Why It Matters |
 |---------|----------------|----------------|
 | 🔐 **Role-Based Access** | Firestore user documents with `role` and `pages` fields | Principle of least privilege |
-| 🔢 **OTP Verification** | 4-digit codes sent via WhatsApp | Secure dine-in COD payments |
 | 🖨️ **Thermal Printing** | ESC/POS commands via RawBT app | Professional receipt output |
 | 📴 **Store Toggle** | Real-time Firestore flag | Instantly pause online ordering |
-| 📱 **WhatsApp Notifications** | Meta Cloud API integration | High-deliverability alerts |
 | 📈 **Real-time Updates** | Firestore `onSnapshot` listeners | No page refresh needed |
 
 ---
@@ -205,8 +200,6 @@ AuthContext checks:
 | **Firebase Auth** | Authentication | Staff login verification |
 | **Firestore** | Database | Menu management, order updates, settings |
 | **Firebase Storage** | File storage | Menu item images, category images |
-| **Vercel Functions** | Serverless APIs | WhatsApp messaging, payment processing |
-| **WhatsApp Cloud API** | Messaging | OTP delivery, order alerts to staff |
 | **RawBT** | Thermal printing | Receipt printing via Bluetooth |
 
 ### Thermal Printing Stack
@@ -228,7 +221,6 @@ venkys_admin/
 │   │   └── rateLimiter.js  # Prevents spam/abuse
 │   ├── create-order.js     # Creates Razorpay order (for POS)
 │   ├── verify-payment.js   # Verifies payment
-│   ├── send-whatsapp.js    # Sends WhatsApp (OTP, etc.)
 │   ├── send-order-messenger.js # Notifies about orders
 │   ├── public-config.js    # Public settings
 │   ├── send-log-email.js   # Email notifications
@@ -321,9 +313,6 @@ VITE_RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxx
 RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxx
 RAZORPAY_KEY_SECRET=your_secret_key
 
-# WhatsApp Cloud API
-WA_PHONE_NUMBER_ID=your_whatsapp_phone_id
-WA_ACCESS_TOKEN=your_whatsapp_access_token
 
 # API URL
 VITE_API_BASE_URL=https://your-admin.vercel.app
@@ -362,11 +351,9 @@ Open `http://localhost:5174` (or whichever port Vite shows).
 | `RAZORPAY_KEY_ID` | Key for backend |
 | `RAZORPAY_KEY_SECRET` | Secret (NEVER expose!) |
 
-### WhatsApp Variables
 
 | Variable | Purpose |
 |----------|---------|
-| `WA_PHONE_NUMBER_ID` | WhatsApp Business number |
 | `WA_ACCESS_TOKEN` | API authentication token |
 
 ---
@@ -430,7 +417,6 @@ This is for taking orders in person - like when someone comes to the counter or 
 **How OTP Works (Dine-In COD):**
 1. Staff creates order and selects "Cash on Delivery"
 2. System generates a 4-digit OTP
-3. OTP is sent to configured "Cash Manager" phones via WhatsApp
 4. When customer pays, staff enters OTP to verify
 5. Order is marked as paid
 
@@ -441,7 +427,6 @@ Customer orders → Staff creates bill → COD selected
                                     OTP generated (e.g., 1234)
                                             │
                                             ▼
-                              WhatsApp sent to Cash Manager(s)
                                             │
                                             ▼
                               Customer pays cash at counter
@@ -557,7 +542,6 @@ Configure the app and manage staff.
 - 📍 **Center Location** - Latitude/longitude of restaurant
 - 📏 **Delivery Radius** - How far you deliver (in km)
 
-#### Phone Numbers (WhatsApp)
 - 📱 **Cash Manager Phones** - Who receives OTP for dine-in COD
 - 📱 **Order Messenger Phones** - Who receives new order notifications
 
@@ -567,7 +551,6 @@ Configure the app and manage staff.
 - NOT: `919876543210` ❌
 - NOT: `+919876543210` ❌
 
-The system automatically adds `91` when sending WhatsApp.
 
 #### Staff Management
 - ➕ **Add Staff** - Add new team members
@@ -724,8 +707,6 @@ Creates Razorpay order for POS payments.
 ### POST `/api/verify-payment`
 Verifies Razorpay payment signature.
 
-### POST `/api/send-whatsapp`
-Sends WhatsApp messages (OTP, notifications).
 
 **For OTP (Cash Manager):**
 ```json
@@ -785,7 +766,6 @@ Health check endpoint.
 │     │                                                       │
 │     └─ CASH ON DELIVERY (Dine-In):                          │
 │        └─→ OTP generated (4 digits)                         │
-│        └─→ OTP sent to Cash Manager(s) via WhatsApp         │
 │        └─→ Order created with status PENDING_OTP            │
 │        └─→ Customer pays cash                               │
 │        └─→ Staff enters OTP to verify                       │
@@ -864,9 +844,7 @@ Read 'role' field
 
 ---
 
-## 📱 WhatsApp Integration
 
-The admin app uses WhatsApp Cloud API for two purposes:
 
 ### 1. Cash Manager OTP (Dine-In COD)
 
@@ -878,7 +856,6 @@ When a dine-in customer wants to pay cash:
 4. Template used: `venkys_cash_manager_otp`
 
 **Setup Required:**
-- Create WhatsApp template `venkys_cash_manager_otp` in Meta Business
 - Template must accept 1 body parameter (the OTP)
 - Add Cash Manager phone numbers in Settings
 
@@ -887,12 +864,10 @@ When a dine-in customer wants to pay cash:
 When a customer places an order:
 
 1. Order is saved to database
-2. System sends WhatsApp to all "Order Messenger" phones
 3. Template used: `venkys_order_messenger`
 4. Contains: Customer name, Total amount, Delivery address
 
 **Setup Required:**
-- Create WhatsApp template `venkys_order_messenger` in Meta Business
 - Template must accept 3 body parameters (name, total, address)
 - Add Order Messenger phone numbers in Settings
 
@@ -907,7 +882,6 @@ When a customer places an order:
 ❌ WRONG: 91-9876543210
 ```
 
-The system automatically adds `91` prefix when sending to WhatsApp API.
 
 ---
 
@@ -1112,7 +1086,6 @@ interface CODOrder extends Order {
   otpVerifiedBy?: string;   // UID of staff who verified
 }
 
-// OTP is sent to cashManagerPhones via WhatsApp
 // Staff enters OTP to verify → sets otpVerified = true
 ```
 
@@ -1156,7 +1129,6 @@ npm run deploy
 2. Find the user's document
 3. Add `role: 'admin'` or `role: 'staff'`
 
-#### "WhatsApp not sending"
 **Causes & Solutions:**
 1. Check `WA_PHONE_NUMBER_ID` and `WA_ACCESS_TOKEN` are set
 2. Verify template is approved in Meta Business
@@ -1167,7 +1139,6 @@ npm run deploy
 **Causes & Solutions:**
 1. Check Cash Manager phones in Settings
 2. Verify phones are 10 digits
-3. Check WhatsApp template `venkys_cash_manager_otp` exists
 4. Check template has 1 body parameter
 
 #### "Print not working"
@@ -1227,7 +1198,6 @@ Both applications share:
 - **Firebase Project** - Same authentication, database, and storage
 - **API Functions** - Both use Vercel serverless functions
 - **Database Collections** - `menu`, `orders`, `users`, `images`, etc.
-- **WhatsApp Integration** - Same Meta Business account
 
 ### Data Flow Between Apps
 
@@ -1279,7 +1249,6 @@ Both applications share:
 - [Vite Documentation](https://vitejs.dev/)
 - [Firebase Admin Documentation](https://firebase.google.com/docs)
 - [Razorpay Integration Guide](https://razorpay.com/docs/)
-- [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api)
 - [Recharts Documentation](https://recharts.org/)
 
 ### For Deployment

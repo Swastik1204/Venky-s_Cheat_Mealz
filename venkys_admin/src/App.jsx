@@ -1,5 +1,5 @@
 // App — Admin root component with role-based routing
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useState } from 'react'
 
 import { Routes, Route, Navigate } from 'react-router-dom'
 
@@ -24,7 +24,20 @@ const Delivery = lazy(() => import('./pages/Delivery'))
 
 // Access denied component for guests/unregistered users
 function AccessDenied() {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
+  const [signingOut, setSigningOut] = useState(false)
+
+  const handleSignOut = async () => {
+    try {
+      setSigningOut(true)
+      await logout()
+    } catch (err) {
+      console.error('Sign out error:', err)
+    } finally {
+      setSigningOut(false)
+    }
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-base-200">
       <div className="card bg-base-100 shadow-xl max-w-md mx-4">
@@ -36,12 +49,33 @@ function AccessDenied() {
           </p>
           {user?.email && (
             <p className="text-sm opacity-60 mt-1">
-              Signed in as: {user.email}
+              Signed in as: <span className="font-semibold">{user.email}</span>
             </p>
           )}
           <p className="text-sm opacity-60 mt-4">
             Contact an administrator to get access.
           </p>
+          <div className="card-actions justify-center mt-6">
+            <button
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className="btn btn-outline btn-error btn-sm gap-2"
+            >
+              {signingOut ? (
+                <>
+                  <span className="loading loading-spinner loading-xs"></span>
+                  Signing Out...
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+                  </svg>
+                  Sign Out
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

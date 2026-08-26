@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   rules-check:
-    name: Verify Firestore Rules Synchronization
+    name: Firestore Rules Synced
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -33,7 +33,7 @@ jobs:
           echo "✅ firestore.rules are 100% synchronized."
 
   validate-venkys:
-    name: Validate venkys (Customer App)
+    name: Lint & Build — Customer App
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -56,10 +56,14 @@ jobs:
 
       - name: Production build
         working-directory: venkys
+        env:
+          # Only this one — see the comment in venkys/.env.production for why
+          # it can't be committed like the other VITE_* values.
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
         run: npm run build
 
   validate-venkys-admin:
-    name: Validate venkys_admin (Admin POS App)
+    name: Lint & Build — Admin App
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -84,15 +88,17 @@ jobs:
         working-directory: venkys_admin
         run: npm run build
 
-  auto-inject-checklist:
-    name: Prod PR Checklist Safety-Net (Auto-Inject)
+  prod-checklist:
+    name: Prod Release Checklist
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && github.base_ref == 'prod'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Inject PR checklist if missing
+      # Step 1/2: safety-net — appends the template if a prod PR was opened
+      # without it (e.g. created outside the normal agent/CLI flow).
+      - name: Inject checklist if missing
         uses: actions/github-script@v7
         with:
           script: |
@@ -103,7 +109,7 @@ jobs:
               const fs = require('fs');
               const template = fs.readFileSync('.github/pull_request_template.md', 'utf8');
               const newBody = `${body}\n\n${template}`.trim();
-              
+
               await github.rest.pulls.update({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -119,13 +125,9 @@ jobs:
               });
             }
 
-  verify-prod-checklist:
-    name: Verify Prod Release Checklist Completed
-    runs-on: ubuntu-latest
-    needs: auto-inject-checklist
-    if: github.event_name == 'pull_request' && github.base_ref == 'prod'
-    steps:
-      - name: Check PR body for unchecked boxes
+      # Step 2/2: the actual gate — re-reads the (possibly just-injected) PR
+      # body fresh and fails if any checklist box is still unchecked.
+      - name: Verify no unchecked boxes
         uses: actions/github-script@v7
         with:
           script: |
@@ -137,15 +139,15 @@ jobs:
             const body = pr.data.body || '';
             const startMarker = '<!-- venkys-prod-checklist-start -->';
             const endMarker = '<!-- venkys-prod-checklist-end -->';
-            
+
             const startIdx = body.indexOf(startMarker);
             const endIdx = body.indexOf(endMarker);
-            
+
             if (startIdx === -1 || endIdx === -1) {
               core.setFailed('Production release checklist is missing from PR body.');
               return;
             }
-            
+
             const checklistSection = body.substring(startIdx, endIdx);
             const unchecked = checklistSection.match(/- \[\s\]/g);
             if (unchecked && unchecked.length > 0) {
@@ -155,7 +157,7 @@ jobs:
             }
 
   deploy-production:
-    name: Atomic Deploy to Firebase Hosting & Firestore
+    name: Deploy to Production
     runs-on: ubuntu-latest
     needs: [rules-check, validate-venkys, validate-venkys-admin]
     if: github.event_name == 'push' && github.ref == 'refs/heads/prod'
@@ -170,6 +172,10 @@ jobs:
 
       - name: Build Customer App (venkys)
         working-directory: venkys
+        env:
+          # Only this one — see the comment in venkys/.env.production for why
+          # it can't be committed like the other VITE_* values.
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
         run: |
           npm ci
           npm run build

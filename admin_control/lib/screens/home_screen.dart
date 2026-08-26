@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 
 import '../models/admin_user.dart';
@@ -91,10 +92,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _setupFCMToken() async {
     final token = await NotificationService.getFCMToken();
     if (token != null) {
-      // FIX 2: Pass email so fcmTokens collection is also populated
       await _fs.saveFCMToken(widget.adminUser.uid, token,
           email: widget.adminUser.email);
     }
+    // Listen for subsequent FCM token rotation/refresh
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+      _fs.saveFCMToken(widget.adminUser.uid, newToken,
+          email: widget.adminUser.email);
+    });
   }
 
   void _listenToOrders() {

@@ -27,7 +27,6 @@ rules_version = '2';
 //       appearance: true/false,  // Theme customization
 //       delivery: true/false,    // Delivery management
 //       cashManager: true/false, // Dine-in COD OTP generation
-//       orderMessenger: true/false, // (legacy — WhatsApp order alerts, unused)
 //     },
 //     createdAt: timestamp,
 //     updatedAt: timestamp,
@@ -118,10 +117,6 @@ service cloud.firestore {
       return canAccess('cashManager');
     }
 
-    function isOrderMessengerUser() {
-      return canAccess('orderMessenger');
-    }
-
     // Check if user can manage orders (includes biller page access)
     function canManageOrders() {
       return canAccess('orders') || canAccess('biller') || isCashManagerUser();
@@ -129,7 +124,7 @@ service cloud.firestore {
 
     // Read-only order access for sub-roles that should not mutate lifecycle.
     function canViewOrders() {
-      return canManageOrders() || isOrderMessengerUser();
+      return canManageOrders();
     }
 
     // Check if user can manage inventory

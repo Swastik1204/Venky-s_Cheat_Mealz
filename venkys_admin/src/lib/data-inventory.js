@@ -139,7 +139,6 @@ export async function deductStockForOrder(orderItems) {
 /**
  * Check materials against their alert thresholds and send an email alert
  * for any that have dropped below the threshold.
- * (WhatsApp alerts removed with the WhatsApp Cloud API integration.)
  */
 async function checkLowStockAlerts(materialIds) {
   if (!materialIds.length) return
