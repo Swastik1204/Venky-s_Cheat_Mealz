@@ -79,6 +79,12 @@ const RATE_LIMITS = {
   'public-config': { requests: 100, windowMs: 60000, burst: 20 },      // 100/min, burst 20
   'sync-business-profile': { requests: 5, windowMs: 300000, burst: 2 }, // 5/5min, burst 2
   'send-log-email': { requests: 20, windowMs: 60000, burst: 5 },       // 20/min, burst 5 (prevent email spam)
+  'create-invite': { requests: 10, windowMs: 3600000, burst: 3 },      // 10/hour, burst 3 (admin action, sends email)
+  'verify-invite': { requests: 20, windowMs: 3600000, burst: 5 },      // 20/hour, burst 5 (public, unauthenticated)
+  'redeem-invite': { requests: 5, windowMs: 3600000, burst: 2 },       // 5/hour, burst 2 (sensitive: creates a roles/{email} doc)
+  'revoke-invite': { requests: 20, windowMs: 60000, burst: 5 },        // 20/min, burst 5 (admin action)
+  'cleanup-logs-scan': { requests: 10, windowMs: 3600000, burst: 3 },  // 10/hour, burst 3 (cron + manual trigger)
+  'cleanup-logs-delete': { requests: 10, windowMs: 60000, burst: 3 },  // 10/min, burst 3 (destructive admin action)
   'default': { requests: 60, windowMs: 60000, burst: 15 }              // Default: 60/min, burst 15
 }
 

@@ -147,6 +147,39 @@ export async function isStaffEmail(email) {
 }
 
 /**
+ * Server-side mirror of firestore.rules' isSuperAdmin(): the hardcoded
+ * super admin email ONLY. Deliberately does NOT mirror the admin-app
+ * client's broader isSuperAdmin flag (which also treats an admin holding
+ * pages.logs as "super admin" for UI purposes) — the logs/{logId} and
+ * pendingLogCleanup/{token} rules only ever check the hardcoded email, so
+ * this endpoint-side check must match that exactly, not the client's
+ * looser display logic, or client-visible capability and backend-enforced
+ * capability would drift apart again.
+ */
+export function isSuperAdminEmail(email) {
+  return !!email && String(email).trim().toLowerCase() === SUPER_ADMIN_EMAIL
+}
+
+/**
+ * Server-side mirror of firestore.rules' isAdmin(): true for the hardcoded
+ * super admin or a roles/{email} doc with role: 'admin'. Staff-page access
+ * (even 'settings') does NOT count — this matches the /roles/{email} write
+ * rule, which is admin-only regardless of canAccess('settings').
+ */
+export async function isAdminEmail(email) {
+  if (!email) return false
+  if (String(email).trim().toLowerCase() === SUPER_ADMIN_EMAIL) return true
+  ensureAdmin()
+  try {
+    const roleSnap = await getFirestore().collection('roles').doc(email).get()
+    if (!roleSnap.exists) return false
+    return String(roleSnap.data()?.role || '').toLowerCase() === 'admin'
+  } catch {
+    return false
+  }
+}
+
+/**
  * Server-side mirror of firestore.rules' canAccess(pageKey): admin/superadmin
  * always pass; a plain staff role passes only if it holds that specific page
  * permission. Used to gate server endpoints the same way rules gate direct

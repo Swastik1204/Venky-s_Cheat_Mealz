@@ -119,7 +119,7 @@ service cloud.firestore {
 
     // Check if user can manage orders (includes biller page access)
     function canManageOrders() {
-      return canAccess('orders') || canAccess('biller') || isCashManagerUser();
+      return canAccess('orders') || canAccess('biller') || canAccess('delivery') || isCashManagerUser();
     }
 
     // Read-only order access for sub-roles that should not mutate lifecycle.
@@ -178,6 +178,84 @@ service cloud.firestore {
         || request.resource.data.statusHistory.size() >= resource.data.statusHistory.size();
     }
 
+    // Staff-page-gated order field updates. Each canAccess()/isCashManagerUser()
+    // check is computed exactly once via `let` and reused across every
+    // branch below — see the comment on /orders update for why (expression
+    // budget). Delivery-page staff (pages.delivery: true, not the same thing
+    // as role: 'delivery' — see deliveryCanUpdateOrder() for that path) share
+    // the orders-page branch's allowlist: they advance status/record
+    // delivery completion, never touch items/pricing.
+    function canUpdateOrderFields() {
+      let staffCashManager = isCashManagerUser();
+      let staffBiller = canAccess('biller');
+      let staffOrdersOrDelivery = canAccess('orders') || canAccess('delivery');
+      return (staffCashManager || staffBiller || staffOrdersOrDelivery) && historyNotShrunk() && (
+        // 1. Cash Manager generating/regenerating the dine-in COD OTP.
+        //    Narrowest allowlist of any staff branch: cash managers
+        //    never touch status, payment, or item/pricing fields.
+        (staffCashManager && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'cashManagerOtp',
+          'cashManagerOtpGeneratedAt',
+          'updatedAt'
+        ])) ||
+
+        // 2. Biller-page staff: full lifecycle + item/pricing control.
+        //    Billers create and edit POS bills directly (AdminBiller.jsx
+        //    lets a biller revise items/subtotal/total on an existing
+        //    order before it's accepted), so this branch must include
+        //    the pricing fields that the 'orders'/'delivery' branch below
+        //    deliberately excludes.
+        (staffBiller && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'items',
+          'subtotal',
+          'totalAmount',
+          'taxRate',
+          'taxAmount',
+          'customer',
+          'orderType',
+          'source',
+          'status',
+          'statusHistory',
+          'payment',
+          'revisionCount',
+          'updatedAt',
+          'cashManagerOtp',
+          'cashManagerOtpFor',
+          'cashManagerOtpGeneratedAt',
+          'cashManagerOtpVerified',
+          'cashManagerOtpVerifiedAt',
+          'cashManagerOtpVerifiedBy',
+          'verificationAttempts',
+          'verificationLockedUntil',
+          'deliveredAt',
+          'mapUrl'
+        ])) ||
+
+        // 3. Orders-page staff (kitchen/front-of-house, no billing access)
+        //    AND delivery-page staff (out-for-delivery status/completion):
+        //    lifecycle and payment-collection fields only — deliberately
+        //    EXCLUDES items/subtotal/totalAmount/customer/orderType/source.
+        //    Neither role may alter what was ordered or its price after the
+        //    fact — that edit capability is reserved for the biller branch
+        //    above, which is the only staff role that also owns bill
+        //    creation.
+        (staffOrdersOrDelivery && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status',
+          'statusHistory',
+          'payment',
+          'revisionCount',
+          'updatedAt',
+          'cashManagerOtp',
+          'cashManagerOtpVerified',
+          'cashManagerOtpVerifiedAt',
+          'cashManagerOtpVerifiedBy',
+          'verificationAttempts',
+          'verificationLockedUntil',
+          'deliveredAt'
+        ]))
+      );
+    }
+
     // (hasCanonicalOrderShape() was removed here: it validated client-submitted
     // order shape on create, but /orders create is now `allow create: if false`
     // — order documents are only ever written by the Admin SDK from
@@ -188,6 +266,21 @@ service cloud.firestore {
     // =========================================
     // COLLECTION RULES
     // =========================================
+
+    // -----------------------------------------
+    // STAFF INVITES (mail-based staff onboarding)
+    // -----------------------------------------
+    // Every write (create-invite/verify-invite/redeem-invite/revoke-invite)
+    // goes through the Admin SDK server endpoints — same "server-owned write"
+    // pattern as /orders create above. This is deliberate: redeem-invite must
+    // let a brand-new, not-yet-staff user create their OWN pending invite's
+    // outcome (a roles/{email} doc) without ever needing direct Firestore
+    // write access themselves. Admins can read the list to show pending
+    // invites in Settings; nobody can write directly from a client.
+    match /staffInvites/{token} {
+      allow get, list: if isAdmin();
+      allow write: if false;
+    }
 
     // -----------------------------------------
     // ROLES COLLECTION (Staff Management)
@@ -268,78 +361,17 @@ service cloud.firestore {
       // UPDATE: field-restricted per role. Admin/superadmin bypass every
       // allowlist below via the isAdmin() branch (canAccess()'s OR-logic
       // pattern) — a plain staff/delivery/cashManager role is confined to
-      // exactly the fields listed for their case.
+      // exactly the fields listed for their case. Permission checks are
+      // computed once via `let` (not re-evaluated per branch) — the prior
+      // per-branch canAccess()/isCashManagerUser() calls plus
+      // canManageOrders()'s own internal re-checks pushed evaluation of this
+      // single rule over Firestore's 1000-subexpression budget once a 4th
+      // staff-page branch (delivery, below) was added; memoizing here keeps
+      // the same logic within budget instead of trimming any branch.
       allow update: if (
         isAdmin() ||
         deliveryCanUpdateOrder() ||
-        (
-          canManageOrders() && historyNotShrunk() && (
-            // 1. Cash Manager generating/regenerating the dine-in COD OTP.
-            //    Narrowest allowlist of any staff branch: cash managers
-            //    never touch status, payment, or item/pricing fields.
-            (isCashManagerUser() && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'cashManagerOtp',
-              'cashManagerOtpGeneratedAt',
-              'updatedAt'
-            ])) ||
-
-            // 2. Biller-page staff: full lifecycle + item/pricing control.
-            //    Billers create and edit POS bills directly (AdminBiller.jsx
-            //    lets a biller revise items/subtotal/total on an existing
-            //    order before it's accepted), so this branch must include
-            //    the pricing fields that the 'orders' branch below
-            //    deliberately excludes.
-            (canAccess('biller') && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'items',
-              'subtotal',
-              'totalAmount',
-              'taxRate',
-              'taxAmount',
-              'customer',
-              'orderType',
-              'source',
-              'status',
-              'statusHistory',
-              'payment',
-              'revisionCount',
-              'updatedAt',
-              'cashManagerOtp',
-              'cashManagerOtpFor',
-              'cashManagerOtpGeneratedAt',
-              'cashManagerOtpVerified',
-              'cashManagerOtpVerifiedAt',
-              'cashManagerOtpVerifiedBy',
-              'verificationAttempts',
-              'verificationLockedUntil',
-              'deliveredAt',
-              'mapUrl'
-            ])) ||
-
-            // 3. Orders-page staff (kitchen/front-of-house, no billing
-            //    access): lifecycle and payment-collection fields only —
-            //    deliberately EXCLUDES items/subtotal/totalAmount/customer/
-            //    orderType/source. Orders-page staff verify OTPs, advance
-            //    status (placed -> preparing -> ready -> delivered), and
-            //    record COD cash collection, but must not be able to alter
-            //    what was ordered or its price after the fact — that edit
-            //    capability is reserved for the biller branch above, which
-            //    is the only staff role that also owns bill creation.
-            (canAccess('orders') && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'status',
-              'statusHistory',
-              'payment',
-              'revisionCount',
-              'updatedAt',
-              'cashManagerOtp',
-              'cashManagerOtpVerified',
-              'cashManagerOtpVerifiedAt',
-              'cashManagerOtpVerifiedBy',
-              'verificationAttempts',
-              'verificationLockedUntil',
-              'deliveredAt'
-            ]))
-          )
-        )
+        canUpdateOrderFields()
       );
 
       // DELETE: Only admins can delete orders.
@@ -386,9 +418,9 @@ service cloud.firestore {
     // RAW MATERIALS / STOCK
     // -----------------------------------------
     match /raw_materials/{doc} {
-      allow get: if isAdmin() || canManageInventory() || canAccess('biller');
-      allow list: if isAdmin() || canManageInventory() || canAccess('biller');
-      allow create, update: if isAdmin() || canManageInventory();
+      allow get: if isAdmin() || canManageInventory() || canAccess('biller') || canAccess('stock');
+      allow list: if isAdmin() || canManageInventory() || canAccess('biller') || canAccess('stock');
+      allow create, update: if isAdmin() || canManageInventory() || canAccess('stock');
       allow delete: if isAdmin();
     }
 
@@ -419,8 +451,8 @@ service cloud.firestore {
 
       // Write permissions vary by document
       allow create, update: if (
-        // Settings - admin only (includes delivery-fee config)
-        (docId == 'settings' && isAdmin()) ||
+        // Settings - admin, or staff with settings-page access (includes delivery-fee config)
+        (docId == 'settings' && canAccess('settings')) ||
         // Store status - admin only
         (docId == 'store' && isAdmin()) ||
         // Appearance - admin or staff with appearance access
@@ -442,6 +474,20 @@ service cloud.firestore {
       allow create: if isStaff() || isSuperAdmin();
       // Only super admin can read/update/delete logs
       allow read, update, delete: if isSuperAdmin();
+    }
+
+    // -----------------------------------------
+    // PENDING LOG CLEANUP (weekly cron review-before-delete)
+    // -----------------------------------------
+    // Written only by the cleanup-logs-scan/cleanup-logs-delete server
+    // endpoints (Admin SDK) — same server-owned write pattern as
+    // staffInvites above. The review page reads this directly with the
+    // super admin's own authenticated session; the token in the URL alone
+    // grants nothing without that session, matching the "leaked link isn't
+    // enough" requirement.
+    match /pendingLogCleanup/{token} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
     }
 
     // -----------------------------------------

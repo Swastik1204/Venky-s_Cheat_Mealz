@@ -13,5 +13,11 @@
         { "key": "Access-Control-Max-Age", "value": "86400" }
       ]
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cleanup-logs-scan",
+      "schedule": "0 3 * * 0"
+    }
   ]
 }

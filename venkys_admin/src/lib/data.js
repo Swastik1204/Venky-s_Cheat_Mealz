@@ -35,5 +35,8 @@ export { recordChange, fetchChangeHistory, restoreVersion, deleteExpiredHistory 
 // ── Staff ──
 export { fetchStaff, getStaffMember, addStaffMember, updateStaffMember, removeStaffMember, normalizeRolePages, assertValidStaffRole } from './data-staff'
 
+// ── Staff Invites ──
+export { fetchInvites, createInvite, revokeInvite, verifyInvite, redeemInvite, inviteStatus } from './data-invites'
+
 // ── Cart ──
 export { saveCart } from './data-cart'

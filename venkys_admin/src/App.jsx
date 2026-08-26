@@ -1,7 +1,7 @@
 // App — Admin root component with role-based routing
 import { Suspense, lazy, useState } from 'react'
 
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 
 import { useAuth } from './context/AuthContext'
 import { useUI } from './context/UIContext'
@@ -10,6 +10,8 @@ import AuthModal from './components/AuthModal'
 import AuthSkeleton from './components/AuthSkeleton'
 import ErrorBoundary from './components/ErrorBoundary'
 import InstallPWA from './components/InstallPWA'
+
+const ClaimInvite = lazy(() => import('./pages/ClaimInvite'))
 
 const Inventory = lazy(() => import('./pages/Inventory'))
 const StockManager = lazy(() => import('./pages/StockManager'))
@@ -21,6 +23,7 @@ const AdminBiller = lazy(() => import('./pages/AdminBiller'))
 const AuditLogs = lazy(() => import('./pages/AuditLogs'))
 const ChangeHistory = lazy(() => import('./pages/ChangeHistory'))
 const Delivery = lazy(() => import('./pages/Delivery'))
+const LogCleanupReview = lazy(() => import('./pages/LogCleanupReview'))
 
 // Access denied component for guests/unregistered users
 function AccessDenied() {
@@ -85,6 +88,18 @@ function AccessDenied() {
 export default function App() {
   const { authMode } = useUI()
   const { user, loading, roleLoading, isStaffMember, canAccess, role, isSuperAdmin } = useAuth()
+  const location = useLocation()
+
+  // Public invite-claim route: must render before the auth/role gates below
+  // — the whole point is that the visitor is NOT staff yet, and may not
+  // even be signed in yet. ClaimInvite manages its own sign-in flow.
+  if (location.pathname === '/claim') {
+    return (
+      <Suspense fallback={<AuthSkeleton />}>
+        <ClaimInvite />
+      </Suspense>
+    )
+  }
 
   // Show skeleton while loading auth or role
   if (loading || roleLoading) {
@@ -192,6 +207,10 @@ export default function App() {
                 <Route
                   path="/change-history"
                   element={isSuperAdmin ? <ChangeHistory /> : <Navigate to={firstAllowedPath} replace />}
+                />
+                <Route
+                  path="/admin/log-cleanup"
+                  element={isSuperAdmin ? <LogCleanupReview /> : <Navigate to={firstAllowedPath} replace />}
                 />
 
                 <Route path="*" element={<Navigate to={firstAllowedPath} replace />} />
