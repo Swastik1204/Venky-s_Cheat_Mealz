@@ -1,4 +1,6 @@
 /* eslint-env node */
+import { Redis } from '@upstash/redis'
+import { Ratelimit } from '@upstash/ratelimit'
 
 /**
  * VERCEL BILL PROTECTION - Rate Limiter + Kill Switch
@@ -32,9 +34,6 @@ function getRedis() {
   const token = (process.env.UPSTASH_REDIS_REST_TOKEN || '').trim()
   if (!url || !token) return null
   try {
-    // Dynamic import at module level is not supported, so we use a lazy sync pattern.
-    // The packages are resolved at deploy time by Vercel's bundler.
-    const { Redis } = require('@upstash/redis')
     _redis = new Redis({ url, token })
     return _redis
   } catch {
@@ -51,7 +50,6 @@ function getRedisRateLimiter(routeName, config) {
   const redis = getRedis()
   if (!redis) return null
   try {
-    const { Ratelimit } = require('@upstash/ratelimit')
     const windowSec = Math.max(1, Math.ceil(config.windowMs / 1000))
     const limiter = new Ratelimit({
       redis,
