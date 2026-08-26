@@ -4,6 +4,6 @@ build
 .firebase
 .git
 .env*
-public
+public/
 src
 scripts
