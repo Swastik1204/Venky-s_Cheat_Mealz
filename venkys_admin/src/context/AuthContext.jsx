@@ -2,7 +2,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
 
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, GoogleAuthProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, terminate, clearIndexedDbPersistence } from 'firebase/firestore'
 
 import { auth, db } from '../lib/firebase'
 import { ensureUserDocument } from '../lib/userData'
@@ -132,7 +132,23 @@ export function AuthProvider({ children }) {
   }, [])
 
   const logout = useCallback(async () => {
-    await signOut(auth)
+    try {
+      await signOut(auth)
+    } catch (err) {
+      console.error('Logout error:', err)
+    }
+
+    // Clear the Firestore persistent (IndexedDB) cache so no previously-
+    // authorized data remains readable on a shared device after sign-out —
+    // admin devices may be shared terminals in a restaurant setting.
+    // Non-blocking: can fail if listeners are still attached, but sign-out
+    // must proceed regardless.
+    try {
+      await terminate(db)
+      await clearIndexedDbPersistence(db)
+    } catch (err) {
+      console.warn('Cache clear on sign-out failed (non-blocking):', err)
+    }
   }, [])
 
   const loginWithGoogle = useCallback(async () => {

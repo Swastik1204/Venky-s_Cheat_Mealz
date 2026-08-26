@@ -2,12 +2,12 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { MdDelete, MdEdit, MdPersonAdd } from 'react-icons/md'
+import { MdDelete, MdEdit, MdPersonAdd, MdCancel } from 'react-icons/md'
 
 import AdminLayout from '../layouts/AdminLayout'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchAppSettings, saveAppSettings, fetchBusinessProfile, syncBusinessProfile, fetchStaff, addStaffMember, updateStaffMember, removeStaffMember } from '../lib/data'
+import { fetchAppSettings, saveAppSettings, fetchBusinessProfile, syncBusinessProfile, fetchStaff, updateStaffMember, removeStaffMember, fetchInvites, createInvite, revokeInvite, inviteStatus } from '../lib/data'
 import { fetchDeliverySettings, saveDeliverySettings } from '../lib/deliverySettings'
 
 export default function Settings() {
@@ -74,6 +74,17 @@ export default function Settings() {
   const [staffLoading, setStaffLoading] = useState(false)
   const [staffModal, setStaffModal] = useState({ open: false, mode: 'add', email: '', name: '', role: 'staff', pages: defaultPagesForRole('staff'), defaultPage: '', saving: false })
 
+  // Pending invites — new staff go through this instead of a direct write;
+  // editing an existing staff member's role/pages stays direct-write below.
+  const [invites, setInvites] = useState([])
+  const [invitesLoading, setInvitesLoading] = useState(false)
+  const [revokingToken, setRevokingToken] = useState(null)
+
+  const loadInvites = () => {
+    setInvitesLoading(true)
+    return fetchInvites().then((list) => setInvites(list)).finally(() => setInvitesLoading(false))
+  }
+
   // Load staff
   useEffect(() => {
     let active = true
@@ -82,6 +93,11 @@ export default function Settings() {
       if (active) setStaff(list)
     }).finally(() => active && setStaffLoading(false))
     return () => { active = false }
+  }, [])
+
+  // Load pending invites
+  useEffect(() => {
+    loadInvites()
   }, [])
 
   // Initial load
@@ -415,9 +431,9 @@ export default function Settings() {
             className="btn btn-primary btn-sm gap-1"
             onClick={() => setStaffModal({ open: true, mode: 'add', email: '', name: '', role: 'staff', pages: defaultPagesForRole('staff'), defaultPage: '', saving: false })}
             disabled={!isAdmin}
-            title={!isAdmin ? 'Only admins can manage staff' : 'Add new staff member'}
+            title={!isAdmin ? 'Only admins can manage staff' : 'Invite a new staff member'}
           >
-            <MdPersonAdd className="w-4 h-4" /> Add Staff
+            <MdPersonAdd className="w-4 h-4" /> Invite Staff
           </button>
         </div>
         
@@ -493,6 +509,76 @@ export default function Settings() {
         )}
       </div>
 
+      {/* Pending Invites Section */}
+      <div className="rounded-2xl border border-base-300/60 bg-base-100/80 backdrop-blur p-5 shadow-sm max-w-3xl mt-6">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="font-semibold tracking-tight">Pending Invites</h3>
+          <button className="btn btn-ghost btn-xs" onClick={loadInvites} disabled={invitesLoading}>
+            {invitesLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+
+        {invitesLoading ? (
+          <div className="flex justify-center py-6"><span className="loading loading-spinner loading-md" /></div>
+        ) : invites.filter((i) => i.status !== 'claimed').length === 0 ? (
+          <div className="text-center py-6 opacity-60">
+            <p>No pending invites.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table table-sm">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Invited by</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invites.filter((i) => i.status !== 'claimed').map((inv) => {
+                  const st = inviteStatus(inv)
+                  const badgeClass = st === 'pending' ? 'badge-info' : st === 'expired' ? 'badge-warning' : 'badge-neutral'
+                  return (
+                    <tr key={inv.token}>
+                      <td className="font-mono text-xs">{inv.email}</td>
+                      <td><span className="badge badge-sm badge-secondary">{inv.role}</span></td>
+                      <td><span className={`badge badge-sm ${badgeClass} capitalize`}>{st}</span></td>
+                      <td className="text-xs opacity-70">{inv.invitedByName || inv.invitedBy || '-'}</td>
+                      <td className="text-right">
+                        {st === 'pending' && (
+                          <button
+                            className="btn btn-ghost btn-xs text-error gap-1"
+                            disabled={!isAdmin || revokingToken === inv.token}
+                            onClick={async () => {
+                              if (!confirm(`Revoke the invite for ${inv.email}?`)) return
+                              setRevokingToken(inv.token)
+                              try {
+                                await revokeInvite(inv.token)
+                                pushToast('Invite revoked', 'success')
+                                await loadInvites()
+                              } catch (e) {
+                                pushToast(e.message || 'Failed to revoke invite', 'error')
+                              } finally {
+                                setRevokingToken(null)
+                              }
+                            }}
+                            title="Revoke"
+                          >
+                            <MdCancel className="w-4 h-4" /> Revoke
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
 
       {/* Staff Modal */}
       {staffModal.open && createPortal(
@@ -511,10 +597,10 @@ export default function Settings() {
             <div className="p-6 space-y-5">
               <div>
                 <h3 className="text-lg font-bold">
-                  {staffModal.mode === 'add' ? 'Add Staff Member' : 'Edit Staff Member'}
+                  {staffModal.mode === 'add' ? 'Invite Staff Member' : 'Edit Staff Member'}
                 </h3>
                 <p className="text-xs opacity-70">
-                  {staffModal.mode === 'add' ? 'Grant staff access to the admin panel' : 'Update staff member details'}
+                  {staffModal.mode === 'add' ? "We'll email this person a link to activate the access below — it expires in 48 hours." : 'Update staff member details'}
                 </p>
               </div>
 
@@ -651,9 +737,14 @@ export default function Settings() {
                   try {
                     const defaultPageVal = staffModal.role === 'admin' ? null : (staffModal.defaultPage || null)
                     if (staffModal.mode === 'add') {
-                      await addStaffMember(staffModal.email, staffModal.role, staffModal.name, user?.email, staffModal.role === 'admin' ? null : (staffModal.pages || defaultPagesForRole(staffModal.role) || {}), defaultPageVal)
-                      setStaff((prev) => [...prev, { email: staffModal.email.toLowerCase().trim(), role: staffModal.role, name: staffModal.name, pages: staffModal.role === 'admin' ? null : (staffModal.pages || defaultPagesForRole(staffModal.role) || {}), defaultPage: defaultPageVal }])
-                      pushToast('Staff member added', 'success')
+                      await createInvite({
+                        email: staffModal.email,
+                        role: staffModal.role,
+                        pages: staffModal.role === 'admin' ? null : (staffModal.pages || defaultPagesForRole(staffModal.role) || {}),
+                        defaultPage: defaultPageVal,
+                      })
+                      await loadInvites()
+                      pushToast('Invite sent', 'success')
                     } else {
                       const updates = {
                         role: staffModal.role,
@@ -672,7 +763,7 @@ export default function Settings() {
                   }
                 }}
               >
-                {staffModal.saving ? 'Saving…' : staffModal.mode === 'add' ? 'Add' : 'Save'}
+                {staffModal.saving ? 'Sending…' : staffModal.mode === 'add' ? 'Send Invite' : 'Save'}
               </button>
             </div>
           </div>
