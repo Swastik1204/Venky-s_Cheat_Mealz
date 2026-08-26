@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - main
       - prod
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches:
       - main
       - prod
