@@ -16,8 +16,11 @@ export async function fetchInvites() {
   }
 }
 
+// Consolidated into a single /api/invites endpoint (action-routed) — see
+// api/invites.js. Was 4 separate serverless functions; venkys_admin/api had
+// grown to 15 top-level files, over Vercel's Hobby-plan 12-function cap.
 export async function createInvite({ email, role, pages, defaultPage }) {
-  const res = await apiClient.post('/api/create-invite', { email, role, pages, defaultPage })
+  const res = await apiClient.post('/api/invites', { action: 'create', email, role, pages, defaultPage })
   if (!res.ok) {
     throw new Error(res.body?.error || res.message || 'Failed to create invite')
   }
@@ -25,7 +28,7 @@ export async function createInvite({ email, role, pages, defaultPage }) {
 }
 
 export async function revokeInvite(token) {
-  const res = await apiClient.post('/api/revoke-invite', { token })
+  const res = await apiClient.post('/api/invites', { action: 'revoke', token })
   if (!res.ok) {
     throw new Error(res.body?.error || res.message || 'Failed to revoke invite')
   }
@@ -33,7 +36,7 @@ export async function revokeInvite(token) {
 }
 
 export async function verifyInvite(token) {
-  const res = await apiClient.post('/api/verify-invite', { token })
+  const res = await apiClient.post('/api/invites', { action: 'verify', token })
   if (!res.ok) {
     return { valid: false, reason: 'network_error' }
   }
@@ -41,7 +44,7 @@ export async function verifyInvite(token) {
 }
 
 export async function redeemInvite(token) {
-  const res = await apiClient.post('/api/redeem-invite', { token })
+  const res = await apiClient.post('/api/invites', { action: 'redeem', token })
   if (!res.ok) {
     throw new Error(res.body?.error || res.message || 'Failed to activate access')
   }

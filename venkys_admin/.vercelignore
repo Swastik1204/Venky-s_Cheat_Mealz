@@ -4,11 +4,9 @@ build
 .firebase
 .git
 .env*
-public
+public/
 src
 scripts
 functions
-venkys_admin
 README.md
 PRICING_PAYMENT_DETAILS.txt
-package-lock.json
