@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   build-apk:
-    name: Build Android Release APK
+    name: Android Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
