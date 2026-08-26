@@ -59,15 +59,17 @@ The system enforces a strict 6-tier authorization model synchronized between `fi
 ---
 
 ## 5. CI/CD Pipeline & Atomic Deployments
-* **GitHub Actions Workflow** (`.github/workflows/deploy.yml`):
+* **GitHub Actions Workflow** (`.github/workflows/deploy.yml`), job display names as of 2026-08-26 rename/consolidation pass:
   * Runs on all pushes and PRs to `main` and `prod`.
-  * `rules-check`: Asserts `venkys/firestore.rules` === `venkys_admin/firestore.rules`.
-  * `validate-venkys` & `validate-venkys-admin`: Parallel lint + build validation.
-  * `auto-inject-checklist` & `verify-prod-checklist`: Injects and verifies the incident-specific production release checklist on all PRs targeting `prod`.
-  * `deploy-production`: On push to `prod`, executes atomic deployment:
+  * `rules-check` → **"Firestore Rules Synced"**: Asserts `venkys/firestore.rules` === `venkys_admin/firestore.rules`.
+  * `validate-venkys` → **"Lint & Build — Customer App"**, `validate-venkys-admin` → **"Lint & Build — Admin App"**: lint + build validation.
+  * `prod-checklist` → **"Prod Release Checklist"** (merged `auto-inject-checklist` + `verify-prod-checklist` into one job, two sequential steps — same logic, one fewer top-level check): injects and verifies the incident-specific production release checklist on all PRs targeting `prod`.
+  * `deploy-production` → **"Deploy to Production"**: on push to `prod`, executes atomic deployment:
     ```bash
     npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --project venky-s-chicken-xperience
     ```
+  * `flutter-build.yml`'s `build-apk` → **"Android Build"** (separate workflow/trigger, admin_control Flutter app only).
+  * **Gotcha, hit for real on this rename**: the `prod` branch Ruleset's required-status-checks list matches by exact display-name string, not job ID. Renaming a job's `name:` field without updating the Ruleset leaves the old required-check entries permanently stuck at "Expected — Waiting for status to be reported" (the workflow will never report under that string again), silently blocking every PR to `prod` forever — not a graceful "stop enforcing," an actual stuck merge. Any future job rename must update the Ruleset's required-checks list in the same pass. Also worth periodically confirming there's no separate legacy *classic* branch-protection rule coexisting with the Ruleset (GitHub supports both) — one can silently reference stale names the other doesn't.
 
 ---
 
