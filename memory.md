@@ -63,7 +63,7 @@ The system enforces a strict 6-tier authorization model synchronized between `fi
   * Runs on all pushes and PRs to `main` and `prod`.
   * `rules-check` → **"Firestore Rules Synced"**: Asserts `venkys/firestore.rules` === `venkys_admin/firestore.rules`.
   * `validate-venkys` → **"Lint & Build — Customer App"**, `validate-venkys-admin` → **"Lint & Build — Admin App"**: lint + build validation.
-  * `prod-checklist` → **"Prod Release Checklist"** (merged `auto-inject-checklist` + `verify-prod-checklist` into one job, two sequential steps — same logic, one fewer top-level check): injects and verifies the incident-specific production release checklist on all PRs targeting `prod`.
+  * `prod-checklist` → **"Prod Release Checklist"** (merged `auto-inject-checklist` + `verify-prod-checklist` into one job, two sequential steps — same logic, one fewer top-level check): injects and verifies the incident-specific production release checklist on all PRs targeting `prod`. Trimmed 2026-08-26 from 5 items to 3 — dropped "Rules Duplication" and "Pre-Push Validation" since they're already independently proven by the required "Firestore Rules Synced" / "Lint & Build" checks passing on the same PR; a manual checkbox for something CI already verified was pure friction with no added safety. Remaining 3 items (Customer Isolation, Webhook Idempotency, Hosting Split & CORS) are judgment calls on the actual diff that no automated check covers — still genuinely manual, by design, not an oversight.
   * `deploy-production` → **"Deploy to Production"**: on push to `prod`, executes atomic deployment:
     ```bash
     npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --project venky-s-chicken-xperience
