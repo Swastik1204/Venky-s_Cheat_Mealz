@@ -1,4 +1,4 @@
-name: Flutter Build & Package (admin_control)
+name: Android
 
 on:
   push:
@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   build-apk:
-    name: Android Build
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
