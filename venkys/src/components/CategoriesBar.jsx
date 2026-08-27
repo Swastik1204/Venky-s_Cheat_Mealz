@@ -3,6 +3,8 @@ import { useRef, useState, useEffect, memo, useCallback } from 'react'
 
 import { useLocation } from 'react-router-dom'
 
+import CategoryIcon from './CategoryIcon'
+
 function CategoriesBarInner({ items = [] }) {
   const scrollerRef = useRef(null)
   const location = useLocation()
@@ -208,8 +210,8 @@ function CategoriesBarInner({ items = [] }) {
                 {it.image ? (
                   <img src={it.image} alt={it.label} loading="eager" decoding="sync" fetchPriority="high" />
                 ) : (
-                  <span className="text-xl sm:text-2xl font-bold text-primary">
-                    {(it.label || '?').charAt(0).toUpperCase()}
+                  <span className="text-primary">
+                    <CategoryIcon name={it.label} />
                   </span>
                 )}
               </div>

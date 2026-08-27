@@ -2,8 +2,16 @@
 @plugin "daisyui";
 
 @layer components {
-	.app-shell { 
-		@apply relative min-h-screen flex flex-col;
+	.app-shell {
+		@apply relative flex flex-col;
+		/* min-h-screen (100vh) is locked to the tallest possible viewport and
+		   doesn't shrink when a mobile browser's toolbar collapses on scroll,
+		   so the page can render taller than the gradient box below and expose
+		   the much weaker body::before gradient as a hard seam. 100dvh tracks
+		   the actual visible viewport instead; 100vh stays as a fallback for
+		   browsers that don't support dvh. */
+		min-height: 100vh;
+		min-height: 100dvh;
 		/* Global gradient background moved from CategoriesBar */
 		--bg-from: color-mix(in srgb, var(--color-primary) 18%, var(--color-base-100));
 		--bg-mid: color-mix(in srgb, var(--color-base-100) 98%, transparent);
