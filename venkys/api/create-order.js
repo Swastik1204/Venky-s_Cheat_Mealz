@@ -19,10 +19,21 @@ import { getFirestore } from 'firebase-admin/firestore'
 
 const rateLimiter = createRateLimiter({ routeName: 'create-order' })
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET
-})
+// Lazy — the Razorpay SDK's constructor throws synchronously if key_id/
+// key_secret are missing or malformed. Constructing it at module scope (the
+// previous shape here) means that on any deployment without Razorpay env
+// vars set, this entire serverless function crashes at cold start
+// (FUNCTION_INVOCATION_FAILED, no response body, no CORS headers) instead of
+// the handler's own "Server misconfigured" JSON response ever running.
+let _razorpay = null
+function getRazorpay() {
+  if (_razorpay) return _razorpay
+  _razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET
+  })
+  return _razorpay
+}
 
 // Initialize Firebase Admin (singleton)
 if (!getApps().length) {
@@ -105,17 +116,19 @@ async function verifyCartAmount(items, clientAmount) {
 }
 
 export default async function handler(req, res) {
-  // Apply rate limiting
-  await rateLimiter(req, res, () => {})
-  if (res.headersSent) return // Rate limit exceeded
-  if (!(process.env.RAZORPAY_KEY_SECRET || '').trim()) {
-    return res.status(500).json({ error: 'Server misconfigured: RAZORPAY_KEY_SECRET not set' })
-  }
-  // CORS with 24-hour preflight caching
+  // CORS first — every response below (including error responses) must
+  // carry CORS headers, or the browser reports a generic "Network request
+  // failed or blocked by CORS" instead of surfacing the real error/status.
   if (handleCors(req, res, 'POST, OPTIONS')) return
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method not allowed' })
+  }
+  // Apply rate limiting
+  await rateLimiter(req, res, () => {})
+  if (res.headersSent) return // Rate limit exceeded
+  if (!(process.env.RAZORPAY_KEY_ID || '').trim() || !(process.env.RAZORPAY_KEY_SECRET || '').trim()) {
+    return res.status(500).json({ error: 'Server misconfigured: Razorpay credentials not set' })
   }
   // Verify Firebase Auth token
   const auth = await verifyAuth(req)
@@ -148,7 +161,7 @@ export default async function handler(req, res) {
       notes: { checksum: cartChecksum || 'na' }
     }
 
-    const order = await razorpay.orders.create(options)
+    const order = await getRazorpay().orders.create(options)
 
     return res.status(200).json({ orderId: order.id, amount: order.amount, currency: order.currency })
   } catch (e) {
