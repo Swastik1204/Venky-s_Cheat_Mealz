@@ -55,7 +55,7 @@ if (import.meta.env.PROD) {
       window.dispatchEvent(new CustomEvent('pwa-update-available'))
     },
     onOfflineReady() {
-      console.log('[PWA] App ready for offline use')
+      if (import.meta.env.DEV) console.log('[PWA] App ready for offline use')
     },
   })
 }

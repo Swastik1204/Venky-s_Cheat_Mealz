@@ -7,7 +7,7 @@
 //   customer: { name, phone, email?, address?, instructions?, landmark? },
 //   orderType: 'delivery' | 'dine-in' | 'takeaway',
 //   paymentMethod: 'cod' | 'upi' | 'card',
-//   taxRate?: number,
+//   taxRate: IGNORED — the server derives the rate from miscellaneous/settings.
 // }
 // Returns: { orderNo, status, totalAmount }
 //
@@ -31,7 +31,7 @@
 // specifically, not just "is any staff role" — POS order creation is a
 // biller-page action.
 
-import { createRateLimiter } from './_lib/rateLimiter.js'
+import { createRateLimiter, checkUidRateLimit } from './_lib/rateLimiter.js'
 import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, canAccess } from './_lib/fcm.js'
@@ -53,6 +53,52 @@ function todayDateKeyIST() {
   const m = parts.find(p => p.type === 'month').value
   const d = parts.find(p => p.type === 'day').value
   return `${y}${m}${d}`
+}
+
+// ── Server-owned tax derivation ──
+//
+// SECURITY: the tax rate must never come from the request body. It used to:
+//     const taxRate = typeof body.taxRate === 'number' ? body.taxRate : null
+//     const taxAmount = taxRate != null ? Math.round(subtotal * taxRate) : null
+//     const totalAmount = Math.round(subtotal + (taxAmount || 0))
+// so a direct POST could set any rate it liked. The subtotal was already
+// recomputed from the 'menu' collection and was never client-controlled, but
+// taxRate was the one caller-supplied number that survived into the persisted
+// total — and a negative one drove the total BELOW the verified subtotal.
+// Verified before this fix, on a server-verified subtotal of 1000:
+//     taxRate: 0       -> totalAmount 1000  (tax silently waived)
+//     taxRate: -0.999  -> totalAmount    1
+//     taxRate: -1      -> totalAmount    0
+//
+// body.taxRate is now ignored completely: not read, not clamped, not used as
+// a default. The rate comes only from miscellaneous/settings, which is
+// admin-write-only (see the /miscellaneous match block in firestore.rules)
+// and therefore a trusted server-side rate table.
+//
+// Tax stays OFF unless the owner explicitly sets `gstEnabled: true` on that
+// document. That default is deliberate and preserves current behaviour
+// exactly: no client in any of these apps has ever sent taxRate, so no order
+// has ever carried tax. Deriving the rate from the stored gstRate (live value:
+// 0.05) without an explicit switch would silently raise every order total by
+// 5% — a pricing change, not a security fix.
+const MAX_GST_RATE = 0.28 // highest Indian GST slab; sanity ceiling on config
+
+async function resolveServerTaxRate(db) {
+  try {
+    const snap = await db.collection('miscellaneous').doc('settings').get()
+    if (!snap.exists) return null
+    const d = snap.data() || {}
+    if (d.gstEnabled !== true) return null
+    const rate = Number(d.gstRate)
+    if (!Number.isFinite(rate) || rate <= 0 || rate > MAX_GST_RATE) return null
+    return rate
+  } catch (err) {
+    // Never fail an order because the settings read failed — fall back to no
+    // tax, which is the recoverable direction (undercharging can be corrected
+    // on the bill; overcharging a customer cannot be taken back).
+    console.warn('[place-order] tax settings read failed, applying no tax:', err?.message)
+    return null
+  }
 }
 
 async function verifyCartAmount(db, items) {
@@ -132,10 +178,32 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Biller access required for POS orders' })
     }
 
+    // Layer 2 rate limiting: per-customer order throttle (3 orders / 15 min),
+    // keyed on the SERVER-VERIFIED uid from the ID token above — never on any
+    // request-supplied identity. Distinct from the per-route limiter at the
+    // top of this handler, which runs pre-auth and is keyed by client IP.
+    // POS/biller orders are exempt: a busy shift legitimately creates many
+    // orders per hour from one staff account.
+    if (!isPosRequest) {
+      const uidLimit = await checkUidRateLimit(auth.user.uid, 'place-order-per-uid')
+      if (!uidLimit.allowed) {
+        res.setHeader('Retry-After', String(uidLimit.retryAfter))
+        return res.status(429).json({
+          error: 'rate_limit_exceeded',
+          message: "You've placed too many orders recently, please wait before ordering again.",
+          retryAfter: uidLimit.retryAfter,
+          limit: uidLimit.limit,
+          window: `${uidLimit.windowMs / 1000}s`,
+        })
+      }
+    }
+
     const db = adminDb()
     const { normalizedItems, subtotal } = await verifyCartAmount(db, items)
 
-    const taxRate = typeof body.taxRate === 'number' ? body.taxRate : null
+    // Tax rate is resolved from server-owned settings; body.taxRate is ignored
+    // entirely. See resolveServerTaxRate() above for why.
+    const taxRate = await resolveServerTaxRate(db)
     const taxAmount = taxRate != null ? Math.round(subtotal * taxRate) : null
     const totalAmount = Math.round(subtotal + (taxAmount || 0))
 

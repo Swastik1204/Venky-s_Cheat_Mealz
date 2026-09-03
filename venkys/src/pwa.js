@@ -11,6 +11,6 @@ export function setupPWAHooks() {
 
   // Notify when app is ready offline
   window.addEventListener('appinstalled', () => {
-    console.log('PWA installed')
+    if (import.meta.env.DEV) console.log('PWA installed')
   })
 }
