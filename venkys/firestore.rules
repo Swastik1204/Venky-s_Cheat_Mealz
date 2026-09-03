@@ -81,10 +81,18 @@ service cloud.firestore {
       return hasEmail() && exists(/databases/$(database)/documents/roles/$(request.auth.token.email));
     }
 
+    // Resolves the role doc ONCE and reads the page flag with a defaulted
+    // map lookup. Semantically identical to the previous
+    //   isStaffUser() && getRoleDoc().pages != null
+    //     && getRoleDoc().pages[pageName] == true
+    // (rolePagesOrEmpty() below enforces role == 'staff' and pages != null),
+    // but it costs one document resolution instead of three, and `.get(name,
+    // false)` returns a clean false for an absent key where `pages[name]`
+    // raised "Property <name> is undefined on object". Both denied, but the
+    // error variant burned budget and buried real failures in rules output.
     function hasStaffPage(pageName) {
-      return isStaffUser()
-        && getRoleDoc().pages != null
-        && getRoleDoc().pages[pageName] == true;
+      let role = hasRoleDoc() ? getRoleDoc() : null;
+      return rolePagesOrEmpty(role).get(pageName, false) == true;
     }
 
     // Role helpers
@@ -117,14 +125,75 @@ service cloud.firestore {
       return canAccess('cashManager');
     }
 
-    // Check if user can manage orders (includes biller page access)
+    // ── Memoised role/page resolution (expression-budget critical) ──
+    //
+    // getRoleDoc() is a document read, and every canAccess() call chain
+    // re-ran it several times over: canAccess -> isAdmin -> hasRoleDoc +
+    // getRoleDoc, then -> hasStaffPage -> isStaffUser -> hasRoleDoc +
+    // getRoleDoc, then getRoleDoc().pages twice more. With four canAccess()
+    // calls in the /orders update rule that compounded past Firestore's
+    // 1000-subexpression budget, and budget exhaustion always DENIES — the
+    // emulator was reporting "Unable to evaluate the expression as the
+    // maximum of 1000 expressions to evaluate has been reached" on real
+    // order updates. These helpers bind the role document ONCE per calling
+    // function via `let`, so the whole chain costs one resolution.
+    //
+    // They also replace `getRoleDoc().pages[name]` with `pages.get(name,
+    // false)`. Indexing a map with an absent key raises an evaluation error
+    // in rules ("Property orders is undefined on object"); .get() with a
+    // default returns false cleanly. Both paths deny, so no access outcome
+    // changes — but the errors no longer burn budget or obscure real
+    // failures in the emulator output.
+    function rolePagesOrEmpty(role) {
+      return (role != null && role.role == 'staff' && role.pages != null) ? role.pages : {};
+    }
+
+    function isAdminRole(role) {
+      return isSuperAdmin() || (role != null && role.role == 'admin');
+    }
+
+    // Check if user can manage orders (includes biller page access).
+    // Semantics are unchanged from the previous
+    //   canAccess('orders') || canAccess('biller') || canAccess('delivery')
+    //     || isCashManagerUser()
+    // — each canAccess() is isAdmin() OR that staff page, and isAdmin() is
+    // hoisted out of the four-way OR here rather than repeated inside it.
     function canManageOrders() {
-      return canAccess('orders') || canAccess('biller') || canAccess('delivery') || isCashManagerUser();
+      let role = hasRoleDoc() ? getRoleDoc() : null;
+      let pages = rolePagesOrEmpty(role);
+      return isAdminRole(role)
+        || pages.get('orders', false) == true
+        || pages.get('biller', false) == true
+        || pages.get('delivery', false) == true
+        || pages.get('cashManager', false) == true;
     }
 
     // Read-only order access for sub-roles that should not mutate lifecycle.
+    //
+    // RESTORED: the orderMessenger arm of this function was present in the
+    // ruleset actually running in production (deployed 2026-08-24, from
+    // commit 69c00c0) and was deleted from the repo by 4af92d6 — a commit
+    // titled "ci: add flutter build workflow and update admin_control
+    // dependencies", which had nothing to do with security rules. The
+    // regression went unnoticed for ten days because CI never deployed
+    // firestore rules at all (see the deploy job's `--only` flag), so the
+    // repo copy and production had silently diverged.
+    //
+    // Without this arm, a staff member holding only pages.orderMessenger is
+    // routed to /admin/orders by AuthContext's matrix (orders: has('orders')
+    // || has('biller') || has('cashManager') || has('orderMessenger')) and
+    // then denied both the list and every document read — verified on the
+    // emulator against a cashManager control.
+    //
+    // Deliberately NOT folded into canManageOrders(): that function also
+    // gates writes (users/{uid}/orders update), and orderMessenger is a
+    // read-only tier — Orders.jsx renders it a "view-only mode with no
+    // lifecycle status controls" banner. canViewOrders() is used only by
+    // /orders get and list.
     function canViewOrders() {
-      return canManageOrders();
+      let role = hasRoleDoc() ? getRoleDoc() : null;
+      return canManageOrders()
+        || rolePagesOrEmpty(role).get('orderMessenger', false) == true;
     }
 
     // Check if user can manage inventory
@@ -150,9 +219,10 @@ service cloud.firestore {
     // exactly as before, regardless of what other permissions get added to
     // canAccess() in the future.
     function deliveryCanUpdateOrder() {
+      let changed = request.resource.data.diff(resource.data).changedKeys();
       return isDeliveryUser()
         && isDeliveryOrder(resource.data)
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        && changed.hasOnly([
           'status',
           'statusHistory',
           'updatedAt',
@@ -186,14 +256,27 @@ service cloud.firestore {
     // the orders-page branch's allowlist: they advance status/record
     // delivery completion, never touch items/pricing.
     function canUpdateOrderFields() {
-      let staffCashManager = isCashManagerUser();
-      let staffBiller = canAccess('biller');
-      let staffOrdersOrDelivery = canAccess('orders') || canAccess('delivery');
+      // One role-document resolution and one changedKeys() computation for
+      // the whole rule — see the rolePagesOrEmpty() comment above. The
+      // previous shape resolved the role doc through four separate
+      // canAccess() chains and recomputed diff().changedKeys() once per
+      // branch below, which is what exhausted the 1000-expression budget.
+      // Permission semantics are identical: each `staff*` binding below
+      // expands to exactly what its canAccess() call used to return.
+      let role = hasRoleDoc() ? getRoleDoc() : null;
+      let pages = rolePagesOrEmpty(role);
+      let isAdminUser = isAdminRole(role);
+      let staffCashManager = isAdminUser || pages.get('cashManager', false) == true;
+      let staffBiller = isAdminUser || pages.get('biller', false) == true;
+      let staffOrdersOrDelivery = isAdminUser
+        || pages.get('orders', false) == true
+        || pages.get('delivery', false) == true;
+      let changed = request.resource.data.diff(resource.data).changedKeys();
       return (staffCashManager || staffBiller || staffOrdersOrDelivery) && historyNotShrunk() && (
         // 1. Cash Manager generating/regenerating the dine-in COD OTP.
         //    Narrowest allowlist of any staff branch: cash managers
         //    never touch status, payment, or item/pricing fields.
-        (staffCashManager && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        (staffCashManager && changed.hasOnly([
           'cashManagerOtp',
           'cashManagerOtpGeneratedAt',
           'updatedAt'
@@ -205,7 +288,7 @@ service cloud.firestore {
         //    order before it's accepted), so this branch must include
         //    the pricing fields that the 'orders'/'delivery' branch below
         //    deliberately excludes.
-        (staffBiller && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        (staffBiller && changed.hasOnly([
           'items',
           'subtotal',
           'totalAmount',
@@ -239,7 +322,7 @@ service cloud.firestore {
         //    fact — that edit capability is reserved for the biller branch
         //    above, which is the only staff role that also owns bill
         //    creation.
-        (staffOrdersOrDelivery && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        (staffOrdersOrDelivery && changed.hasOnly([
           'status',
           'statusHistory',
           'payment',
@@ -474,6 +557,32 @@ service cloud.firestore {
       allow create: if isStaff() || isSuperAdmin();
       // Only super admin can read/update/delete logs
       allow read, update, delete: if isSuperAdmin();
+    }
+
+    // -----------------------------------------
+    // CHANGE HISTORY (before/after snapshots + restore)
+    // -----------------------------------------
+    // Written by recordChange() on every menu / order / settings mutation
+    // (src/lib/data-menu.js, data-orders.js, data-settings.js) and read by
+    // the super-admin-only ChangeHistory page at /change-history.
+    //
+    // This collection previously had NO match block at all, so it fell
+    // through to the default-deny below: every recordChange() was rejected
+    // — silently, since the callers wrap it in try/catch — and the whole
+    // ChangeHistory page could never load. The audit trail did not exist.
+    //
+    // Permissions mirror /logs exactly: any staff member may APPEND an
+    // entry (they generate them just by doing their job), but only the
+    // super admin may read, restore-mark, or prune them. `update` is
+    // scoped to the restore marker restoreVersion() writes back onto the
+    // entry it restored from; `delete` serves deleteExpiredHistory()'s
+    // TTL sweep. Restores themselves write to the TARGET collection and
+    // are authorised by that collection's own rules, not this block.
+    match /changeHistory/{changeId} {
+      allow create: if isStaff() || isSuperAdmin();
+      allow get, list: if isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
     }
 
     // -----------------------------------------

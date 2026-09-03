@@ -79,6 +79,7 @@ const RATE_LIMITS = {
   'public-config': { requests: 100, windowMs: 60000, burst: 20 },      // 100/min, burst 20
   'sync-business-profile': { requests: 5, windowMs: 300000, burst: 2 }, // 5/5min, burst 2
   'send-log-email': { requests: 20, windowMs: 60000, burst: 5 },       // 20/min, burst 5
+  'place-order-per-uid': { requests: 3, windowMs: 900000 },            // 3 orders / 15 min per customer UID (college-audience abuse guard)
   'default': { requests: 60, windowMs: 60000, burst: 15 }              // Default: 60/min, burst 15
 }
 
@@ -114,14 +115,54 @@ function maybeCleanupBuckets() {
 // HELPER FUNCTIONS
 // ============================================================================
 
+// ── Client identity for rate limiting ──
+//
+// SECURITY: the bucket key must never come from anything the caller chooses.
+// The previous shape read `x-user-id` / `?uid=` and PREFERRED it over the IP,
+// so a caller who rotated that header got a brand-new bucket on every request
+// and was never throttled at all — verified end-to-end: 10/10 requests allowed
+// against a 5-per-window limit. No client in any of these apps ever sent that
+// header, so it existed purely as an attacker's escape hatch. Both inputs are
+// gone and neither may come back.
+//
+// Rate limiting is now two layers:
+//   Layer 1 — this middleware, which runs BEFORE verifyAuth on every request
+//             and keys on the real client IP. It cannot key on the UID: it
+//             exists partly to protect the token-verification work itself, so
+//             it must decide before that work happens.
+//   Layer 2 — checkUidRateLimit(), called by handlers AFTER verifyAuth with
+//             the UID from the *server-verified* ID token. That is where
+//             per-user limits belong, because that is the first point at
+//             which a trustworthy user identity exists.
+function getClientIp(req) {
+  const h = req.headers || {}
+  const first = (v) => (Array.isArray(v) ? v[0] : v)
+
+  // Vercel writes this itself and strips any caller-supplied copy, so it is
+  // the one hop-identity header here that cannot be forged through the proxy.
+  const vercelIp = first(h['x-vercel-forwarded-for'])
+  if (typeof vercelIp === 'string' && vercelIp.trim()) {
+    return vercelIp.split(',').pop().trim()
+  }
+
+  const realIp = first(h['x-real-ip'])
+  if (typeof realIp === 'string' && realIp.trim()) return realIp.trim()
+
+  // x-forwarded-for: the proxy APPENDS the true client IP to whatever the
+  // caller already put there, so the LAST entry is the trustworthy one.
+  // Reading [0] — the previous shape — reads the caller's own spoofed value,
+  // which was a second, quieter bypass of the same limiter.
+  const xff = first(h['x-forwarded-for'])
+  if (typeof xff === 'string' && xff.trim()) {
+    const last = xff.split(',').pop().trim()
+    if (last) return last
+  }
+
+  return req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown'
+}
+
 function getClientId(req) {
-  // Try to get unique identifier: Firebase UID > IP > forwarded IP
-  const uid = req.headers['x-user-id'] || req.query.uid || null
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
-    || req.headers['x-real-ip'] 
-    || req.connection?.remoteAddress 
-    || 'unknown'
-  return uid ? `uid:${uid}` : `ip:${ip}`
+  return `ip:${getClientIp(req)}`
 }
 
 function getRouteName(req) {
@@ -328,12 +369,75 @@ function createRateLimiter(options = {}) {
   }
 }
 
+
+// ============================================================================
+// DIRECT UID RATE LIMIT CHECK (not tied to req/res — for use after auth)
+// ============================================================================
+
+/**
+ * Checks (and consumes on success) a rate-limit bucket keyed purely by
+ * `uid:<uid>`, independent of the per-route req/res middleware above. Used
+ * for the order-placement per-customer throttle, which must run *after*
+ * verifyAuth (there is no trustworthy uid before that), unlike the generic
+ * per-route limiter which runs on every request regardless of auth.
+ *
+ * The uid passed here MUST come from a verified Firebase ID token
+ * (`auth.user.uid` from verifyAuth) — never from a request header, query
+ * param, or body field. See the getClientId comment above for why.
+ *
+ * Uses the same Redis-first / in-memory-fallback storage as createRateLimiter.
+ *
+ * @returns {Promise<{allowed: boolean, retryAfter: number, limit: number, windowMs: number}>}
+ */
+async function checkUidRateLimit(uid, routeName) {
+  const config = RATE_LIMITS[routeName] || RATE_LIMITS.default
+  const clientId = `uid:${uid}`
+
+  if (RATE_LIMIT_DISABLED) return { allowed: true, retryAfter: 0, limit: config.requests, windowMs: config.windowMs }
+
+  const redisLimiter = getRedisRateLimiter(routeName, config)
+  if (redisLimiter) {
+    try {
+      const { success, reset } = await redisLimiter.limit(clientId)
+      const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000))
+      if (!success) {
+        logRateLimitViolation(clientId, routeName, `Exceeded ${config.requests} requests per ${config.windowMs}ms (redis, uid-direct)`)
+          .catch(err => console.error('[rateLimiter] Log error:', err))
+      }
+      return { allowed: success, retryAfter: success ? 0 : retryAfter, limit: config.requests, windowMs: config.windowMs }
+    } catch (redisErr) {
+      console.warn('[rateLimiter] Redis error (uid-direct), falling back to in-memory:', redisErr.message)
+    }
+  }
+
+  maybeCleanupBuckets()
+  const bucketKey = `${routeName}:${clientId}`
+  if (!buckets.has(bucketKey)) {
+    buckets.set(bucketKey, { tokens: config.requests, lastRefill: Date.now(), violations: 0 })
+  }
+  const bucket = buckets.get(bucketKey)
+  const now = Date.now()
+  refillTokens(bucket, config, now)
+
+  if (bucket.tokens >= 1) {
+    bucket.tokens -= 1
+    return { allowed: true, retryAfter: 0, limit: config.requests, windowMs: config.windowMs }
+  }
+
+  bucket.violations += 1
+  const retryAfter = Math.ceil((config.windowMs - (now - bucket.lastRefill)) / 1000)
+  logRateLimitViolation(clientId, routeName, `Exceeded ${config.requests} requests per ${config.windowMs}ms (uid-direct)`)
+    .catch(err => console.error('[rateLimiter] Log error:', err))
+  return { allowed: false, retryAfter, limit: config.requests, windowMs: config.windowMs }
+}
+
 // ============================================================================
 // EXPORTS
 // ============================================================================
 
 export {
   createRateLimiter,
+  checkUidRateLimit,
   RATE_LIMITS,
   KILL_SWITCH_ENABLED,
   RATE_LIMIT_DISABLED

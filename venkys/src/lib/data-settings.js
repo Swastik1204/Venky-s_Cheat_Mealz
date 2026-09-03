@@ -85,7 +85,7 @@ export async function setStoreOpen(open) {
 export async function fetchAppSettings() {
   try {
     const snap = await getDoc(doc(db, 'miscellaneous', 'settings'))
-    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', cashManagerPhones: [], orderMessengerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
+    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', cashManagerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
     const d = snap.data()
     const normalize10 = (p) => {
       let digits = String(p || '').replace(/\D/g, '')
@@ -95,14 +95,13 @@ export async function fetchAppSettings() {
     const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
     const adminMobile = d.adminMobile || ''
     let cashManagerPhones = Array.isArray(d.cashManagerPhones) ? d.cashManagerPhones.map(normalize10).filter(Boolean) : []
-    const orderMessengerPhones = Array.isArray(d.orderMessengerPhones) ? d.orderMessengerPhones.map(normalize10).filter(Boolean) : []
     const shopAddress = d.shopAddress || ''
     const shopPhone = d.shopPhone || ''
     const chefName = d.chefName || ''
     const googlePlaceId = d.googlePlaceId || ''
-    return { gstRate, adminMobile, cashManagerPhones, orderMessengerPhones, shopAddress, shopPhone, chefName, googlePlaceId }
+    return { gstRate, adminMobile, cashManagerPhones, shopAddress, shopPhone, chefName, googlePlaceId }
   } catch {
-    return { gstRate: 0.05, adminMobile: '', cashManagerPhones: [], orderMessengerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
+    return { gstRate: 0.05, adminMobile: '', cashManagerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
   }
 }
 

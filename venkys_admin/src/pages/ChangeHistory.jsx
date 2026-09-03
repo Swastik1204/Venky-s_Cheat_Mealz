@@ -19,7 +19,6 @@ const COLLECTION_OPTIONS = [
   { label: 'Orders', value: 'orders' },
   { label: 'Settings', value: 'miscellaneous' },
   { label: 'Roles', value: 'roles' },
-  { label: 'Admin Users', value: 'adminUsers' },
 ]
 
 function toDate(value) {
