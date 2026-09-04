@@ -110,10 +110,10 @@ export default function InstallPWA() {
               try {
                 const deferredPrompt = deferredPromptRef.current
                 if (!deferredPrompt) return
-                console.log('[PWA] install prompt shown')
+                if (import.meta.env.DEV) console.log('[PWA] install prompt shown')
                 await deferredPrompt.prompt()
                 const choice = await deferredPrompt.userChoice
-                console.log('[PWA] install choice', choice?.outcome || choice)
+                if (import.meta.env.DEV) console.log('[PWA] install choice', choice?.outcome || choice)
                 deferredPromptRef.current = null
                 setShowInstallButton(false)
               } catch { /* noop */ }
