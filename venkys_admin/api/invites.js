@@ -75,8 +75,8 @@ const rateLimiters = {
   verify: createRateLimiter({ routeName: 'verify-invite' }),
   redeem: createRateLimiter({ routeName: 'redeem-invite' }),
   revoke: createRateLimiter({ routeName: 'revoke-invite' }),
-  updateStaff: createRateLimiter({ routeName: 'update-staff' }),
-  removeStaff: createRateLimiter({ routeName: 'remove-staff' }),
+  updatestaff: createRateLimiter({ routeName: 'update-staff' }),
+  removestaff: createRateLimiter({ routeName: 'remove-staff' }),
 }
 const VALID_ROLES = ['admin', 'staff', 'delivery']
 const INVITE_TTL_MS = 48 * 60 * 60 * 1000 // 48 hours
@@ -486,8 +486,8 @@ const ACTION_HANDLERS = {
   verify: handleVerify,
   redeem: handleRedeem,
   revoke: handleRevoke,
-  updateStaff: handleUpdateStaff,
-  removeStaff: handleRemoveStaff,
+  updatestaff: handleUpdateStaff,
+  removestaff: handleRemoveStaff,
 }
 
 export default async function handler(req, res) {
