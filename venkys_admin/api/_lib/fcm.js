@@ -11,6 +11,7 @@
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getMessaging } from 'firebase-admin/messaging'
+import { getAuth } from 'firebase-admin/auth'
 
 function ensureAdmin() {
   if (getApps().length) return
@@ -25,6 +26,15 @@ function ensureAdmin() {
 export function adminDb() {
   ensureAdmin()
   return getFirestore()
+}
+
+// Used by invites.js's updateStaff/removeStaff actions to call
+// revokeRefreshTokens on a staff role change/removal — see verifyAuth.js's
+// checkRevoked=true, which is what makes that call actually take effect
+// immediately instead of waiting out the token's natural ~1h expiry.
+export function adminAuth() {
+  ensureAdmin()
+  return getAuth()
 }
 
 export { FieldValue }
