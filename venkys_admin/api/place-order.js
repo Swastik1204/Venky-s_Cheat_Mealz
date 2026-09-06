@@ -10,9 +10,16 @@
 // Body (POS/staff shape, source: 'pos'), additionally: {
 //   source: 'pos', userId?: string|null, status?: 'placed'|'preparing'|...,
 //   guestOrder?: boolean, guestOrderDate?: string, guestOrderAt?: string,
-//   payment?: { method, status, reference, gateway, orderId } — pre-verified
-//     payment info (e.g. POS already ran Razorpay + verify-payment before
-//     calling this endpoint, or is recording a cash/COD sale),
+//   payment?: { method, status, reference, gateway, orderId } — for a cash/
+//     COD sale, passed through as-is. For a claimed Razorpay payment
+//     (status: 'paid', gateway: 'razorpay'), NOT trusted verbatim: this
+//     endpoint independently re-fetches (reference = paymentId, orderId =
+//     the Razorpay order id) and validates the capture (amount, status,
+//     order-id match) via _lib/posPayment.js before ever persisting
+//     status 'paid', and claims the paymentId exactly once so a single
+//     real capture can't be attached to more than one order. A caller
+//     claiming a Razorpay payment that fails this check gets a 402, not a
+//     silently-downgraded unpaid order.
 // }
 // Returns: { orderNo, status, totalAmount }
 //
@@ -37,13 +44,29 @@
 // page permission specifically (canAccess(email, 'biller')), not just "any
 // staff role" — creating orders is a biller-page action.
 
+import Razorpay from 'razorpay'
 import { createRateLimiter, checkUidRateLimit } from './_lib/rateLimiter.js'
 import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, canAccess } from './_lib/fcm.js'
+import { fetchAndValidateRazorpayPayment, POS_PAYMENT_CLAIMS_COLLECTION } from './_lib/posPayment.js'
 import { Timestamp, FieldValue } from 'firebase-admin/firestore'
 
 const rateLimiter = createRateLimiter({ routeName: 'place-order' })
+
+// Lazy — same reasoning as create-order.js: constructing the Razorpay SDK
+// at module scope throws synchronously when the env vars are missing/
+// malformed, crashing this whole function at cold start for every COD
+// order too (this endpoint handles both), not just POS online-paid ones.
+let _razorpay = null
+function getRazorpay() {
+  if (_razorpay) return _razorpay
+  _razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  })
+  return _razorpay
+}
 
 const VALID_ORDER_TYPES = ['delivery', 'dine-in', 'takeaway']
 const VALID_STATUSES = ['placed', 'preparing', 'ready', 'delivered', 'rejected']
@@ -240,13 +263,48 @@ export default async function handler(req, res) {
       initialStatus = 'pending-payment'
     }
 
-    // POS pre-verified payment (e.g. Razorpay already captured + verified
-    // before this call) is passed through as-is; otherwise a fresh
-    // pending/COD payment record is created.
+    // POS pre-verified payment. SECURITY: a client claiming
+    // { status: 'paid', gateway: 'razorpay' } is NOT trusted verbatim —
+    // that used to be exactly what this block did, which meant any
+    // request that could reach this endpoint claiming biller access (or
+    // anything else that could reach create-order.js/verify-payment.js —
+    // see their header comments on why that set was larger than intended)
+    // could mark an arbitrarily large order paid with a fabricated or
+    // reused payment reference. When the client claims a captured Razorpay
+    // payment, it's independently re-fetched and validated below (real
+    // amount, real capture status, real order-id match) before status
+    // 'paid' is ever written — see _lib/posPayment.js for why this has to
+    // happen here rather than by binding at Razorpay-order-creation time
+    // the way the customer path does.
     const posPayment = isPosRequest && customer.payment && typeof customer.payment === 'object' ? customer.payment : null
+    const claimsRazorpayPaid = posPayment
+      && String(posPayment.status || '').toLowerCase() === 'paid'
+      && String(posPayment.gateway || '').toLowerCase() === 'razorpay'
+
+    let verifiedPaymentId = null
+    if (claimsRazorpayPaid) {
+      const razorpayOrderId = String(posPayment.orderId || '').trim()
+      const paymentId = String(posPayment.reference || '').trim()
+      const verification = await fetchAndValidateRazorpayPayment({
+        razorpay: getRazorpay(),
+        orderId: razorpayOrderId,
+        paymentId,
+        expectedAmountRupees: totalAmount,
+      })
+      if (!verification.ok) {
+        console.error('[place-order] POS Razorpay payment verification failed', { reason: verification.reason, orderId: razorpayOrderId, paymentId })
+        return res.status(402).json({ error: 'Payment could not be verified', reason: verification.reason })
+      }
+      verifiedPaymentId = paymentId
+    }
+
     const payment = posPayment ? {
       method: posPayment.method || paymentMethod,
-      status: posPayment.status || 'pending',
+      // Only ever 'paid' when independently verified above (or when the
+      // caller isn't claiming a Razorpay payment at all, e.g. a COD sale
+      // recorded some other way) — never the client's claimed status
+      // directly for a Razorpay-gateway payment.
+      status: claimsRazorpayPaid ? 'paid' : (posPayment.status || 'pending'),
       reference: posPayment.reference || null,
       collectedBy: posPayment.collectedBy || null,
       collectedAt: posPayment.collectedAt || null,
@@ -265,6 +323,13 @@ export default async function handler(req, res) {
     const dateKey = todayDateKeyIST()
     const counterRef = db.collection('miscellaneous').doc('dailyCounter')
 
+    // Claim the verified Razorpay paymentId exactly once, in the SAME
+    // transaction that creates the order — this is what stops one real
+    // capture from being replayed onto more than one order (concurrent
+    // requests, or a retried client call after a slow response). All
+    // Firestore reads happen before any write, per transaction rules.
+    const paymentClaimRef = verifiedPaymentId ? db.collection(POS_PAYMENT_CLAIMS_COLLECTION).doc(verifiedPaymentId) : null
+
     const orderNo = await db.runTransaction(async (tx) => {
       const counterSnap = await tx.get(counterRef)
       const counterData = counterSnap.exists ? counterSnap.data() : {}
@@ -275,6 +340,13 @@ export default async function handler(req, res) {
       const existing = await tx.get(orderRef)
       if (existing.exists) {
         throw new Error(`Order number collision on ${candidateOrderNo}`)
+      }
+
+      if (paymentClaimRef) {
+        const claimSnap = await tx.get(paymentClaimRef)
+        if (claimSnap.exists) {
+          throw new Error(`Razorpay payment ${verifiedPaymentId} already claimed by order ${claimSnap.data()?.orderNo}`)
+        }
       }
 
       tx.set(counterRef, {
@@ -317,12 +389,25 @@ export default async function handler(req, res) {
       }
 
       tx.create(orderRef, orderDoc)
+
+      if (paymentClaimRef) {
+        tx.create(paymentClaimRef, {
+          orderNo: candidateOrderNo,
+          amount: totalAmount,
+          claimedBy: auth.user.email || null,
+          claimedAt: FieldValue.serverTimestamp(),
+        })
+      }
+
       return candidateOrderNo
     })
 
     return res.status(200).json({ orderNo, status: initialStatus, totalAmount })
   } catch (err) {
     console.error('place-order error', err)
+    if (String(err?.message || '').includes('already claimed by order')) {
+      return res.status(409).json({ error: 'This payment has already been used for another order' })
+    }
     return res.status(500).json({ error: 'Failed to place order' })
   }
 }
