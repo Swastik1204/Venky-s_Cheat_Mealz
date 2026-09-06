@@ -34,13 +34,36 @@
 //
 // revoke: Auth: admin/superadmin only. Body: { action: 'revoke', token }.
 //   Returns: { ok: true }.
+//
+// updateStaff: Auth: admin/superadmin only. Body: { action: 'updateStaff',
+//   email, updates: { role?, pages?, defaultPage? } }. Writes roles/{email}
+//   via the Admin SDK (was a direct client Firestore write from
+//   data-staff.js's updateStaffMember — moved server-side specifically so
+//   this can call revokeRefreshTokens(uid) on every change, matching
+//   Blobby's WS-74 Finding B pattern: the caller's existing ID token stays
+//   "valid" to plain verifyIdToken() until its natural ~1h expiry
+//   regardless of a Firestore role-doc change, unless it's explicitly
+//   revoked and verifyAuth.js checks with checkRevoked=true). Cannot target
+//   the super admin's own email (mirrors firestore.rules' equivalent
+//   guard). Returns: { ok: true }.
+//
+// removeStaff: Auth: admin/superadmin only. Body: { action: 'removeStaff',
+//   email }. Deletes roles/{email} via the Admin SDK and calls
+//   revokeRefreshTokens(uid) — this is the fix for "a removed staff
+//   member's existing token keeps working for up to an hour": deleting the
+//   Firestore doc alone only blocks NEW canAccess()/isAdminEmail() checks,
+//   it does not touch any session the removed staff member already has
+//   open. Cannot target the super admin's own email. Returns: { ok: true }.
+// firestore.rules' roles/{email} update/delete rules were tightened to
+// `if false` in the same change that added these two actions — this is now
+// the only path that can change or remove an existing staff member's role.
 
 import crypto from 'crypto'
 import nodemailer from 'nodemailer'
 import { createRateLimiter } from './_lib/rateLimiter.js'
 import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
-import { adminDb, isAdminEmail, FieldValue } from './_lib/fcm.js'
+import { adminDb, adminAuth, isAdminEmail, isSuperAdminEmail, FieldValue } from './_lib/fcm.js'
 
 // Kept per-action rate limits distinct (not one shared 'invites' limiter) —
 // these 4 actions have very different risk profiles: 'redeem' is sensitive
@@ -52,6 +75,8 @@ const rateLimiters = {
   verify: createRateLimiter({ routeName: 'verify-invite' }),
   redeem: createRateLimiter({ routeName: 'redeem-invite' }),
   revoke: createRateLimiter({ routeName: 'revoke-invite' }),
+  updatestaff: createRateLimiter({ routeName: 'update-staff' }),
+  removestaff: createRateLimiter({ routeName: 'remove-staff' }),
 }
 const VALID_ROLES = ['admin', 'staff', 'delivery']
 const INVITE_TTL_MS = 48 * 60 * 60 * 1000 // 48 hours
@@ -334,11 +359,135 @@ async function handleRevoke(req, res) {
   return res.status(200).json({ ok: true })
 }
 
+function normalizeRolePagesInline(pages) {
+  if (!pages || typeof pages !== 'object') return null
+  const out = {}
+  for (const [k, v] of Object.entries(pages)) out[k] = !!v
+  return out
+}
+
+async function handleUpdateStaff(req, res) {
+  const auth = await verifyAuth(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+
+  const callerEmail = String(auth.user?.email || '').trim()
+  if (!(await isAdminEmail(callerEmail))) {
+    return res.status(403).json({ error: 'Admin access required to update staff' })
+  }
+
+  const body = req.body || {}
+  const email = String(body.email || '').trim().toLowerCase()
+  if (!email) return res.status(400).json({ error: 'Missing email' })
+  if (isSuperAdminEmail(email)) {
+    return res.status(403).json({ error: 'Cannot modify the super admin account' })
+  }
+
+  const updates = body.updates && typeof body.updates === 'object' ? { ...body.updates } : {}
+  if (updates.role) {
+    updates.role = String(updates.role).trim().toLowerCase()
+    if (!VALID_ROLES.includes(updates.role)) {
+      return res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` })
+    }
+  }
+  if (updates.role === 'admin') {
+    // Promoting to admin: clear stale per-page permissions / default landing.
+    updates.pages = FieldValue.delete()
+    updates.defaultPage = FieldValue.delete()
+  } else if (Object.prototype.hasOwnProperty.call(updates, 'pages')) {
+    updates.pages = normalizeRolePagesInline(updates.pages)
+  }
+
+  const db = adminDb()
+  const roleRef = db.collection('roles').doc(email)
+  const beforeSnap = await roleRef.get()
+  if (!beforeSnap.exists) {
+    return res.status(404).json({ error: 'No staff member found for this email' })
+  }
+
+  await roleRef.set({ ...updates, updatedAt: FieldValue.serverTimestamp(), updatedBy: callerEmail }, { merge: true })
+
+  // Force this staff member's existing sessions to re-authenticate — see
+  // the file-header comment on why this is required, not just the
+  // Firestore write, for the change to actually take effect immediately.
+  try {
+    const userRecord = await adminAuth().getUserByEmail(email)
+    await adminAuth().revokeRefreshTokens(userRecord.uid)
+  } catch (err) {
+    // No Firebase Auth account for this email yet (invited but never
+    // signed in) — nothing to revoke, not an error condition.
+    console.warn('[invites:updateStaff] revokeRefreshTokens skipped:', err?.message || err)
+  }
+
+  const afterSnap = await roleRef.get()
+  await db.collection('logs').add({
+    action: 'update',
+    collection: 'roles',
+    documentId: email,
+    performedBy: callerEmail,
+    readableAction: `${callerEmail} updated staff role for ${email}`,
+    metadata: { before: beforeSnap.data(), after: afterSnap.data() },
+    timestamp: FieldValue.serverTimestamp(),
+  })
+
+  return res.status(200).json({ ok: true })
+}
+
+async function handleRemoveStaff(req, res) {
+  const auth = await verifyAuth(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+
+  const callerEmail = String(auth.user?.email || '').trim()
+  if (!(await isAdminEmail(callerEmail))) {
+    return res.status(403).json({ error: 'Admin access required to remove staff' })
+  }
+
+  const email = String((req.body || {}).email || '').trim().toLowerCase()
+  if (!email) return res.status(400).json({ error: 'Missing email' })
+  if (isSuperAdminEmail(email)) {
+    return res.status(403).json({ error: 'Cannot remove the super admin account' })
+  }
+
+  const db = adminDb()
+  const roleRef = db.collection('roles').doc(email)
+  const beforeSnap = await roleRef.get()
+  if (!beforeSnap.exists) {
+    return res.status(404).json({ error: 'No staff member found for this email' })
+  }
+
+  await roleRef.delete()
+
+  // The deletion above already blocks every future canAccess()/isAdminEmail()
+  // check for this email — but it does nothing about a session this staff
+  // member already has open. revokeRefreshTokens forces that too, and
+  // verifyAuth.js's checkRevoked=true is what makes the revocation actually
+  // reject their next request instead of silently doing nothing.
+  try {
+    const userRecord = await adminAuth().getUserByEmail(email)
+    await adminAuth().revokeRefreshTokens(userRecord.uid)
+  } catch (err) {
+    console.warn('[invites:removeStaff] revokeRefreshTokens skipped:', err?.message || err)
+  }
+
+  await db.collection('logs').add({
+    action: 'delete',
+    collection: 'roles',
+    documentId: email,
+    performedBy: callerEmail,
+    readableAction: `${callerEmail} removed staff member ${email}`,
+    metadata: { before: beforeSnap.data() },
+    timestamp: FieldValue.serverTimestamp(),
+  })
+
+  return res.status(200).json({ ok: true })
+}
+
 const ACTION_HANDLERS = {
   create: handleCreate,
   verify: handleVerify,
   redeem: handleRedeem,
   revoke: handleRevoke,
+  updatestaff: handleUpdateStaff,
+  removestaff: handleRemoveStaff,
 }
 
 export default async function handler(req, res) {

@@ -1,18 +1,44 @@
 /* eslint-env node */
-// Vercel Serverless Function: Create Razorpay Order
+// Vercel Serverless Function: Create Razorpay Order (staff/POS path)
 // Endpoint: /api/create-order
 // Method: POST
 // Body: { amount: number }
 // Returns: { orderId, amount, currency }
+//
+// AUDIT NOTE (traced end-to-end, not assumed — confirmed identical to a gap
+// found and fixed on cafe_mvp, a sibling project this file was originally
+// shared with): this file carried no access-control comment at all, but
+// behaved as if the caller were trusted — no per-page gate, no binding of
+// any kind. Unlike this, this flow IS live here: AdminBiller.jsx's "Pay
+// online" step calls this directly for real transactions.
+//   - verifyAuth() only checks that a token is VALID, not that it belongs
+//     to staff holding the 'biller' page permission. place-order.js (in
+//     this same directory) correctly gates POS order creation on
+//     canAccess(email, 'biller') — this file had no such gate, so any
+//     signed-in user of this Firebase project (staff or customer — both
+//     apps share one project/user pool) could call it directly.
+//   - AdminBiller.jsx creates the Razorpay order BEFORE any Firestore order
+//     exists — the bill is only persisted (via place-order.js) after
+//     payment completes, using payment info the client supplies. So the
+//     customer-path binding pattern (stamp notes.firestoreOrderId at
+//     Razorpay-order-creation time, onto a pre-existing order) doesn't
+//     apply — there's nothing to bind to yet at this point in the flow.
+// The binding that actually matters for this flow lives in place-order.js:
+// it independently re-verifies the claimed payment against Razorpay (never
+// trusting client-supplied payment.status/reference) before ever
+// persisting an order as paid, and claims the Razorpay paymentId exactly
+// once so a single real payment can't be replayed onto multiple orders.
+// See place-order.js's use of _lib/posPayment.js for that check.
+// This file's own contribution to the binding is the audit trail below
+// (notes.staffEmail) — proof of WHICH staff session actually rang this up,
+// checkable against Razorpay's dashboard independently of anything
+// Firestore-side.
 
 import Razorpay from 'razorpay'
 import { createRateLimiter } from './_lib/rateLimiter.js'
 import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
-
-// NOTE: Staff new-order pushes moved to /api/notify-order, which fires after
-// the order document is persisted (covers COD orders and uses real order data
-// instead of the pre-payment request body).
+import { canAccess } from './_lib/fcm.js'
 
 const rateLimiter = createRateLimiter({ routeName: 'create-order' })
 
@@ -23,7 +49,7 @@ export default async function handler(req, res) {
   if (!(process.env.RAZORPAY_KEY_SECRET || '').trim()) {
     return res.status(500).json({ error: 'Server misconfigured: RAZORPAY_KEY_SECRET not set' })
   }
-  
+
   if (handleCors(req, res, 'POST, OPTIONS')) return
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -32,6 +58,9 @@ export default async function handler(req, res) {
   // Verify Firebase Auth token
   const auth = await verifyAuth(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
+  if (!(await canAccess(auth.user?.email, 'biller'))) {
+    return res.status(403).json({ error: 'Biller access required' })
+  }
 
   try {
     const keyId = (process.env.RAZORPAY_KEY_ID || '').trim()
@@ -52,7 +81,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Amount exceeds maximum order limit', maxAmount: MAX_ORDER_AMOUNT })
     }
 
-    console.info(`[create-order] Razorpay mode=${razorpayMode} amount=${Number(amount)} source=admin_pos`)
+    console.info(`[create-order] Razorpay mode=${razorpayMode} amount=${Number(amount)} source=admin_pos staff=${auth.user.email}`)
 
     const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret })
 
@@ -60,7 +89,9 @@ export default async function handler(req, res) {
       amount: Math.round(Number(amount) * 100), // in paise
       currency: 'INR',
       receipt: 'pos_rcpt_' + Date.now(),
-      notes: { source: 'admin_pos' }
+      // staffEmail: WHO rang this up — the audit trail this flow can
+      // actually support before an order exists. See file header.
+      notes: { source: 'admin_pos', staffEmail: auth.user.email }
     }
 
     const order = await razorpay.orders.create(options)
