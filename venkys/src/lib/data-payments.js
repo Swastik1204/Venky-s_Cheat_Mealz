@@ -23,13 +23,20 @@ export async function getRazorpayKeyId() {
   return ''
 }
 
+// orderNo: the Firestore order doc ID from a prior /api/place-order call — the
+//   server binds the Razorpay order to it (notes.firestoreOrderId) so
+//   verify-payment.js can confirm the payment is for THIS order, not another
+//   same-priced one the caller owns.
 // items: [{ name, rate, qty, categoryId? }] - sent for server-side price verification
-export async function createRazorpayOrder(amount, items = null, cartChecksum = null) {
+export async function createRazorpayOrder(orderNo, amount, items = null, cartChecksum = null) {
+  if (!orderNo || typeof orderNo !== 'string') {
+    throw new Error('orderNo is required to create a Razorpay order')
+  }
   const value = Number(amount)
   if (!value || value <= 0) {
     throw new Error('Invalid amount for Razorpay order')
   }
-  const payload = { amount: value, cartChecksum: cartChecksum || undefined }
+  const payload = { orderNo, amount: value, cartChecksum: cartChecksum || undefined }
   if (Array.isArray(items) && items.length) {
     payload.items = items.map(it => ({
       name: it.name,

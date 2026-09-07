@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "node --test api/__tests__/",
     "preview": "vite preview",
     "deploy": "npm run build && npx firebase deploy --only hosting:venkys-durgapur",
     "cleanup-orders": "node scripts/cleanup-order-fields.js",
