@@ -1,6 +1,16 @@
 // Staff / roles management (admin)
-import { collection, doc, getDocs, getDoc, setDoc, deleteDoc, serverTimestamp, deleteField } from 'firebase/firestore'
+//
+// updateStaffMember/removeStaffMember route through /api/invites
+// (updateStaff/removeStaff actions) instead of writing roles/{email}
+// directly — firestore.rules denies direct update/delete on that
+// collection now (allow update/delete: if false) specifically so a role
+// change or removal can't happen without the server also calling
+// revokeRefreshTokens, which a client Firestore write has no way to do
+// (that's an Admin-SDK-only operation). See api/invites.js's header
+// comment for the full "why".
+import { collection, doc, getDocs, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
+import { apiClient } from '../utils/apiClient'
 import { logStaffChange } from './auditLog'
 
 function normalizeRolePages(pages) {
@@ -74,19 +84,13 @@ export async function updateStaffMember(email, updates, updatedByEmail) {
   const ref = doc(db, 'roles', normalizedEmail)
   if (updates?.role) assertValidStaffRole(updates.role)
 
-  // Promoting to admin: clear stale per-page permissions / default landing
-  if (updates?.role === 'admin') {
-    updates = { ...updates, pages: deleteField(), defaultPage: deleteField() }
-  }
-  if (Object.prototype.hasOwnProperty.call(updates || {}, 'pages')) {
-    updates = { ...updates, pages: normalizeRolePages(updates.pages) }
-  }
-
   const beforeSnap = await getDoc(ref)
   const before = beforeSnap.exists() ? { email: normalizedEmail, ...beforeSnap.data() } : null
 
-  const updateData = { ...updates, updatedAt: serverTimestamp(), updatedBy: updatedByEmail || null }
-  await setDoc(ref, updateData, { merge: true })
+  const res = await apiClient.post('/api/invites', { action: 'updateStaff', email: normalizedEmail, updates })
+  if (!res.ok) {
+    throw new Error(res.body?.error || res.message || 'Failed to update staff member')
+  }
 
   const afterSnap = await getDoc(ref)
   const after = afterSnap.exists() ? { email: normalizedEmail, ...afterSnap.data() } : null
@@ -104,7 +108,10 @@ export async function removeStaffMember(email, removedByEmail) {
   const beforeSnap = await getDoc(ref)
   const before = beforeSnap.exists() ? { email: normalizedEmail, ...beforeSnap.data() } : null
 
-  await deleteDoc(ref)
+  const res = await apiClient.post('/api/invites', { action: 'removeStaff', email: normalizedEmail })
+  if (!res.ok) {
+    throw new Error(res.body?.error || res.message || 'Failed to remove staff member')
+  }
 
   await logStaffChange('delete', normalizedEmail, before, null, removedByEmail, {
     reason: 'Staff member removed'

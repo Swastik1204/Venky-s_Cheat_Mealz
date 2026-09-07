@@ -68,7 +68,11 @@ export async function verifyAuth(req) {
 
   try {
     ensureAdmin()
-    const decoded = await getAuth().verifyIdToken(token)
+    // checkRevoked=true (second argument) — without it, a token survives
+    // admin.auth().revokeRefreshTokens() until its own natural ~1h expiry.
+    // This is what actually makes a staff/customer revocation bite on the
+    // caller's very next request instead of doing nothing.
+    const decoded = await getAuth().verifyIdToken(token, true)
     return { user: decoded }
   } catch (err) {
     // Token was provided but is invalid/expired

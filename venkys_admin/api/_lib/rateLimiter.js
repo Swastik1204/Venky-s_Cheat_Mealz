@@ -80,6 +80,16 @@ const RATE_LIMITS = {
   'sync-business-profile': { requests: 5, windowMs: 300000, burst: 2 }, // 5/5min, burst 2
   'send-log-email': { requests: 20, windowMs: 60000, burst: 5 },       // 20/min, burst 5
   'place-order-per-uid': { requests: 3, windowMs: 900000 },            // 3 orders / 15 min per customer UID (college-audience abuse guard)
+  // NOTE (found while adding these two): 'create-invite', 'verify-invite',
+  // 'redeem-invite', 'revoke-invite' (routeNames used by invites.js's other
+  // four actions) are NOT keys in this map either, despite invites.js's own
+  // header comment asserting specific tight limits for them ("'redeem' ...
+  // stays tight at 5/hour") — they've been silently falling through to
+  // 'default' (60/min) the whole time. Same shape as Blobby's WS-70 Finding
+  // A (merged handlers passing a routeName that was never a real key).
+  // Flagged, not fixed here — out of scope for this change.
+  'update-staff': { requests: 20, windowMs: 60000, burst: 5 },         // 20/min, burst 5 (admin staff-management UI)
+  'remove-staff': { requests: 20, windowMs: 60000, burst: 5 },         // 20/min, burst 5 (admin staff-management UI)
   'default': { requests: 60, windowMs: 60000, burst: 15 }              // Default: 60/min, burst 15
 }
 

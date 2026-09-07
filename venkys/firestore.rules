@@ -374,16 +374,21 @@ service cloud.firestore {
       // Collection queries on roles are admin-only.
       allow list: if isAdmin();
 
-      // Only super admin and admins can create/update/delete roles
-      // Super admin can manage all roles, admins cannot modify super admin's role
+      // Only super admin and admins can create roles directly (the invite/
+      // redeem flow itself writes via the Admin SDK in api/invites.js,
+      // bypassing rules entirely, same as every other "server-owned write").
       allow create: if isAdmin()
         && request.resource.data.role in ['admin', 'staff', 'delivery']
         && (!("nickname" in request.resource.data) || request.resource.data.nickname is string);
-      allow update: if isAdmin()
-        && (isSuperAdmin() || email != superAdminEmail())
-        && request.resource.data.role in ['admin', 'staff', 'delivery']
-        && (!("nickname" in request.resource.data) || request.resource.data.nickname is string);
-      allow delete: if isAdmin() && email != superAdminEmail(); // Cannot delete super admin
+      // update/delete are server-side only (api/invites.js's updateStaff/
+      // removeStaff actions) as of the checkRevoked/revokeRefreshTokens fix —
+      // a direct client write here would change a staff member's role or
+      // remove them WITHOUT calling revokeRefreshTokens, silently
+      // reintroducing the "removed staff stays valid ~1h" gap this fix
+      // closes. Any future feature that needs to update/delete a roles doc
+      // must go through that endpoint, not a new direct Firestore write.
+      allow update: if false;
+      allow delete: if false;
     }
 
     // -----------------------------------------
@@ -615,6 +620,19 @@ service cloud.firestore {
       allow read: if isAdmin() || isSuperAdmin();
       // Each signed-in user can only write their own token doc
       allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // -----------------------------------------
+    // POS PAYMENT CLAIMS (Razorpay paymentId replay guard)
+    // -----------------------------------------
+    // Written once per verified POS payment by venkys_admin/api/place-order.js
+    // (Admin SDK, bypasses these rules) inside the same transaction that
+    // creates the order — see venkys_admin/api/_lib/posPayment.js. Purely
+    // internal bookkeeping: nothing client-side ever reads or writes this
+    // directly, by design, so it's explicitly denied rather than left to an
+    // unexplained default-deny.
+    match /posPaymentClaims/{paymentId} {
+      allow read, write: if false;
     }
 
     // NOTE: `adminUsers/{uid}` has no match block — the collection is
