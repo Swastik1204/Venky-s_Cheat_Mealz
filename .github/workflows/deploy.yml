@@ -11,6 +11,13 @@ on:
       - main
       - prod
 
+# `edited` is kept on the PR trigger deliberately — the Prod Release
+# Checklist job parses `- [ ]` boxes in the PR body and a pull_request
+# check only re-evaluates on a body edit if the workflow listens for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write

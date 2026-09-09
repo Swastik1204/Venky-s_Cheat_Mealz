@@ -2,9 +2,18 @@
 // Vercel Serverless Function: Create Razorpay Order
 // Endpoint: /api/create-order
 // Method: POST
-// Body: { amount: number, items?: [...], cartChecksum?: string }
+// Body: { orderNo: string, amount: number, items?: [...], cartChecksum?: string }
 // Returns: { orderId, amount, currency }
 // Server verifies amount against menu prices when items are provided.
+//
+// SECURITY: the Razorpay order is bound to the specific Firestore order
+// (orderNo, created by /api/place-order beforehand) via notes.firestoreOrderId
+// — verify-payment.js cross-checks this before writing payment.status='paid'.
+// Before this bound value existed, nothing tied a given Razorpay order to a
+// specific Firestore order: verify-payment.js could be fed any orderNo the
+// caller owned alongside a genuinely-signed but unrelated orderId|paymentId
+// pair, marking a second, identically-priced pending order paid without an
+// actual second payment. Ported verbatim from cafe_mvp's proven fix.
 
 import Razorpay from 'razorpay'
 import { createRateLimiter } from './_lib/rateLimiter.js'
@@ -135,7 +144,10 @@ export default async function handler(req, res) {
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
 
   try {
-    const { amount, items, cartChecksum } = req.body || {}
+    const { amount, items, cartChecksum, orderNo } = req.body || {}
+    if (!orderNo || typeof orderNo !== 'string') {
+      return res.status(400).json({ error: 'Missing orderNo — call /api/place-order first' })
+    }
     if (!amount || isNaN(amount) || amount <= 0) {
       return res.status(400).json({ error: 'Invalid amount' })
     }
@@ -146,6 +158,29 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Amount exceeds maximum order limit', maxAmount: MAX_ORDER_AMOUNT })
     }
 
+    // The Firestore order must already exist (place-order.js creates it),
+    // belong to the caller, still be awaiting online payment, and its
+    // persisted total must match what we're about to charge. This is the
+    // binding that makes notes.firestoreOrderId below trustworthy — without
+    // it, a caller could ask us to stamp someone else's real orderNo onto a
+    // Razorpay order they control.
+    const db = getFirestore()
+    const orderRef = db.collection('orders').doc(orderNo)
+    const orderSnap = await orderRef.get()
+    if (!orderSnap.exists) {
+      return res.status(404).json({ error: 'Order not found' })
+    }
+    const orderData = orderSnap.data() || {}
+    if (orderData.userId !== auth.user?.uid) {
+      return res.status(403).json({ error: 'Order does not belong to this account' })
+    }
+    if (String(orderData.payment?.method || '').toLowerCase() === 'cod') {
+      return res.status(400).json({ error: 'Order is not an online-payment order' })
+    }
+    if (String(orderData.payment?.status || '').toLowerCase() === 'paid') {
+      return res.status(400).json({ error: 'Order is already paid' })
+    }
+
     // Verify cart total against menu prices
     const verification = await verifyCartAmount(items, Number(amount))
     if (!verification.valid) {
@@ -154,11 +189,21 @@ export default async function handler(req, res) {
     // Use server-verified amount when items were provided
     const finalAmount = verification.serverTotal
 
+    // Cross-check against the order's own persisted total (place-order.js's
+    // authoritative, server-computed amount) — the two verifications should
+    // already agree since both derive from the same menu, but this catches
+    // any drift between the two computations rather than trusting either one
+    // in isolation.
+    const persistedTotal = Number(orderData.totalAmount || 0)
+    if (Math.abs(persistedTotal - finalAmount) > PRICE_TOLERANCE) {
+      return res.status(400).json({ error: 'Order amount mismatch' })
+    }
+
     const options = {
       amount: Math.round(finalAmount * 100), // in paise
       currency: 'INR',
       receipt: 'rcpt_' + Date.now(),
-      notes: { checksum: cartChecksum || 'na' }
+      notes: { firestoreOrderId: orderNo, checksum: cartChecksum || 'na' }
     }
 
     const order = await getRazorpay().orders.create(options)

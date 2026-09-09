@@ -1,19 +1,32 @@
 /* eslint-env node */
-// Vercel Serverless Function: scan for old audit logs, propose them for
-// cleanup, and email the super admin for review — never deletes anything
-// itself. Weekly Vercel Cron (Sunday 3am) or manual trigger via
-// X-Internal-Secret (for testing/on-demand runs).
-// Endpoint: /api/cleanup-logs-scan
-// Method: GET (matches sync-business-profile.js's cron pattern)
+// Vercel Serverless Function: audit-log maintenance (scan + delete)
+//
+// Merged cleanup-logs-scan.js + cleanup-logs-delete.js into one function —
+// the Vercel Hobby plan caps a deployment at 12 serverless functions and
+// venkys_admin was at that ceiling. Old paths still work unchanged:
+// vercel.json rewrites
+//   /api/cleanup-logs-scan   -> /api/cleanup-logs?__route=scan
+//   /api/cleanup-logs-delete -> /api/cleanup-logs?__route=delete
+// and the weekly cron entry now targets /api/cleanup-logs?__route=scan
+// directly. Frontend caller (src/lib/data-log-cleanup.js) was not touched.
+//
+//   __route=scan   (GET)  — cron / X-Internal-Secret: propose old logs, email
+//                           the super admin for review. Never deletes.
+//   __route=delete (POST) — super admin only: delete the approved subset of a
+//                           pending review batch. Body: { token, logIds[] }
+//
+// Each sub-handler is the verbatim body of its former standalone file.
 
 import crypto from 'crypto'
 import nodemailer from 'nodemailer'
 import { createRateLimiter } from './_lib/rateLimiter.js'
-import { verifyInternalSecret } from './_lib/verifyAuth.js'
+import { verifyAuth, verifyInternalSecret } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
-import { adminDb, FieldValue } from './_lib/fcm.js'
+import { adminDb, isSuperAdminEmail, FieldValue } from './_lib/fcm.js'
 
-const rateLimiter = createRateLimiter({ routeName: 'cleanup-logs-scan' })
+const scanLimiter = createRateLimiter({ routeName: 'cleanup-logs-scan' })
+const deleteLimiter = createRateLimiter({ routeName: 'cleanup-logs-delete' })
+
 const AGE_THRESHOLD_MS = 60 * 24 * 60 * 60 * 1000 // 2 months (60 days)
 const MAX_CANDIDATES = 300 // keep the review page/email readable; a huge batch just means next week's run catches the rest
 const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'swastiksaha1204@gmail.com').trim().toLowerCase()
@@ -55,8 +68,9 @@ function buildReviewEmailHtml({ count, reviewUrl, oldestLabel }) {
   `.trim()
 }
 
-export default async function handler(req, res) {
-  await rateLimiter(req, res, () => {})
+// ── __route=scan (was cleanup-logs-scan.js) ──
+async function handleScan(req, res) {
+  await scanLimiter(req, res, () => {})
   if (res.headersSent) return
 
   if (handleCors(req, res, 'GET, OPTIONS')) return
@@ -150,4 +164,84 @@ export default async function handler(req, res) {
     console.error('[cleanup-logs-scan] error', error)
     return res.status(500).json({ error: 'Failed to scan for old logs' })
   }
+}
+
+// ── __route=delete (was cleanup-logs-delete.js) ──
+// Auth: super admin only (isSuperAdminEmail — hardcoded email, matching the
+// logs/{logId} and pendingLogCleanup/{token} firestore.rules exactly, not
+// the admin-app client's broader isSuperAdmin display flag).
+async function handleDelete(req, res) {
+  await deleteLimiter(req, res, () => {})
+  if (res.headersSent) return
+
+  if (handleCors(req, res, 'POST, OPTIONS')) return
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST')
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const auth = await verifyAuth(req)
+  if (auth.error) return res.status(auth.status).json({ error: auth.error })
+
+  const callerEmail = String(auth.user?.email || '').trim()
+  if (!isSuperAdminEmail(callerEmail)) {
+    return res.status(403).json({ error: 'Super admin access required to delete logs' })
+  }
+
+  try {
+    const { token, logIds } = req.body || {}
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ error: 'Missing token' })
+    }
+    if (!Array.isArray(logIds) || logIds.length === 0) {
+      return res.status(400).json({ error: 'No log IDs selected' })
+    }
+
+    const db = adminDb()
+    const batchRef = db.collection('pendingLogCleanup').doc(token)
+    const batchSnap = await batchRef.get()
+    if (!batchSnap.exists) {
+      return res.status(404).json({ error: 'Review batch not found' })
+    }
+    const batchData = batchSnap.data()
+    if (batchData.status !== 'pending') {
+      return res.status(400).json({ error: `This batch is already ${batchData.status}` })
+    }
+
+    // Defense in depth: only ever delete IDs that were actually part of the
+    // original candidate list captured at scan time — a tampered/forged
+    // request body can't smuggle in arbitrary log IDs via this endpoint.
+    const candidateSet = new Set(Array.isArray(batchData.logIds) ? batchData.logIds : [])
+    const toDelete = logIds.filter((id) => candidateSet.has(id))
+    if (toDelete.length === 0) {
+      return res.status(400).json({ error: 'None of the submitted IDs are part of this review batch' })
+    }
+
+    const writeBatch = db.batch()
+    toDelete.forEach((id) => writeBatch.delete(db.collection('logs').doc(id)))
+    writeBatch.delete(batchRef)
+    await writeBatch.commit()
+
+    await db.collection('logs').add({
+      action: 'delete',
+      collection: 'logs',
+      documentId: token,
+      performedBy: callerEmail,
+      readableAction: `${callerEmail} deleted ${toDelete.length} old audit log${toDelete.length === 1 ? '' : 's'} (${batchData.count - toDelete.length} of the ${batchData.count} candidates kept)`,
+      metadata: { deletedCount: toDelete.length, candidateCount: batchData.count, keptCount: batchData.count - toDelete.length, batchToken: token },
+      timestamp: FieldValue.serverTimestamp(),
+    })
+
+    return res.status(200).json({ ok: true, deletedCount: toDelete.length })
+  } catch (error) {
+    console.error('[cleanup-logs-delete] error', error)
+    return res.status(500).json({ error: 'Failed to delete logs' })
+  }
+}
+
+export default async function handler(req, res) {
+  const route = req.query?.__route
+  if (route === 'scan') return handleScan(req, res)
+  if (route === 'delete') return handleDelete(req, res)
+  return res.status(404).json({ error: 'Unknown route' })
 }
