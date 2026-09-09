@@ -14,9 +14,17 @@
       ]
     }
   ],
+  "rewrites": [
+    { "source": "/api/notify-order", "destination": "/api/notify?__route=order" },
+    { "source": "/api/notify-status", "destination": "/api/notify?__route=status" },
+    { "source": "/api/cleanup-logs-scan", "destination": "/api/cleanup-logs?__route=scan" },
+    { "source": "/api/cleanup-logs-delete", "destination": "/api/cleanup-logs?__route=delete" },
+    { "source": "/api/health", "destination": "/api/meta?__route=health" },
+    { "source": "/api/public-config", "destination": "/api/meta?__route=config" }
+  ],
   "crons": [
     {
-      "path": "/api/cleanup-logs-scan",
+      "path": "/api/cleanup-logs?__route=scan",
       "schedule": "0 3 * * 0"
     }
   ]
