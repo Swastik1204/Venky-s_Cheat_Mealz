@@ -194,31 +194,37 @@ jobs:
           npm ci
           npm run build
 
-      - name: Atomic Deploy Hosting to Firebase
+      # Service-account auth only. `firebase login:ci` / the --token flag is
+      # deprecated by Google and breaks with newer firebase-tools; the whole
+      # `if [ -n "$FIREBASE_TOKEN" ]` branch (and the FIREBASE_TOKEN secret)
+      # is gone. Same pattern Blobby's deploy-firebase job already runs.
+      # firebase-tools is pinned to the 13.x line so a bad `npx` latest can't
+      # silently change deploy behaviour under us.
+      #
+      # FIREBASE_SERVICE_ACCOUNT must be a Firebase service-account JSON key
+      # with at least: Firebase Hosting Admin, Firebase Rules Admin,
+      # Cloud Datastore Owner, Service Usage Consumer (see Blobby memory.md —
+      # the deploy SA needed exactly these beyond the Admin-SDK defaults).
+      - name: Atomic Deploy Hosting + Firestore to Firebase
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/firebase-sa.json
         run: |
-          if [ -n "$FIREBASE_TOKEN" ]; then
-            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --token "$FIREBASE_TOKEN" --project venky-s-chicken-xperience --non-interactive
-          elif [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            node -e '
-              const fs = require("fs");
-              let val = (process.env.FIREBASE_SERVICE_ACCOUNT || "").trim();
-              if ((val.startsWith("\"") && val.endsWith("\"")) || (val.startsWith("\x27") && val.endsWith("\x27"))) {
-                val = val.slice(1, -1);
-              }
-              try {
-                const parsed = JSON.parse(val);
-                if (typeof parsed === "string") val = parsed;
-                else val = JSON.stringify(parsed);
-              } catch (e) {}
-              fs.writeFileSync("/tmp/sa.json", val, "utf8");
-            '
-            npx -y firebase-tools deploy --only hosting:venkys-customer,hosting:venkys-admin,firestore --project venky-s-chicken-xperience --non-interactive
-            rm -f /tmp/sa.json
-          else
-            echo "::error::Neither FIREBASE_TOKEN nor FIREBASE_SERVICE_ACCOUNT secret is set in GitHub Repository Secrets!"
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT secret is not set — cannot deploy. It must be a Firebase service-account JSON key (see the step comment for required IAM roles)."
             exit 1
           fi
+          # The secret may have been pasted with surrounding quotes or as a
+          # JSON-encoded string — normalise to raw JSON before writing.
+          node -e '
+            const fs = require("fs");
+            let v = (process.env.FIREBASE_SERVICE_ACCOUNT || "").trim();
+            if ((v.startsWith("\"") && v.endsWith("\"")) || (v.startsWith("\x27") && v.endsWith("\x27"))) v = v.slice(1, -1);
+            try { const p = JSON.parse(v); v = typeof p === "string" ? p : JSON.stringify(p); } catch (e) {}
+            fs.writeFileSync("/tmp/firebase-sa.json", v, "utf8");
+          '
+          npx -y firebase-tools@13 deploy \
+            --only hosting:venkys-customer,hosting:venkys-admin,firestore \
+            --project venky-s-chicken-xperience \
+            --non-interactive
+          rm -f /tmp/firebase-sa.json
