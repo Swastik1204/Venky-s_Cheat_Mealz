@@ -894,7 +894,7 @@ export default function Checkout() {
           categoryId: item.categoryId || undefined,
           variantLabel: item.variantLabel || undefined,
         }))
-        const razorpayOrder = await createRazorpayOrder(amountRupees, cartItems)
+        const razorpayOrder = await createRazorpayOrder(firestoreOrderDocId, amountRupees, cartItems)
         razorpayOrderId = razorpayOrder.orderId
         const RazorpayConstructor = await ensureRazorpay()
         let settled = false

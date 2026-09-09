@@ -48,7 +48,14 @@ async function recordPaidStatus({ orderNo, razorpayOrderId, paymentId, uid }) {
     if (String(order.payment?.method || '').toLowerCase() === 'cod') return { recorded: false, reason: 'cod_order' }
     if (String(order.payment?.status || '').toLowerCase() === 'paid') return { recorded: true, reason: 'already_paid' }
 
-    // Cross-check the Razorpay order amount against the persisted order total.
+    // Cross-check the Razorpay order against the persisted order: amount AND
+    // that this Razorpay order was actually created FOR this specific
+    // Firestore order (notes.firestoreOrderId, set by create-order.js). The
+    // signature only proves razorpayOrderId+paymentId are a genuine pair —
+    // it says nothing about which orderNo the caller supplied alongside them.
+    // Without the binding check, a caller could pay once and pass a
+    // DIFFERENT (but same-priced, equally owned) pending orderNo here, and
+    // both would be marked paid from a single real payment.
     try {
       const razorpay = new Razorpay({
         key_id: process.env.RAZORPAY_KEY_ID,
@@ -60,9 +67,18 @@ async function recordPaidStatus({ orderNo, razorpayOrderId, paymentId, uid }) {
         console.error('[verify-payment] Amount mismatch on writeback', { orderNo, rzpAmount: rzpOrder?.amount, expectedPaise })
         return { recorded: false, reason: 'amount_mismatch' }
       }
+      if (String(rzpOrder?.notes?.firestoreOrderId || '') !== String(orderNo)) {
+        console.error('[verify-payment] Order-binding mismatch on writeback', { orderNo, notesFirestoreOrderId: rzpOrder?.notes?.firestoreOrderId })
+        return { recorded: false, reason: 'order_binding_mismatch' }
+      }
     } catch (e) {
       // If the cross-check itself fails, do not block: the signature already
-      // proved the payment is genuine. Log and continue.
+      // proved the payment is genuine. Log and continue. This is a narrower
+      // acceptance than before — it means an unreachable Razorpay API at
+      // this exact moment falls back to trusting the signature alone, same
+      // as before this fix; it does not mean the binding check is skippable
+      // by design, only that a transient fetch failure isn't treated as a
+      // hard block.
       console.warn('[verify-payment] Razorpay order fetch failed, recording anyway:', e?.message)
     }
 
