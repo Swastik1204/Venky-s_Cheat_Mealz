@@ -911,11 +911,14 @@ export default function Checkout() {
               email: form.email || '',
               contact: form.phone || ''
             },
-            notes: {
-              firestoreOrderId: firestoreOrderDocId, // the Firestore doc ID saved after placeOrder()
-              customerName: form.name,
-              customerPhone: form.phone,
-            },
+            // No client-supplied `notes` here. notes.firestoreOrderId is
+            // stamped authoritatively server-side in /api/create-order (bound
+            // to the verified, owned, unpaid order it looked up), and both
+            // verify-payment.js and razorpay-webhook.js read it from the
+            // Razorpay ORDER, never from this checkout instance. A
+            // client-controlled value here would be exactly the unverified
+            // binding those server-side checks exist to prevent. Customer
+            // name/phone already reach Razorpay via `prefill` above.
             theme: {
               color: '#F97316'
             },
