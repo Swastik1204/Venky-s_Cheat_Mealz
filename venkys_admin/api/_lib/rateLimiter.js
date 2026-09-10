@@ -54,7 +54,7 @@ function getRedisRateLimiter(routeName, config) {
     const limiter = new Ratelimit({
       redis,
       limiter: Ratelimit.slidingWindow(config.requests, `${windowSec} s`),
-      prefix: `rl:${routeName}`,
+      prefix: `rl:venkys-admin:${routeName}`,
       analytics: false,
     })
     _rateLimiters.set(routeName, limiter)
