@@ -72,14 +72,17 @@ async function recordPaidStatus({ orderNo, razorpayOrderId, paymentId, uid }) {
         return { recorded: false, reason: 'order_binding_mismatch' }
       }
     } catch (e) {
-      // If the cross-check itself fails, do not block: the signature already
-      // proved the payment is genuine. Log and continue. This is a narrower
-      // acceptance than before — it means an unreachable Razorpay API at
-      // this exact moment falls back to trusting the signature alone, same
-      // as before this fix; it does not mean the binding check is skippable
-      // by design, only that a transient fetch failure isn't treated as a
-      // hard block.
-      console.warn('[verify-payment] Razorpay order fetch failed, recording anyway:', e?.message)
+      // A fetch failure means we CANNOT verify the binding — reject, do not
+      // record. The signature only proves razorpayOrderId+paymentId are a
+      // genuine pair; it says nothing about the orderNo the caller paired
+      // with them, which is exactly what the notes.firestoreOrderId check
+      // above confirms. Approving on an unverifiable binding reopens the
+      // pay-once-mark-two-orders-paid path (an attacker who can induce a
+      // transient orders.fetch failure gets the check skipped). The webhook
+      // path (razorpay-webhook.js) still reconciles the order once Razorpay
+      // delivers payment.captured, so a genuine payment is not lost.
+      console.warn('[verify-payment] Razorpay order fetch failed — rejecting writeback (cannot verify binding):', e?.message)
+      return { recorded: false, reason: 'verification_unavailable' }
     }
 
     const patch = {
