@@ -3,7 +3,7 @@
 // and cache it in Firestore. Gated for admin/staff manual sync and Vercel Cron.
 
 import { createRateLimiter } from './_lib/rateLimiter.js'
-import { verifyAuth, verifyInternalSecret } from './_lib/verifyAuth.js'
+import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, isStaffEmail, FieldValue } from './_lib/fcm.js'
 
@@ -190,7 +190,11 @@ export default async function handler(req, res) {
   }
 
   const db = adminDb()
-  const isCron = req.headers['x-vercel-cron'] === '1' || verifyInternalSecret(req)
+  // Cron auth: Vercel automatically sends Authorization: Bearer ${CRON_SECRET}
+  // on cron invocations when CRON_SECRET is set. The x-vercel-cron header alone
+  // is client-spoofable, so it is no longer trusted.
+  const cronSecret = process.env.CRON_SECRET
+  const isCron = !!cronSecret && req.headers.authorization === `Bearer ${cronSecret}`
 
   // ---------------------------------------------------------
   // GET: Public read of cached business profile, or Vercel Cron sync
