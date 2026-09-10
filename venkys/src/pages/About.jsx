@@ -1,6 +1,6 @@
 // About — Restaurant about / story page
 export default function About() {
-  const logoUrl = `${import.meta.env.BASE_URL}icons/Logo.png`
+  const logoUrl = `${import.meta.env.BASE_URL}icons/logo.png`
   return (
   <div className="page-wrap py-10">
       <div className="max-w-3xl mx-auto">
