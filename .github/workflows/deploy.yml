@@ -405,10 +405,17 @@ jobs:
     env:
       GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/firebase-sa.json
     steps:
-      - name: Checkout repository (main — the rules source of truth)
+      # Two checkouts: this ref carries the check script (main may not have it
+      # yet on the PR that introduces it); a path-scoped checkout of main
+      # carries the rules file the live ruleset is compared against.
+      - name: Check out this ref (drift-check script)
+        uses: actions/checkout@v4
+
+      - name: Check out main (rules source of truth)
         uses: actions/checkout@v4
         with:
           ref: main
+          path: _rules_source
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -434,7 +441,7 @@ jobs:
       - name: Verify the live deployed ruleset matches the committed rules
         run: |
           set -- $RULES_FILES
-          node .github/scripts/check-rules-drift.mjs --project "$FIREBASE_PROJECT_ID" --rules "$1"
+          node .github/scripts/check-rules-drift.mjs --project "$FIREBASE_PROJECT_ID" --rules "_rules_source/$1"
 
       - name: Remove credentials
         if: always()
