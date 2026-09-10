@@ -1,17 +1,12 @@
-## Production Release Checklist
+## What changed and why
 
-<!-- venkys-prod-checklist-start -->
-### Critical Incident & Architecture Guards (Must all be checked for prod PRs)
-<!-- "Rules Duplication" and "Pre-Push Validation" were dropped 2026-08-26:
-     they're already independently proven by the required "Firestore Rules
-     Synced" and "Lint & Build — Customer/Admin App" checks passing on this
-     PR — a manual checkbox for something a machine already verified was
-     pure theater. Only judgment-call items that CI can't mechanically
-     verify from the diff stay here. -->
-- [ ] **Customer Isolation**: Customer Firestore order queries strictly include `where('userId', '==', user.uid)` and rules forbid cross-customer list reads.
-- [ ] **Webhook Idempotency**: Status transitions from `pending-payment` -> `placed` verify `order.status === 'pending-payment'` and staff push alerts check `!order.staffNotifiedAt`.
-- [ ] **Hosting Split & CORS**: Vercel serves `/api/*` only (no frontend SPA rewrites). All API OPTIONS responses send `Access-Control-Max-Age: 86400`.
-<!-- venkys-prod-checklist-end -->
+## Checklist
+- [ ] Ran `npm run lint` (not just `npm run build`) in every workspace touched
+- [ ] Added a new external domain (fetch/script/style/frame)? -> added it to the CSP of every app that calls it, `connect-src` included
+- [ ] Added/changed a Firestore query pattern? -> `firestore.rules` updated to match, not just client-side filtering
+- [ ] Changed `firestore.rules`? -> copied byte-identically into BOTH `venkys/` and `venkys_admin/` (the `Firestore Rules Synced` check enforces this)
+- [ ] Learned something non-obvious fixing this? -> updated `memory.md`
 
-### Description of Changes
-<!-- Summarize what is being deployed to production -->
+<!-- Merging into prod? Use the prod template instead: append
+     ?expand=1&template=prod.md to the PR URL, or pick "prod" in the
+     template chooser. It carries the release checklist CI enforces. -->
