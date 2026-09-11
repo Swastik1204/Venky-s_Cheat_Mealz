@@ -1,0 +1,17 @@
+{
+  "name": "Venky's Chicken Xperience Durgapur",
+  "short_name": "Venky's",
+  "description": "Order delicious chicken dishes online from Venky's Chicken Xperience Durgapur. Fast delivery, dine-in & takeaway.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#facc15",
+  "icons": [
+    {
+      "src": "/icons/logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { MdLocalOffer, MdOutlineAutoAwesome, MdOutlineBolt, MdTrackChanges } from 'react-icons/md'
 
 import { useAuth } from '../context/AuthContext'
+import Seo from '../components/Seo'
 import CategoriesBar from '../components/CategoriesBar'
 import FilterBar from '../components/FilterBar'
 import MenuItemCard from '../components/MenuItemCard'
@@ -610,6 +611,11 @@ export default function Home() {
 
   return (
     <div className="page-wrap py-6 space-y-8 overflow-x-hidden">
+      <Seo
+        title="Venky's Chicken Xperience Durgapur"
+        description="Order delicious chicken dishes online from Venky's Chicken Xperience Durgapur. Fast delivery, dine-in & takeaway."
+        path="/"
+      />
       {isSearching ? (
         <>
           <section className="space-y-4" aria-labelledby="search-results-heading">

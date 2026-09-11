@@ -22,7 +22,7 @@ name: Deploy & Validate
 # ticking the boxes never turns the check green.
 #
 # The `prod` ruleset's required status checks must match these job names
-# exactly: Validate (customer), Validate (admin), Firestore Rules Synced, Prod PR Checklist
+# exactly: Validate (customer), Validate (admin), Firestore Rules Synced, Firestore Rules Deployed, Prod PR Checklist
 #
 # NOTE: Firestore rules and indexes are project-global — one database per
 # Firebase project, shared by staging and production hosting sites. Deploying
@@ -376,6 +376,72 @@ jobs:
             --only "$TARGETS" \
             --project "$FIREBASE_PROJECT_ID" \
             --force --non-interactive
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f "$GOOGLE_APPLICATION_CREDENTIALS"
+
+  rules-drift:
+    # Deployed-vs-committed drift guard. rules-check (above) only proves a
+    # repo's own rules files match EACH OTHER; this proves the LIVE deployed
+    # cloud.firestore ruleset matches them too. Without it, a deploy step that
+    # silently stops shipping rules goes unnoticed — it already cost Venky's a
+    # 10.5-day window of stale production rules (2026-08-24 -> 2026-09-04).
+    # `main` is the rules source of truth — the pipeline deploys rules on every
+    # push to it — so "does the live ruleset match main/firestore.rules" is the
+    # one question that matters, on push and PR alike, targeting main or prod.
+    # Gated behind the deploy jobs so a rules-changing push to main is not
+    # flagged in the gap before deploy-staging ships it.
+    name: Firestore Rules Deployed
+    needs: [validate, rules-check, deploy-staging, deploy-production]
+    if: >-
+      always()
+      && needs.validate.result == 'success'
+      && needs.rules-check.result == 'success'
+      && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+      && (needs.deploy-production.result == 'success' || needs.deploy-production.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/firebase-sa.json
+    steps:
+      # Two checkouts: this ref carries the check script (main may not have it
+      # yet on the PR that introduces it); a path-scoped checkout of main
+      # carries the rules file the live ruleset is compared against.
+      - name: Check out this ref (drift-check script)
+        uses: actions/checkout@v4
+
+      - name: Check out main (rules source of truth)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: _rules_source
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Write service-account credentials
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT secret is not set — it must hold the full service-account JSON key."
+            exit 1
+          fi
+          node -e '
+            const fs = require("fs");
+            let v = (process.env.FIREBASE_SERVICE_ACCOUNT || "").trim();
+            if ((v.startsWith("\"") && v.endsWith("\"")) || (v.startsWith("\x27") && v.endsWith("\x27"))) v = v.slice(1, -1);
+            try { const p = JSON.parse(v); v = typeof p === "string" ? p : JSON.stringify(p); } catch (e) {}
+            fs.writeFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, v, "utf8");
+          '
+
+      - name: Verify the live deployed ruleset matches the committed rules
+        run: |
+          set -- $RULES_FILES
+          node .github/scripts/check-rules-drift.mjs --project "$FIREBASE_PROJECT_ID" --rules "_rules_source/$1"
 
       - name: Remove credentials
         if: always()
