@@ -26,11 +26,46 @@
     <meta property="og:url" content="https://venkys-durgapur.web.app/" />
     <meta property="og:site_name" content="Venky's Chicken Xperience" />
     <link rel="canonical" href="https://venkys-durgapur.web.app/" />
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Venky's Chicken Xperience Durgapur" />
+    <meta name="twitter:description" content="Order delicious chicken dishes online. Fast delivery, dine-in & takeaway." />
+    <meta name="twitter:image" content="https://venkys-durgapur.web.app/icons/og-image.jpg" />
     <!-- Favicon (file is committed lowercase; Firebase Hosting is case-sensitive) -->
     <link rel="icon" type="image/png" href="/icons/logo.png" />
     <link rel="shortcut icon" type="image/png" href="/icons/logo.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/logo.png" />
+    <link rel="manifest" href="/manifest.json" />
     <title>Venky's Chicken Xperience Durgapur</title>
+    <!-- Structured data: static business facts only (name, cuisine, address,
+         geo, price range). Hours/rating are live in Firestore and shown on
+         /contact — not duplicated here to avoid the JSON-LD going stale. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Restaurant",
+        "name": "Venky's Chicken Xperience Durgapur",
+        "url": "https://venkys-durgapur.web.app/",
+        "image": "https://venkys-durgapur.web.app/icons/og-image.jpg",
+        "servesCuisine": "Chicken",
+        "priceRange": "₹₹",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "City Centre",
+          "addressLocality": "Durgapur",
+          "addressRegion": "West Bengal",
+          "postalCode": "713216",
+          "addressCountry": "IN"
+        },
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": 23.5204,
+          "longitude": 87.3119
+        },
+        "acceptsReservations": "False",
+        "menu": "https://venkys-durgapur.web.app/#menu"
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

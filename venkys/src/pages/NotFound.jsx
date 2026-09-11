@@ -1,10 +1,16 @@
 // NotFound — 404 error page
 import { Link } from 'react-router-dom'
 import { MdHome, MdRestaurantMenu, MdSentimentDissatisfied } from 'react-icons/md'
+import Seo from '../components/Seo'
 
 export default function NotFound() {
   return (
     <div className="page-wrap min-h-[70vh] flex flex-col items-center justify-center py-16 text-center px-4">
+      <Seo
+        title="Page Not Found | Venky's Chicken Xperience Durgapur"
+        description="The page you're looking for doesn't exist. Browse the menu or head back home."
+        path="/404"
+      />
       {/* Animated 404 */}
       <div className="relative mb-8">
         <div className="text-[150px] sm:text-[200px] font-black text-base-200 leading-none select-none">404</div>

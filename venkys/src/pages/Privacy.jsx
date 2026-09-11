@@ -1,7 +1,14 @@
 // Privacy — Privacy policy page
+import Seo from '../components/Seo'
+
 export default function Privacy() {
   return (
     <div className="page-wrap py-10">
+      <Seo
+        title="Privacy Policy | Venky's Chicken Xperience Durgapur"
+        description="How Venky's Chicken Xperience Durgapur collects, uses, and protects your data."
+        path="/privacy"
+      />
       <div className="max-w-3xl mx-auto">
         <h1 className="text-4xl font-bold mb-4">Privacy Policy</h1>
         <div className="prose max-w-none">

@@ -6,6 +6,7 @@ import { MdPhone, MdEmail, MdLocationOn, MdAccessTime, MdSend, MdStar, MdRefresh
 
 import { fetchBusinessProfile, fetchAppSettings } from '../lib/data'
 import { RESTAURANT_CONFIG } from '../config/restaurant.config'
+import Seo from '../components/Seo'
 
 export default function Contact() {
   const [formData, setFormData] = useState({ name: '', email: '', message: '' })
@@ -63,6 +64,11 @@ export default function Contact() {
 
   return (
     <div className="page-wrap py-10">
+      <Seo
+        title="Contact Us | Venky's Chicken Xperience Durgapur"
+        description="Phone, email, address, and business hours for Venky's Chicken Xperience Durgapur. Get in touch or send us a message."
+        path="/contact"
+      />
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold mb-3">Get in Touch</h1>

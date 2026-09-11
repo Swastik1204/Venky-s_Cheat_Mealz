@@ -1,8 +1,15 @@
 // About — Restaurant about / story page
+import Seo from '../components/Seo'
+
 export default function About() {
   const logoUrl = `${import.meta.env.BASE_URL}icons/logo.png`
   return (
   <div className="page-wrap py-10">
+      <Seo
+        title="About Us | Venky's Chicken Xperience Durgapur"
+        description="Venky's Chicken Xperience Durgapur — a local kitchen serving freshly prepared chicken dishes, fast delivery, dine-in & takeaway."
+        path="/about"
+      />
       <div className="max-w-3xl mx-auto">
         <div className="mb-4 flex items-center gap-3">
           <img src={logoUrl} alt="Venky's" className="h-10 w-auto object-contain" />

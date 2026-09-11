@@ -1,4 +1,107 @@
+# Venky's Chicken Xperience Durgapur — storefront. Crawling and AI use are
+# welcome; this is a public menu with no proprietary content. Only the
+# logged-in account areas are excluded.
+
 User-agent: *
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+# --- AI / LLM crawlers: explicitly allowed ---
+# Answer engines and training crawlers may index and cite this site.
+
+User-agent: GPTBot
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: anthropic-ai
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: Claude-Web
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: Perplexity-User
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: CCBot
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: Amazonbot
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: Bytespider
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: cohere-ai
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: Meta-ExternalAgent
+Allow: /
+Disallow: /checkout
+Disallow: /active-orders
+Disallow: /profile
+
+User-agent: DuckAssistBot
 Allow: /
 Disallow: /checkout
 Disallow: /active-orders
