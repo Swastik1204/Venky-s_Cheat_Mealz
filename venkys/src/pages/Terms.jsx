@@ -1,7 +1,14 @@
 // Terms — Terms and conditions page
+import Seo from '../components/Seo'
+
 export default function Terms() {
   return (
     <div className="page-wrap py-10">
+      <Seo
+        title="Terms & Conditions | Venky's Chicken Xperience Durgapur"
+        description="Terms and conditions for ordering from Venky's Chicken Xperience Durgapur — orders, pricing, and app usage."
+        path="/terms"
+      />
       <div className="max-w-3xl mx-auto">
         <h1 className="text-4xl font-bold mb-4">Terms & Conditions</h1>
         <div className="prose max-w-none">

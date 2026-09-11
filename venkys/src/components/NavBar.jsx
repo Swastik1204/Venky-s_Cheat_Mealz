@@ -11,7 +11,7 @@ import { fetchMenuCategories, getUserTheme, setUserTheme } from '../lib/data'
 import { formatMoney } from '../lib/formatCurrency'
 
 export default function NavBar() {
-  const logoUrl = `${import.meta.env.BASE_URL}icons/Logo.png`
+  const logoUrl = `${import.meta.env.BASE_URL}icons/logo.png`
 
   // ── State & refs ──
   const [scrolled, setScrolled] = useState(false)
