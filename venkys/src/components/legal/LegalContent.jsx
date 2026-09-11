@@ -48,9 +48,8 @@ export function TermsContent() {
         <div className="mt-2 font-semibold text-base-content/90 not-italic">
           FAMILY SHOPPING WORLD<br />
           GSTIN: 19BKBPS1335J1Z0<br />
-          <Fill>MNAV-36 — confirm: Trade License No. / Shop &amp; Establishment Reg. No. / other</Fill><br />
-          Registered address: Bengal Ambuja, City Center, Durgapur, West Bengal 713216, India<br />
-          Email: swastiksaha1204@gmail.com | Phone: +91 89185 86567
+          Address: MNAV-36, Bengal Ambuja, City Center, Durgapur, West Bengal 713216, India<br />
+          Contact: swastiksaha1204@gmail.com | +91 89185 86567
         </div>
       </div>
 
@@ -60,16 +59,24 @@ export function TermsContent() {
         use this site.
       </p>
 
-      <Section n="1" title="Eligibility">
+      <Section n="1" title="Franchise disclosure">
         <p>
-          You must be at least 18 years old, or using this site under the
-          supervision of a parent or guardian, to place an order. By signing
-          in with your Google account, you confirm the information provided
-          by that account is accurate.
+          This outlet is operated under a franchise arrangement with the
+          Venky's Chicken Xperience brand. Your order contract is with the
+          local franchisee operating this outlet (details above), not with
+          the brand owner directly.
         </p>
       </Section>
 
-      <Section n="2" title="Account & sign-in">
+      <Section n="2" title="Eligibility">
+        <p>
+          You must be at least 18 years old to place an order on this site.
+          By signing in with your Google account, you confirm the
+          information provided by that account is accurate.
+        </p>
+      </Section>
+
+      <Section n="3" title="Account & sign-in">
         <p>
           We use Google Sign-In for authentication. You are responsible for
           maintaining the security of the Google account you use to sign in.
@@ -77,7 +84,7 @@ export function TermsContent() {
         </p>
       </Section>
 
-      <Section n="3" title="Menu, pricing & availability">
+      <Section n="4" title="Menu, pricing & availability">
         <p>
           Menu items, prices, and availability may change without notice and
           may vary by time of day or ingredient availability. Images are for
@@ -90,7 +97,7 @@ export function TermsContent() {
         </p>
       </Section>
 
-      <Section n="4" title="Orders & payment">
+      <Section n="5" title="Orders & payment">
         <p>
           Orders are confirmed only once payment is completed (for prepaid
           orders) or the order is placed (for Cash on Delivery, where
@@ -100,18 +107,18 @@ export function TermsContent() {
         </p>
       </Section>
 
-      <Section n="5" title="Delivery">
+      <Section n="6" title="Delivery">
         <p>
           Delivery times shown at checkout are estimates and may vary due to
           traffic, weather, or order volume.
         </p>
       </Section>
 
-      <Section n="6" title="Cancellations, returns & refunds">
+      <Section n="7" title="Cancellations, returns & refunds">
         <p>See our separate Cancellation &amp; Refund Policy, which forms part of these Terms.</p>
       </Section>
 
-      <Section n="7" title="Acceptable use">
+      <Section n="8" title="Acceptable use">
         <p>You agree not to:</p>
         <ul className="list-disc pl-5 space-y-1">
           <li>use the site for any unlawful purpose;</li>
@@ -121,14 +128,14 @@ export function TermsContent() {
         </ul>
       </Section>
 
-      <Section n="8" title="Intellectual property">
+      <Section n="9" title="Intellectual property">
         <p>
           All site content (branding, design, text, images) is owned by us or
           our licensors and may not be reproduced without permission.
         </p>
       </Section>
 
-      <Section n="9" title="Liability">
+      <Section n="10" title="Liability">
         <p>
           To the maximum extent permitted by law, we are not liable for
           indirect, incidental, or consequential losses arising from your use
@@ -140,25 +147,25 @@ export function TermsContent() {
         </p>
       </Section>
 
-      <Section n="10" title="Changes to these Terms">
+      <Section n="11" title="Changes to these Terms">
         <p>
           We may update these Terms from time to time. Continued use of the
           site after a change constitutes acceptance of the updated Terms.
         </p>
       </Section>
 
-      <Section n="11" title="Governing law & jurisdiction">
+      <Section n="12" title="Governing law & jurisdiction">
         <p>
           These Terms are governed by the laws of India. Subject to the
           Consumer Protection Act, 2019 (which allows you to file a complaint
           in the jurisdiction where you reside or the cause of action arose),
           any dispute not covered by that Act shall be subject to the
-          exclusive jurisdiction of the courts at{' '}
-          <Fill>Durgapur / Asansol — please confirm which district court jurisdiction applies</Fill>, West Bengal.
+          exclusive jurisdiction of the courts at Paschim Burdwan district,
+          West Bengal.
         </p>
       </Section>
 
-      <Section n="12" title="Contact & grievance officer">
+      <Section n="13" title="Contact & grievance officer">
         <p>
           For any question about these Terms, or to raise a grievance under
           the Consumer Protection (E-Commerce) Rules, 2020, contact{' '}
@@ -210,11 +217,10 @@ export function RefundContent() {
 
       <Section n="4" title="Refund method & timeline">
         <p>
-          Approved refunds are issued to the original payment method within{' '}
-          <Fill>X business days — please confirm your actual processing time</Fill>{' '}
-          of approval. Refunds for Cash on Delivery orders, where approved,
-          will be processed via{' '}
-          <Fill>bank transfer / UPI — please confirm the method you'll actually use</Fill>.
+          Approved refunds are issued to the original payment method within
+          3–4 business days of approval. Refunds for Cash on Delivery
+          orders, where approved, will be processed via bank transfer or
+          UPI.
         </p>
       </Section>
 
@@ -313,8 +319,8 @@ export function PrivacyContent() {
       <Section n="9" title="Contact">
         <p>
           Questions about this policy: swastiksaha1204@gmail.com / +91 89185
-          86567. Address: Bengal Ambuja, City Center, Durgapur, West Bengal
-          713216, India.
+          86567. Address: MNAV-36, Bengal Ambuja, City Center, Durgapur,
+          West Bengal 713216, India.
         </p>
       </Section>
     </div>
