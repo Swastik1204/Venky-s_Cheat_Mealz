@@ -1,11 +1,13 @@
 // App — Root component with routing and layout
 import { Suspense, lazy } from 'react'
 
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, useLocation } from 'react-router-dom'
 
 import Layout from './layouts/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import FcmNotifications from './components/FcmNotifications'
+import LegalModal from './components/legal/LegalModal'
+import { TermsContent, PrivacyContent, RefundContent, ShippingContent } from './components/legal/LegalContent'
 
 // Lazy load all pages for faster initial load
 const Home = lazy(() => import('./pages/Home'))
@@ -30,11 +32,21 @@ function PageLoader() {
 }
 
 function App() {
+  // Modal-route pattern: a <LegalLink> (footer/profile) navigates with
+  // `state.background` set to the page you were already on. The primary
+  // <Routes> below renders against that background location instead of the
+  // real one, so the page underneath keeps rendering; a second <Routes> then
+  // matches the real location and renders the same page component inside
+  // LegalModal on top. Landing on /terms etc. directly (no background
+  // state) skips all of this and just renders the full standalone page.
+  const location = useLocation()
+  const backgroundLocation = location.state && location.state.background
+
   return (
     <ErrorBoundary>
       <FcmNotifications />
       <Suspense fallback={<PageLoader />}>
-        <Routes>
+        <Routes location={backgroundLocation || location}>
           <Route element={<Layout />}>
             <Route path="/" element={<Home />} />
             <Route path="/checkout" element={<Checkout />} />
@@ -50,6 +62,17 @@ function App() {
           </Route>
         </Routes>
       </Suspense>
+
+      {backgroundLocation && (
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/terms" element={<LegalModal title="Terms & Conditions"><TermsContent /></LegalModal>} />
+            <Route path="/privacy" element={<LegalModal title="Privacy Policy"><PrivacyContent /></LegalModal>} />
+            <Route path="/cancellation-refunds" element={<LegalModal title="Cancellation & Refund Policy"><RefundContent /></LegalModal>} />
+            <Route path="/shipping" element={<LegalModal title="Shipping & Delivery Policy"><ShippingContent /></LegalModal>} />
+          </Routes>
+        </Suspense>
+      )}
     </ErrorBoundary>
   )
 }

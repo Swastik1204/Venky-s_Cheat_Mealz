@@ -16,6 +16,7 @@ import { getProfileCompletion } from '../lib/data-user'
 import { db } from '../lib/firebase'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
 import { RESTAURANT_CONFIG } from '../config/restaurant.config'
+import LegalLink from '../components/legal/LegalLink'
 
 // ── Helpers ──
 
@@ -445,6 +446,13 @@ export default function Profile() {
         <button className="btn btn-outline btn-error btn-sm gap-2" onClick={logout}>
           <MdCancel className="w-4 h-4" /> Logout
         </button>
+      </div>
+
+      <div className="px-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/40">
+        <LegalLink type="terms">Terms of Service</LegalLink>
+        <LegalLink type="privacy">Privacy Policy</LegalLink>
+        <LegalLink type="shipping">Shipping</LegalLink>
+        <LegalLink type="refund">Cancellation &amp; Refunds</LegalLink>
       </div>
 
     {profileCompletion && (
