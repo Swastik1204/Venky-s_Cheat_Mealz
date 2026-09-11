@@ -10,6 +10,7 @@ import FloatingCartBar from '../components/FloatingCartBar'
 import InstallPWA from '../components/InstallPWA'
 import ItemModal from '../components/ItemModal'
 import NavBar from '../components/NavBar'
+import Footer from '../components/Footer'
 import Dock from '../components/QuickDock'
 // Removed custom hook to avoid invalid hook call caused by duplicate React resolution in some setups.
 
@@ -57,6 +58,7 @@ export default function Layout() {
         <NavBar />
         <main className="flex-1 pb-32 sm:pb-36">
           <Outlet />
+          <Footer />
         </main>
   <FloatingCartBar />
     <Dock />
