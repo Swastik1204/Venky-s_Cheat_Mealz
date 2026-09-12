@@ -8,6 +8,7 @@ import { MdAlternateEmail, MdLock, MdPerson } from 'react-icons/md'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { auth } from '../lib/firebase'
+import LegalLink from './legal/LegalLink'
 
 export default function AuthModal() {
   const { authMode, closeAuth, openAuth } = useUI()
@@ -116,6 +117,12 @@ export default function AuthModal() {
                 >
                   {loading ? 'Please wait…' : 'Create account'}
                 </button>
+                <p className="text-[11px] text-base-content/50 text-center -mt-2">
+                  By creating an account, you agree to our{' '}
+                  <LegalLink type="terms" className="link" onClick={closeAuth}>Terms &amp; Conditions</LegalLink>
+                  {' '}and{' '}
+                  <LegalLink type="privacy" className="link" onClick={closeAuth}>Privacy Policy</LegalLink>.
+                </p>
               </form>
             )
           })()}
@@ -189,6 +196,12 @@ export default function AuthModal() {
           >
             <span className="inline-flex items-center gap-2"><FcGoogle /> Sign in with Google</span>
           </button>
+          <p className="text-[11px] text-base-content/50 text-center -mt-3">
+            By signing in, you agree to our{' '}
+            <LegalLink type="terms" className="link" onClick={closeAuth}>Terms &amp; Conditions</LegalLink>
+            {' '}and{' '}
+            <LegalLink type="privacy" className="link" onClick={closeAuth}>Privacy Policy</LegalLink>.
+          </p>
 
           <div className="pt-2 border-t text-sm text-left">
             {authMode === 'login' ? (
