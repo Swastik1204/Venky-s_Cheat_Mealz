@@ -169,8 +169,8 @@ export function TermsContent() {
         <p>
           For any question about these Terms, or to raise a grievance under
           the Consumer Protection (E-Commerce) Rules, 2020, contact{' '}
-          <Fill>Grievance Officer name &amp; designation — required by law, please supply</Fill>{' '}
-          at swastiksaha1204@gmail.com / +91 89185 86567. We aim to
+          Swastik Saha, Technical Lead &amp; Grievance Officer, at
+          swastiksaha1204@gmail.com / +91 89185 86567. We aim to
           acknowledge grievances within 48 hours and resolve them within 1
           month of receipt.
         </p>
@@ -302,9 +302,8 @@ export function PrivacyContent() {
           To request a copy of your data, or deletion of your account and
           data, email swastiksaha1204@gmail.com from the email address
           associated with your account. We will action deletion requests
-          within <Fill>X days — please confirm</Fill>, except for records we
-          are legally required to retain (e.g., transaction records for tax
-          purposes).
+          within 7 business days, except for records we are legally
+          required to retain (e.g., transaction records for tax purposes).
         </p>
       </Section>
 
