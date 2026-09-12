@@ -174,7 +174,12 @@ export default function ActiveOrders() {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       setActiveOrders(list.filter((o) => isActiveStatus(o?.status)))
       setLoading(false)
-    }, () => {
+    }, (err) => {
+      // Log — a swallowed failure here (e.g. a missing composite index for
+      // the userId + status query) is invisible: the page just shows no
+      // active orders, exactly the failure mode that let an index gap go
+      // unnoticed for weeks.
+      console.error('[ActiveOrders] Active orders query failed:', err)
       setLoading(false)
     })
     return () => unsub()
