@@ -3,7 +3,7 @@
 
 import { auth } from '../lib/firebase'
 
-const DEFAULT_API_BASE = 'https://venkys.vercel.app'
+const DEFAULT_API_BASE = 'https://venkys-admin.vercel.app'
 
 /**
  * Resolves the absolute API base URL. Never falls back to relative paths in production.

@@ -20,12 +20,12 @@ const PATHS = {
   refund: '/cancellation-refunds',
 }
 
-export default function LegalLink({ type, className, children }) {
+export default function LegalLink({ type, className, children, onClick }) {
   const location = useLocation()
   const to = PATHS[type]
   if (!to) return null
   return (
-    <Link to={to} state={{ background: location }} className={className}>
+    <Link to={to} state={{ background: location }} className={className} onClick={onClick}>
       {children}
     </Link>
   )
