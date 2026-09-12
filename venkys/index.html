@@ -44,27 +44,37 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "Restaurant",
-        "name": "Venky's Chicken Xperience Durgapur",
-        "url": "https://venkys-durgapur.web.app/",
-        "image": "https://venkys-durgapur.web.app/icons/og-image.jpg",
-        "servesCuisine": "Chicken",
-        "priceRange": "₹₹",
-        "address": {
-          "@type": "PostalAddress",
-          "streetAddress": "City Centre",
-          "addressLocality": "Durgapur",
-          "addressRegion": "West Bengal",
-          "postalCode": "713216",
-          "addressCountry": "IN"
-        },
-        "geo": {
-          "@type": "GeoCoordinates",
-          "latitude": 23.5204,
-          "longitude": 87.3119
-        },
-        "acceptsReservations": "False",
-        "menu": "https://venkys-durgapur.web.app/#menu"
+        "@graph": [
+          {
+            "@type": "FastFoodRestaurant",
+            "name": "Venky's Chicken Xperience Durgapur",
+            "url": "https://venkys-durgapur.web.app/",
+            "image": "https://venkys-durgapur.web.app/icons/og-image.jpg",
+            "servesCuisine": "Chicken",
+            "priceRange": "₹₹",
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": "City Centre",
+              "addressLocality": "Durgapur",
+              "addressRegion": "West Bengal",
+              "postalCode": "713216",
+              "addressCountry": "IN"
+            },
+            "geo": {
+              "@type": "GeoCoordinates",
+              "latitude": 23.5204,
+              "longitude": 87.3119
+            },
+            "acceptsReservations": "False",
+            "menu": "https://venkys-durgapur.web.app/#menu"
+          },
+          {
+            "@type": "WebSite",
+            "name": "Venky's Chicken Xperience Durgapur",
+            "description": "Order delicious chicken dishes online from Venky's Chicken Xperience Durgapur. Fast delivery, dine-in & takeaway.",
+            "inLanguage": "en-IN"
+          }
+        ]
       }
     </script>
   </head>
