@@ -178,7 +178,23 @@ jobs:
             }
 
             const templatePath = path.join(process.env.GITHUB_WORKSPACE, '.github', 'PULL_REQUEST_TEMPLATE', 'prod.md');
-            const templateContent = fs.readFileSync(templatePath, 'utf8');
+            let templateContent = fs.readFileSync(templatePath, 'utf8');
+
+            // If the PR already has a description, it came from the default
+            // .github/pull_request_template.md, which GitHub prefills for
+            // every PR regardless of base branch (GitHub does not
+            // auto-select a template by base branch) and which has its own
+            // "What changed and why" heading. Appending prod.md verbatim in
+            // that case duplicated that heading — keep only the release
+            // checklist onward, since the description above already covers
+            // "what changed and why".
+            if (body.trim().length > 0) {
+              const checklistStart = templateContent.indexOf('## Prod release checklist');
+              if (checklistStart !== -1) {
+                templateContent = templateContent.slice(checklistStart);
+              }
+            }
+
             const newBody = body.trim().length > 0
               ? `${body.trim()}\n\n---\n\n${templateContent}`
               : templateContent;
