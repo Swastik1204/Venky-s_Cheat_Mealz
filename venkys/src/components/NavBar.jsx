@@ -12,7 +12,7 @@ import { formatMoney } from '../lib/formatCurrency'
 
 export default function NavBar() {
   const logoUrl = `${import.meta.env.BASE_URL}icons/logo.png`
-  const logoWebpUrl = `${import.meta.env.BASE_URL}icons/Logo.webp`
+  const logoWebpUrl = `${import.meta.env.BASE_URL}icons/logo.webp`
 
   // ── State & refs ──
   const [scrolled, setScrolled] = useState(false)

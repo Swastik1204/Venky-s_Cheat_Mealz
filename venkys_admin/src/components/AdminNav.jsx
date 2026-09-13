@@ -220,8 +220,8 @@ export default function AdminTopNav() {
               
               <Link to="/admin" className="shrink-0" aria-label="Admin home">
                 <picture>
-                  <source srcSet={`${import.meta.env.BASE_URL}icons/Logo.webp`} type="image/webp" />
-                  <img src={`${import.meta.env.BASE_URL}icons/Logo.png`} alt="Venky's" className="brand-logo drop-shadow-sm" />
+                  <source srcSet={`${import.meta.env.BASE_URL}icons/logo.webp`} type="image/webp" />
+                  <img src={`${import.meta.env.BASE_URL}icons/logo.png`} alt="Venky's" className="brand-logo drop-shadow-sm" />
                 </picture>
               </Link>
               
@@ -327,8 +327,8 @@ export default function AdminTopNav() {
             <div className="p-4 border-b border-base-200 flex items-center justify-between bg-base-200/50">
               <div className="flex items-center gap-3">
                 <picture>
-                  <source srcSet={`${import.meta.env.BASE_URL}icons/Logo.webp`} type="image/webp" />
-                  <img src={`${import.meta.env.BASE_URL}icons/Logo.png`} alt="Venky's" className="h-8 w-auto" />
+                  <source srcSet={`${import.meta.env.BASE_URL}icons/logo.webp`} type="image/webp" />
+                  <img src={`${import.meta.env.BASE_URL}icons/logo.png`} alt="Venky's" className="h-8 w-auto" />
                 </picture>
                 <span className="font-bold text-lg tracking-tight">Admin</span>
               </div>

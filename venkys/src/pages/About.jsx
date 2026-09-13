@@ -3,7 +3,7 @@ import Seo from '../components/Seo'
 
 export default function About() {
   const logoUrl = `${import.meta.env.BASE_URL}icons/logo.png`
-  const logoWebpUrl = `${import.meta.env.BASE_URL}icons/Logo.webp`
+  const logoWebpUrl = `${import.meta.env.BASE_URL}icons/logo.webp`
   return (
   <div className="page-wrap py-10">
       <Seo

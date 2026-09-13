@@ -21,18 +21,15 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 // Source images rendered directly as <img> in JSX — add to this list as new
 // bundled (non-Cloudinary, non-og-image) images are introduced.
-// NOTE: the on-disk file is `Logo.png` (capital L) but the JSX render site
-// references the lowercase `icons/logo.png` — a pre-existing case mismatch
-// that only works locally because dev runs on a case-insensitive filesystem
-// (Windows/macOS default); it would 404 on a case-sensitive production host
-// (Linux/Vercel), where a build also runs case-sensitively. Not fixed here
-// (out of scope for the image-delivery pipeline, flagged separately) — this
-// script deliberately uses the REAL on-disk casing so it builds correctly
-// everywhere, including a case-sensitive CI/Vercel build. The new .webp is
-// referenced by its real capital-L path at the render site, independent of
-// the pre-existing lowercase .png mismatch.
+// The git-tracked file is `logo.png` (lowercase) — confirmed via `git
+// ls-tree`, not the working-tree listing, which is misleading on a
+// case-insensitive filesystem (Windows/macOS): a prior commit
+// (f7a1ea2, 2026-09-11) already fixed every reference to lowercase after
+// this exact mismatch 404'd og:image and the favicon on the case-sensitive
+// (Linux) production host. Use the lowercase path here so the derived
+// .webp matches that same, already-proven-correct convention.
 const SOURCES = [
-  'icons/Logo.png',
+  'icons/logo.png',
 ];
 
 async function run() {

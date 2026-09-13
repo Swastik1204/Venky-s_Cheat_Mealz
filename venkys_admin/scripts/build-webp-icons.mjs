@@ -21,8 +21,15 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 // Source images rendered directly as <img> in JSX — add to this list as new
 // bundled (non-Cloudinary, non-og-image) images are introduced.
+// The git-tracked file is `logo.png` (lowercase) — confirmed via `git
+// ls-tree`, not the working-tree listing, which is misleading on a
+// case-insensitive filesystem (Windows/macOS). Every JSX/index.html
+// reference here previously said `Logo.png`/`Logo.webp` (capital), which
+// would 404 on a case-sensitive production host (Linux/Vercel) — fixed
+// alongside this script (2026-09-14), matching the sibling venkys customer
+// app's own case fix (commit f7a1ea2, 2026-09-11).
 const SOURCES = [
-  'icons/Logo.png',
+  'icons/logo.png',
 ];
 
 async function run() {
