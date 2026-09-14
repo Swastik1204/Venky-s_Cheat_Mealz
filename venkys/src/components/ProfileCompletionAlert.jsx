@@ -27,7 +27,7 @@ export default function ProfileCompletionAlert({ user, profileForm, addrState, o
       <div className="p-5 flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="font-semibold">Complete your profile</h3>
+            <h2 className="text-base font-semibold">Complete your profile</h2>
             <p className="text-sm opacity-70 mt-1">{completion.percent}% done</p>
           </div>
           {showButton && (

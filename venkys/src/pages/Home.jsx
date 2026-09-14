@@ -711,7 +711,7 @@ export default function Home() {
             )}
             <div className="blend-panel hero-panel px-5 py-6 sm:px-10 sm:py-10 border border-transparent">
               <div className="flex flex-col gap-4 max-w-3xl">
-                <span className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-primary uppercase tracking-[0.3em]">
+                <span className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-primary tracking-wide">
                   <MdOutlineBolt className="w-4 h-4" />
                   Serving joy all day
                 </span>
