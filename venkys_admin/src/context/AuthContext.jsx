@@ -109,6 +109,15 @@ export function AuthProvider({ children }) {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser)
       if (firebaseUser) {
+        // Sync users/{uid} on every sign-in, not just signup — matching
+        // customer's AuthContext.jsx pattern. Without this, a staff member
+        // who only ever signs into the admin app (the normal repeat-login
+        // case) never gets a users/{uid} document anywhere.
+        try {
+          await ensureUserDocument(firebaseUser)
+        } catch (e) {
+          console.warn('Failed to ensure user doc:', e)
+        }
         await refreshRole(firebaseUser.email)
       } else {
         setRole(null)

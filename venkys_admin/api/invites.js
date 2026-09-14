@@ -38,12 +38,19 @@
 // updateStaff: Auth: admin/superadmin only. Body: { action: 'updateStaff',
 //   email, updates: { role?, pages?, defaultPage? } }. Writes roles/{email}
 //   via the Admin SDK (was a direct client Firestore write from
-//   data-staff.js's updateStaffMember — moved server-side specifically so
-//   this can call revokeRefreshTokens(uid) on every change, matching
-//   Blobby's WS-74 Finding B pattern: the caller's existing ID token stays
-//   "valid" to plain verifyIdToken() until its natural ~1h expiry
-//   regardless of a Firestore role-doc change, unless it's explicitly
-//   revoked and verifyAuth.js checks with checkRevoked=true). Cannot target
+//   data-staff.js's updateStaffMember — moved server-side for a real
+//   server-owned audit trail). Does NOT call revokeRefreshTokens — a
+//   permission edit on a still-legitimate staff member should not force
+//   their active session to re-authenticate; the updated role/pages/
+//   defaultPage take effect via the normal claim/doc-read path on their
+//   next request, same as any other Firestore-doc-driven permission change.
+//   (Corrected 2026-09: this previously called revokeRefreshTokens on every
+//   edit, misattributed to "Blobby's WS-74 Finding B" — that finding was
+//   about verifyIdToken needing checkRevoked=true so an ACTUAL revocation
+//   bites immediately, not about revoking on every edit. Calling
+//   revokeRefreshTokens here silently force-logged-out a staff member
+//   mid-shift any time someone merely changed what pages they could see —
+//   the exact bug found and fixed in Blobby's admin-ops.js.) Cannot target
 //   the super admin's own email (mirrors firestore.rules' equivalent
 //   guard). Returns: { ok: true }.
 //
@@ -406,17 +413,9 @@ async function handleUpdateStaff(req, res) {
 
   await roleRef.set({ ...updates, updatedAt: FieldValue.serverTimestamp(), updatedBy: callerEmail }, { merge: true })
 
-  // Force this staff member's existing sessions to re-authenticate — see
-  // the file-header comment on why this is required, not just the
-  // Firestore write, for the change to actually take effect immediately.
-  try {
-    const userRecord = await adminAuth().getUserByEmail(email)
-    await adminAuth().revokeRefreshTokens(userRecord.uid)
-  } catch (err) {
-    // No Firebase Auth account for this email yet (invited but never
-    // signed in) — nothing to revoke, not an error condition.
-    console.warn('[invites:updateStaff] revokeRefreshTokens skipped:', err?.message || err)
-  }
+  // Deliberately no revokeRefreshTokens here — see the file-header comment
+  // on updateStaff. A permission edit on a still-legitimate staff member
+  // should not force their active session to re-authenticate.
 
   const afterSnap = await roleRef.get()
   await db.collection('logs').add({

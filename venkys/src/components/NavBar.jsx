@@ -12,6 +12,7 @@ import { formatMoney } from '../lib/formatCurrency'
 
 export default function NavBar() {
   const logoUrl = `${import.meta.env.BASE_URL}icons/logo.png`
+  const logoWebpUrl = `${import.meta.env.BASE_URL}icons/logo.webp`
 
   // ── State & refs ──
   const [scrolled, setScrolled] = useState(false)
@@ -266,7 +267,10 @@ export default function NavBar() {
             {/* Left: Logo */}
             <div className="shrink-0">
               <Link to="/" className="inline-flex items-center" aria-label="Home">
-                <img src={logoUrl} alt="Venky's" className="brand-logo" />
+                <picture>
+                  <source srcSet={logoWebpUrl} type="image/webp" />
+                  <img src={logoUrl} alt="Venky's" className="brand-logo" />
+                </picture>
               </Link>
             </div>
 
