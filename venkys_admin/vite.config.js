@@ -38,14 +38,15 @@ export default defineConfig({
   // The Analytics/Recharts chunk is lazily loaded and consistently sits just above
   // Vite's default 500 kB warning threshold. Raising the limit keeps the build
     // output noise-free while the bulk of the app still ships much smaller chunks.
-    chunkSizeWarningLimit: 700,
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         // NOTE: react-icons is NOT listed here so Vite can tree-shake unused icons
         manualChunks: {
           react: ['react','react-dom'],
           firebase: ['firebase/app','firebase/auth','firebase/firestore'],
-          vendor: ['react-router-dom']
+          vendor: ['react-router-dom'],
+          charts: ['recharts']
         }
       }
     }
@@ -74,7 +75,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icons/Logo.png', 'favicon.ico'],
+      includeAssets: ['icons/logo.png', 'favicon.ico'],
       manifest: {
         name: `${RESTAURANT_CONFIG.brand.shortName} Admin`,
         short_name: `${RESTAURANT_CONFIG.brand.shortName}Admin`,
@@ -85,8 +86,8 @@ export default defineConfig({
         background_color: '#ffffff',
         theme_color: '#facc15',
         icons: [
-          { src: 'icons/Logo.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: 'icons/Logo.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+          { src: 'icons/logo.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icons/logo.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
         ],
       },
       strategies: 'injectManifest',

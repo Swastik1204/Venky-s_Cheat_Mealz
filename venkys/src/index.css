@@ -46,7 +46,7 @@
 	.panel-side { @apply bg-base-100 border border-base-300/50 min-h-full w-96 p-4 space-y-4 rounded-3xl shadow-sm; }
 	.panel-footer { @apply mt-auto pt-4 border-t border-base-300/60; }
 	.img-thumb { @apply w-28 h-28 object-cover rounded-xl; }
-	.img-thumb-sm { @apply w-14 h-14 object-cover rounded; }
+	.img-thumb-sm { @apply w-14 h-14 object-cover rounded-lg; }
 	.section-title { @apply text-xl font-semibold relative inline-block; }
 	.section-title::after { content:""; display:block; width:2.5rem; height:0.25rem; border-radius:9999px; background-color:color-mix(in srgb, var(--color-primary) 65%, transparent); margin-top:0.25rem; }
 	.blend-panel {
@@ -55,7 +55,7 @@
 		--blend-panel-to: color-mix(in srgb, var(--color-secondary) 9%, var(--color-base-100));
 		position: relative;
 		z-index: 0;
-		border-radius: 2.8rem;
+		border-radius: 1.5rem;
 		background: linear-gradient(118deg, var(--blend-panel-from) 0%, var(--blend-panel-mid) 42%, var(--blend-panel-to) 100%);
 		border: 1px solid transparent;
 		box-shadow: 0 26px 70px color-mix(in srgb, var(--color-primary) 8%, transparent);
