@@ -75,7 +75,7 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icons/Logo.png', 'favicon.ico'],
+        includeAssets: ['icons/logo.png', 'favicon.ico'],
         manifest: {
           name: RESTAURANT_CONFIG.brand.name,
           short_name: RESTAURANT_CONFIG.brand.shortName,
@@ -90,7 +90,7 @@ export default defineConfig(({ mode }) => {
             { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
             { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
             { src: 'icons/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-            { src: 'icons/Logo.png', sizes: '1024x1024', type: 'image/png', purpose: 'any' },
+            { src: 'icons/logo.png', sizes: '1024x1024', type: 'image/png', purpose: 'any' },
           ]
         },
         strategies: 'injectManifest',
