@@ -6,7 +6,7 @@ import { MdPayment, MdQrCode, MdSearch, MdKeyboardReturn, MdRestaurantMenu } fro
 
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, updateOrder, fetchAppSettings, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
+import { fetchMenuCategories, createOrder, fetchImagesByIdsCached, getImageDataUrl, fetchRecentOrders, updateOrder, BRAND_LONG, BRAND_SHORT, ensureGuestUser, GUEST_USER_ID, createRazorpayOrder, verifyRazorpayPayment, getRazorpayKeyId } from '../lib/data'
 
 const PAYMENT_OPTIONS = [
   { key: 'cod', label: 'Cash', helper: 'Collect cash at counter', icon: MdPayment },
