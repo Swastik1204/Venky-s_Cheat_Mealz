@@ -15,6 +15,10 @@
       ]
     }
   ],
+  "rewrites": [
+    { "source": "/api/health", "destination": "/api/meta?__route=health" },
+    { "source": "/api/public-config", "destination": "/api/meta?__route=config" }
+  ],
   "crons": [
     {
       "path": "/api/sync-business-profile",
