@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 import { fetchOrder } from '../lib/data'
 import { db } from '../lib/firebase'
+import OrderStatusBadge from '../components/common/OrderStatusBadge'
 
 // ── Constants & helpers ──
 
@@ -32,30 +33,10 @@ function isCancelledOrRejected(status) {
   return s === 'cancelled' || s === 'rejected'
 }
 
-function statusBadgeClass(status) {
-  switch (normalizeStatus(status)) {
-    case 'placed':
-      return 'badge badge-warning'
-    case 'preparing':
-      return 'badge badge-info'
-    case 'ready':
-      return 'badge badge-primary'
-    case 'delivered':
-      return 'badge badge-success'
-    case 'rejected':
-      return 'badge badge-error'
-    default:
-      return 'badge badge-ghost'
-  }
-}
 
 function statusLabel(status) {
   const s = normalizeStatus(status)
   return s.replace(/_/g, ' ')
-}
-
-function statusLabelCapitalized(status) {
-  return statusLabel(status).replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
 function toDate(value) {
@@ -361,7 +342,7 @@ export default function ActiveOrders() {
                         <div>
                           <div className="flex items-center gap-2">
                             <div className="font-semibold">{orderIdentifier(o)}</div>
-                            <span className={statusBadgeClass(status)}>{statusLabel(status)}</span>
+                            <OrderStatusBadge status={status} size="badge-sm" />
                           </div>
                           <div className="text-xs opacity-70 mt-1 flex flex-wrap gap-2">
                             <span>{formatDateTime(o.createdAt) || '—'}</span>
@@ -428,7 +409,7 @@ export default function ActiveOrders() {
                       <span className="font-mono font-bold text-success">{orderIdentifier(selectedOrder)}</span>
                     </div>
                     <div className="mt-3 flex items-center gap-2">
-                      <span className={statusBadgeClass(selectedOrder.status)}>{statusLabel(selectedOrder.status)}</span>
+                      <OrderStatusBadge status={selectedOrder.status} />
                       <span className="text-xs opacity-60">Placed {formatDateTime(selectedOrder.createdAt) || '—'}</span>
                     </div>
                   </div>
@@ -472,7 +453,7 @@ export default function ActiveOrders() {
                       <div key={`${selectedOrder.id}-${entry.status}-${idx}`} className="flex items-start gap-3">
                         <div className="mt-1.5 h-2.5 w-2.5 rounded-full bg-primary/70" />
                         <div className="min-w-0">
-                          <span className={statusBadgeClass(entry.status)}>{statusLabelCapitalized(entry.status)}</span>
+                          <OrderStatusBadge status={entry.status} size="badge-sm" />
                           <div className="text-xs opacity-70 mt-1">{formatDateTime(entry.at) || '—'}</div>
                         </div>
                       </div>

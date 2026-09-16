@@ -6,8 +6,7 @@ import { MdTrendingUp, MdTrendingDown } from 'react-icons/md'
 import AdminLayout from '../layouts/AdminLayout'
 import { useAuth } from '../context/AuthContext'
 import { fetchAllOrders } from '../lib/data'
-
-const fmtINR = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`
+import { formatINR as fmtINR } from '../lib/formatCurrency'
 
 function parseDateInput(value, end = false) {
   if (!value) return null

@@ -127,9 +127,10 @@ async function resolveServerTaxRate(db) {
   }
 }
 
-async function verifyCartAmount(db, items) {
+async function verifyCartAmount(db, items, { isPos = false } = {}) {
   const safeItems = Array.isArray(items) ? items : []
-  const menuSnap = await db.collection('menu').get()
+  const db2 = db
+  const menuSnap = await db2.collection('menu').get()
   const priceLookup = new Map()
   menuSnap.docs.forEach(catDoc => {
     const data = catDoc.data()
@@ -151,12 +152,26 @@ async function verifyCartAmount(db, items) {
   const normalizedItems = safeItems.map((item, idx) => {
     const name = String(item?.name || `Item ${idx + 1}`).trim()
     const nameKey = name.toLowerCase()
-    const qty = Math.max(1, Number(item?.qty) || 1)
+    const rawQty = Number(item?.qty)
+    if (!Number.isInteger(rawQty) || rawQty < 1 || rawQty > 50) {
+      const err = new Error(`Invalid quantity for "${name}". Quantity must be an integer between 1 and 50.`)
+      err.statusCode = 400
+      throw err
+    }
+    const qty = rawQty
     const variantLabel = String(item?.variantLabel || '').trim()
     const variantKey = variantLabel.toLowerCase()
     let serverRate = variantKey ? priceLookup.get(`${nameKey}::${variantKey}`) : undefined
     if (serverRate === undefined) serverRate = priceLookup.get(nameKey)
-    if (serverRate === undefined) serverRate = Number(item?.rate || 0) // add-on/custom item not in menu
+    if (serverRate === undefined) {
+      if (isPos) {
+        serverRate = Number(item?.rate || 0) // biller staff POS custom item
+      } else {
+        const err = new Error(`Item not available on menu: ${name}`)
+        err.statusCode = 400
+        throw err
+      }
+    }
     const total = Math.round(serverRate * qty)
     const normalized = { id: item?.id || `item-${idx + 1}`, name, rate: serverRate, qty, total }
     if (item?.mrp != null) normalized.mrp = Number(item.mrp) || null
@@ -192,8 +207,9 @@ export default async function handler(req, res) {
     const isPosRequest = String(body.source || '').toLowerCase() === 'pos'
 
     // Staff (POS) extras — gated on the biller page specifically.
+    let isBillerStaff = false
     if (isPosRequest) {
-      const isBillerStaff = await canAccess(auth.user.email, 'biller')
+      isBillerStaff = await canAccess(auth.user.email, 'biller')
       if (!isBillerStaff) {
         return res.status(403).json({ error: 'Biller access required for POS orders' })
       }
@@ -227,7 +243,7 @@ export default async function handler(req, res) {
     if (!items.length) return res.status(400).json({ error: 'Order must include at least one item' })
 
     const db = adminDb()
-    const { normalizedItems, subtotal } = await verifyCartAmount(db, items)
+    const { normalizedItems, subtotal } = await verifyCartAmount(db, items, { isPos: isPosRequest && isBillerStaff })
 
     // Tax rate is resolved from server-owned settings; body.taxRate is ignored
     // entirely. See resolveServerTaxRate() above for why.
@@ -407,6 +423,9 @@ export default async function handler(req, res) {
     console.error('place-order error', err)
     if (String(err?.message || '').includes('already claimed by order')) {
       return res.status(409).json({ error: 'This payment has already been used for another order' })
+    }
+    if (err?.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message })
     }
     return res.status(500).json({ error: 'Failed to place order' })
   }

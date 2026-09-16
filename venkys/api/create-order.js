@@ -95,14 +95,25 @@ async function verifyCartAmount(items, clientAmount) {
     let serverTotal = 0
     for (const item of items) {
       const name = String(item.name || '').trim().toLowerCase()
-      const qty = Number(item.qty || 1)
+      const rawQty = Number(item.qty)
+      if (!Number.isInteger(rawQty) || rawQty < 1 || rawQty > 50) {
+        return {
+          valid: false,
+          serverTotal: 0,
+          message: `Invalid quantity for item "${item.name || 'item'}". Quantity must be an integer between 1 and 50.`
+        }
+      }
+      const qty = rawQty
       const variantLabel = String(item.variantLabel || '').trim().toLowerCase()
       // Look up price: try variant-specific first, then base item
       let serverRate = variantLabel ? priceLookup.get(`${name}::${variantLabel}`) : undefined
       if (serverRate === undefined) serverRate = priceLookup.get(name)
       if (serverRate === undefined) {
-        // Item not found in menu — allow the client rate (could be add-on or custom)
-        serverRate = Number(item.rate || 0)
+        return {
+          valid: false,
+          serverTotal: 0,
+          message: `Item not found in menu: ${item.name || 'Unknown item'}`
+        }
       }
       serverTotal += serverRate * qty
     }
@@ -118,9 +129,8 @@ async function verifyCartAmount(items, clientAmount) {
     }
     return { valid: true, serverTotal }
   } catch (err) {
-    // If menu lookup fails, don't block the order — log and allow
-    console.warn('[create-order] Price verification failed, allowing order:', err.message)
-    return { valid: true, serverTotal: clientAmount }
+    console.error('[create-order] Price verification failed:', err.message)
+    return { valid: false, message: 'Could not verify prices against current menu. Please try again.' }
   }
 }
 
