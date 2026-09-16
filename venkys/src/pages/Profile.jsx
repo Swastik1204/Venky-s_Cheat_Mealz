@@ -17,6 +17,7 @@ import { db } from '../lib/firebase'
 import { reverseGeocode, geocodeAddress } from '../lib/google'
 import { RESTAURANT_CONFIG } from '../config/restaurant.config'
 import LegalLink from '../components/legal/LegalLink'
+import OrderStatusBadge from '../components/common/OrderStatusBadge'
 
 // ── Helpers ──
 
@@ -926,25 +927,7 @@ export default function Profile() {
 
 const ORDER_STATUS_FLOW = ['placed', 'preparing', 'ready', 'delivered'];
 
-const STATUS_BADGE_LOOKUP = {
-  placed: 'badge-warning',
-  preparing: 'badge-info',
-  ready: 'badge-primary',
-  delivered: 'badge-success',
-  rejected: 'badge-error',
-};
-
 const INR_FORMATTER = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 });
-
-function statusLabel(status) {
-  if (!status) return 'Unknown'
-  return status.charAt(0).toUpperCase() + status.slice(1)
-}
-
-function statusBadgeClass(status) {
-  const badge = STATUS_BADGE_LOOKUP[status] || 'badge-ghost'
-  return `badge badge-sm ${badge} capitalize`
-}
 
 function orderProgressPercent(status) {
   const idx = ORDER_STATUS_FLOW.indexOf(status)
@@ -1040,7 +1023,7 @@ function OrderCard({ order, openModal, onReorder }) {
             <div className="flex items-center gap-2 text-sm font-semibold tracking-wide">
               <span>{identifier}</span>
               {legacyId && <span className="badge badge-ghost badge-xs">{legacyId}</span>}
-              <span className={statusBadgeClass(status)}>{statusLabel(status)}</span>
+              <OrderStatusBadge status={status} size="badge-sm" />
             </div>
             <div className="text-xs opacity-70 flex flex-wrap gap-2 mt-1">
               <span>{placedAt}</span>
@@ -1130,7 +1113,7 @@ function OrderDetailsModal({ order, onClose }) {
               {updatedAt && updatedAt !== placedAt && <p className="text-xs opacity-60">Updated {updatedAt}</p>}
             </div>
             <div className="flex flex-col items-end gap-2">
-              <span className={statusBadgeClass(status)}>{statusLabel(status)}</span>
+              <OrderStatusBadge status={status} size="badge-sm" />
               {order.orderType && <span className="badge badge-ghost badge-xs capitalize">{order.orderType}</span>}
             </div>
           </div>

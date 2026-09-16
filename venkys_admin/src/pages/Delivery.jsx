@@ -8,6 +8,8 @@ import { useUI } from '../context/UIContext'
 import AdminLayout from '../layouts/AdminLayout'
 import { isCounterDocId, updateOrder } from '../lib/data'
 import { db } from '../lib/firebase'
+import OrderStatusBadge from '../components/common/OrderStatusBadge'
+import { formatINR } from '../lib/formatCurrency'
 
 const TERMINAL_DELIVERY_STATUSES = ['delivered', 'rejected', 'cancelled']
 
@@ -71,14 +73,6 @@ function getPaymentMethod(order) {
   return String(order?.payment?.method || order?.customer?.payment?.method || 'cod').trim().toLowerCase()
 }
 
-function statusBadgeClass(status) {
-  if (status === 'placed') return 'badge-info'
-  if (status === 'preparing') return 'badge-warning'
-  if (status === 'ready') return 'badge-success'
-  if (status === 'delivered') return 'badge-neutral'
-  if (status === 'rejected') return 'badge-error'
-  return 'badge-ghost'
-}
 
 export default function Delivery() {
   const { pushToast } = useUI()
@@ -277,7 +271,7 @@ export default function Delivery() {
                     <h3 className="card-title text-base">#{order.orderNo || order.id}</h3>
                     <p className="text-sm opacity-70">{formatElapsed(createdAt, nowMs)}</p>
                   </div>
-                  <span className={`badge badge-sm capitalize ${statusBadgeClass(status)}`}>{status}</span>
+                  <OrderStatusBadge status={status} size="badge-sm" capitalize />
                 </div>
 
                 <div className="divider my-0" />
@@ -287,7 +281,7 @@ export default function Delivery() {
                   <div><span className="font-semibold">Phone:</span> {phone}</div>
                   <div><span className="font-semibold">Address:</span> {address}</div>
                   <div className="flex items-center justify-between gap-2">
-                    <span><span className="font-semibold">Total:</span> ₹{totalAmount}</span>
+                    <span><span className="font-semibold">Total:</span> {formatINR(totalAmount)}</span>
                     <span className={`badge badge-outline badge-sm ${paymentMethod === 'cod' ? 'badge-warning' : 'badge-info'}`}>
                       {paymentMethod === 'cod' ? 'COD' : 'ONLINE'}
                     </span>

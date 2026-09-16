@@ -12,6 +12,8 @@ import { fetchAllOrders, nextOrderStatus, updateOrder, deductStockForOrder, getA
 import { db } from '../lib/firebase'
 import { printOrderReceiptViaRawBT, shouldUseRawBT } from '../lib/rawbtPrint'
 import { RESTAURANT_CONFIG } from '../config/restaurant.config'
+import OrderStatusBadge from '../components/common/OrderStatusBadge'
+import { formatINR } from '../lib/formatCurrency'
 
 export default function Orders() {
   const location = useLocation()
@@ -402,7 +404,6 @@ export default function Orders() {
 
   // ── Filtering & metrics ──
   const statusFlow = ['placed', 'preparing', 'ready', 'delivered']
-  function statusColor(s) { return s==='placed'?'badge-info':s==='preparing'?'badge-warning':s==='ready'?'badge-success':s==='delivered'?'badge-neutral':s==='rejected'?'badge-error':'badge-ghost' }
   const baseFiltered = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter)
   function orderSearchText(o) { return [o.id,o.name,o.customer?.name,o.address?.name,o.phone,o.customer?.phone,o.address?.phone,o.contact?.phone].filter(Boolean).join(' ').toLowerCase() }
   const q = (orderSearch||'').trim().toLowerCase()
@@ -600,11 +601,11 @@ export default function Orders() {
                       <div className="text-[11px] opacity-60 flex gap-2">
                         {time24 && <span>{time24}</span>}
                         <span>{o.items?.length || 0} items</span>
-                        <span>₹{Number(o.totalAmount ?? o.subtotal ?? 0)}</span>{/* schema: matches data-orders.js canonical write */}
+                        <span>{formatINR(Number(o.totalAmount ?? o.subtotal ?? 0))}</span>{/* schema: matches data-orders.js canonical write */}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <span className={`badge badge-sm ${statusColor(o.status)} capitalize`}>{o.status}</span>
+                      <OrderStatusBadge status={o.status} size="badge-sm" capitalize />
                       {o.status === 'placed' && canHandlePlacedOrders && (
                         <div className="flex gap-1" onClick={(e)=> e.stopPropagation()}>
                           <button className="btn btn-xs btn-success" onClick={() => acceptOrder(o)} disabled={frozen} title={frozen ? 'Actions disabled for past orders' : 'Accept'}>
@@ -668,7 +669,7 @@ export default function Orders() {
                 <div>
                   <div className="flex items-center justify-between mb-2"><h3 className="text-lg font-semibold">Today</h3><div className="text-xs opacity-60">{Object.values(chunks.today).reduce((n, arr)=> n + arr.length, 0)} orders</div></div>
                   {(['placed','preparing','ready','delivered','rejected']).map(bucket => { const arr = chunks.today[bucket]; if (!arr || arr.length === 0) return null; return (
-                    <div key={bucket} className="mb-4"><div className="text-sm font-medium mb-2 capitalize flex items-center gap-2"><span className={`badge ${statusColor(bucket)} badge-sm`}></span><span>{bucket}</span><span className="opacity-60">({arr.length})</span></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{arr.map(o => renderCard(o))}</div></div>
+                    <div key={bucket} className="mb-4"><div className="text-sm font-medium mb-2 capitalize flex items-center gap-2"><OrderStatusBadge status={bucket} size="badge-sm" capitalize /><span className="opacity-60">({arr.length})</span></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{arr.map(o => renderCard(o))}</div></div>
                   )})}
                 </div>
               )}
@@ -700,7 +701,7 @@ export default function Orders() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-lg flex items-center gap-2">
                 Order #{selectedOrder.id.slice(-6)} 
-                <span className={`badge ${statusColor(selectedOrder.status)} badge-sm capitalize`}>{selectedOrder.status}</span>
+                <OrderStatusBadge status={selectedOrder.status} size="badge-sm" capitalize />
               </h3>
               <div className="text-xs opacity-60 font-mono">
                 Placed: {selectedOrder.createdAt?.seconds ? new Date(selectedOrder.createdAt.seconds * 1000).toLocaleString() : 'Unknown'}
@@ -798,7 +799,7 @@ export default function Orders() {
                 <div>
                   <div className="font-medium mb-1">Payment Details</div>
                   <div className="space-y-1 opacity-80">
-                    <div className="text-lg font-bold">₹{Number(selectedOrder.totalAmount ?? selectedOrder.subtotal ?? 0)}</div>{/* schema: matches data-orders.js canonical write */}
+                    <div className="text-lg font-bold">{formatINR(Number(selectedOrder.totalAmount ?? selectedOrder.subtotal ?? 0))}</div>{/* schema: matches data-orders.js canonical write */}
                     <div className="badge badge-outline uppercase text-xs font-bold">{selectedOrder.payment?.method || 'COD'}</div>
                   </div>
                 </div>

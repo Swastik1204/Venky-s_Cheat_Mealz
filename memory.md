@@ -166,3 +166,10 @@ export const RESTAURANT_CONFIG = {
 5. **Verify Pre-Deploy**:
    * Run `npm run check-rules`, `npm run lint`, `npm run build`.
 
+---
+
+## 7. Order Verification & Price Integrity Rules
+* **Strict Server Menu Validation**: Non-POS (public web) customer orders (`place-order.js` and `create-order.js`) must strictly validate all items against the Firestore `menu` collection. Client-supplied rates are never trusted for web orders; unlisted items are rejected with HTTP 400. Custom item rates are exclusively restricted to authenticated biller staff placing POS orders.
+* **Quantity Constraints**: Quantities must be validated as positive integers (`Number.isInteger(qty) && qty >= 1 && qty <= 50`).
+* **Fail-Closed Verification**: If menu lookup fails during payment order creation, the verification must fail closed rather than falling back to client-supplied totals.
+
