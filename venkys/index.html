@@ -23,9 +23,11 @@
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Venky's Chicken Xperience — Durgapur" />
-    <meta property="og:url" content="https://venkys-durgapur.web.app/" />
+    <!-- data-default: no-JS fallback only. Seo.jsx removes these two once React
+         mounts, so a route never ships two conflicting canonical/og:url tags. -->
+    <meta property="og:url" content="https://venkys-durgapur.web.app/" data-default="true" />
     <meta property="og:site_name" content="Venky's Chicken Xperience" />
-    <link rel="canonical" href="https://venkys-durgapur.web.app/" />
+    <link rel="canonical" href="https://venkys-durgapur.web.app/" data-default="true" />
     <meta name="google-site-verification" content="2nZl8TZvUgDsBKPinqwetJZhkSEz07StvwYwF0nL1Ak" />
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
