@@ -1,0 +1,55 @@
+# Venky's Chicken Xperience, Durgapur
+
+> Venky's Chicken Xperience is a chicken-focused fast-food restaurant in City
+> Center, Durgapur, West Bengal, India. It serves dine-in and takeaway at the
+> restaurant and delivers within a serviceable area in and around Durgapur,
+> ordered through this website. Open 11:00 AM – 9:30 PM, every day.
+
+Customers browse the menu on the homepage, add items to a cart, and check out
+for delivery, or order for pickup. Menu items and prices are managed by the
+restaurant and can change; the live site is always authoritative.
+
+Key facts:
+- Address: MNAV-36, Bengal Ambuja St, near jora hath Circle, Bengal Ambuja Housing Complex, City Center, Durgapur, West Bengal 713216, India.
+- Phone: +91 95930 00073.
+- Hours: 11:00 AM – 9:30 PM, Monday to Sunday (all seven days).
+- Cuisine: chicken. Price level: moderate.
+- Payment: Cash on Delivery, UPI via Razorpay (PhonePe, Google Pay, BHIM and
+  similar), or debit/credit card via Razorpay.
+- Delivery area: a serviceable area in and around Durgapur, West Bengal. The
+  delivery address is checked against that area at checkout, and the app says
+  so before the order is placed if the address falls outside it.
+- Delivery time: estimates are shown at checkout and are not guarantees — they
+  vary with traffic, weather and order volume.
+- Delivery fee: shown at checkout before payment; it depends on order value and
+  distance. GST is added at checkout at the rate the restaurant sets.
+- Cancellation: an order can be cancelled only before preparation begins.
+- Refunds: all sales are final for change of mind or a wrong choice made at
+  checkout. Damaged, incomplete or incorrect orders must be reported within 3
+  calendar days with photo or video evidence; approved refunds are issued to the
+  original payment method within 3–4 business days.
+- No minimum order value is imposed by the site.
+
+## Pages
+
+- [Home and menu](https://venkys-durgapur.web.app/): full menu, add to cart, and checkout.
+- [About](https://venkys-durgapur.web.app/about): what the restaurant is and what it serves.
+- [Contact](https://venkys-durgapur.web.app/contact): address, phone, live opening hours and map link.
+- [Shipping & Delivery Policy](https://venkys-durgapur.web.app/shipping)
+- [Cancellation & Refund Policy](https://venkys-durgapur.web.app/cancellation-refunds)
+- [Terms & Conditions](https://venkys-durgapur.web.app/terms)
+- [Privacy Policy](https://venkys-durgapur.web.app/privacy)
+
+## Notes for AI agents
+
+- The menu, prices and opening status load client-side from Firestore and are
+  not present in the initial HTML. Treat the live site as authoritative for
+  anything priced.
+- Address, phone and hours above are synced from the restaurant's own Google
+  Business Profile (last sync 2026-09-10); /contact renders the current values.
+- Checkout, order history and profile pages require sign-in and are excluded
+  from crawling (see /robots.txt).
+
+## Full documentation
+
+- [Detailed facts, policies and ordering flow](https://venkys-durgapur.web.app/llms-full.txt)
