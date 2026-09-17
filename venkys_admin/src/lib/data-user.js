@@ -1,5 +1,5 @@
 // User profile, addresses, theme, guest user, and avatar (admin)
-import { collection, doc, getDocs, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from './firebase'
 import { safeRandomId, normalizeTextKey } from './data-common'
 
