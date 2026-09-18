@@ -8,6 +8,8 @@ import ErrorBoundary from './components/ErrorBoundary'
 import FcmNotifications from './components/FcmNotifications'
 import LegalModal from './components/legal/LegalModal'
 import { TermsContent, PrivacyContent, RefundContent, ShippingContent } from './components/legal/LegalContent'
+import BusinessSchema from './components/BusinessSchema'
+import FaqSchema from './components/FaqSchema'
 
 // Lazy load all pages for faster initial load
 const Home = lazy(() => import('./pages/Home'))
@@ -44,6 +46,8 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <BusinessSchema />
+      <FaqSchema />
       <FcmNotifications />
       <Suspense fallback={<PageLoader />}>
         <Routes location={backgroundLocation || location}>

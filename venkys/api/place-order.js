@@ -35,6 +35,7 @@ import { createRateLimiter, checkUidRateLimit } from './_lib/rateLimiter.js'
 import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, canAccess } from './_lib/fcm.js'
+import { buildMenuPriceLookup, lookupMenuRate } from './_lib/menuPriceLookup.js'
 import { Timestamp, FieldValue } from 'firebase-admin/firestore'
 
 const rateLimiter = createRateLimiter({ routeName: 'place-order' })
@@ -105,27 +106,10 @@ async function verifyCartAmount(db, items, { isPos = false } = {}) {
   const safeItems = Array.isArray(items) ? items : []
   const db2 = db
   const menuSnap = await db2.collection('menu').get()
-  const priceLookup = new Map()
-  menuSnap.docs.forEach(catDoc => {
-    const data = catDoc.data()
-    const catItems = Array.isArray(data.items) ? data.items : []
-    catItems.forEach(item => {
-      const name = String(item.name || '').trim().toLowerCase()
-      if (!name) return
-      const rate = Number(item.rate ?? item.price ?? 0)
-      priceLookup.set(name, rate)
-      if (Array.isArray(item.variants)) {
-        item.variants.forEach(v => {
-          const vLabel = String(v.label || v.name || '').trim().toLowerCase()
-          if (vLabel) priceLookup.set(`${name}::${vLabel}`, Number(v.rate ?? v.price ?? rate))
-        })
-      }
-    })
-  })
+  const priceLookup = buildMenuPriceLookup(menuSnap.docs)
 
   const normalizedItems = safeItems.map((item, idx) => {
     const name = String(item?.name || `Item ${idx + 1}`).trim()
-    const nameKey = name.toLowerCase()
     const rawQty = Number(item?.qty)
     if (!Number.isInteger(rawQty) || rawQty < 1 || rawQty > 50) {
       const err = new Error(`Invalid quantity for "${name}". Quantity must be an integer between 1 and 50.`)
@@ -134,9 +118,7 @@ async function verifyCartAmount(db, items, { isPos = false } = {}) {
     }
     const qty = rawQty
     const variantLabel = String(item?.variantLabel || '').trim()
-    const variantKey = variantLabel.toLowerCase()
-    let serverRate = variantKey ? priceLookup.get(`${nameKey}::${variantKey}`) : undefined
-    if (serverRate === undefined) serverRate = priceLookup.get(nameKey)
+    let serverRate = lookupMenuRate(priceLookup, name, variantLabel)
     if (serverRate === undefined) {
       if (isPos) {
         serverRate = Number(item?.rate || 0) // biller staff POS custom item

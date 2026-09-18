@@ -23,9 +23,11 @@
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Venky's Chicken Xperience — Durgapur" />
-    <meta property="og:url" content="https://venkys-durgapur.web.app/" />
+    <!-- data-default: no-JS fallback only. Seo.jsx removes these two once React
+         mounts, so a route never ships two conflicting canonical/og:url tags. -->
+    <meta property="og:url" content="https://venkys-durgapur.web.app/" data-default="true" />
     <meta property="og:site_name" content="Venky's Chicken Xperience" />
-    <link rel="canonical" href="https://venkys-durgapur.web.app/" />
+    <link rel="canonical" href="https://venkys-durgapur.web.app/" data-default="true" />
     <meta name="google-site-verification" content="2nZl8TZvUgDsBKPinqwetJZhkSEz07StvwYwF0nL1Ak" />
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -38,9 +40,12 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/logo.png" />
     <link rel="manifest" href="/manifest.json" />
     <title>Venky's Chicken Xperience Durgapur</title>
-    <!-- Structured data: static business facts only (name, cuisine, address,
-         geo, price range). Hours/rating are live in Firestore and shown on
-         /contact — not duplicated here to avoid the JSON-LD going stale. -->
+    <!-- Structured data: static business facts (name, cuisine, address, phone,
+         geo, price range) exactly as the restaurant's own Google Business
+         Profile sync returns them, so non-JS crawlers get a complete record.
+         openingHoursSpecification is NOT hardcoded here — BusinessSchema.jsx
+         injects it (and re-asserts address/telephone) from the live
+         miscellaneous/businessProfile doc, which is the source of truth. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -52,9 +57,10 @@
             "image": "https://venkys-durgapur.web.app/icons/og-image.jpg",
             "servesCuisine": "Chicken",
             "priceRange": "₹₹",
+            "telephone": "+91 95930 00073",
             "address": {
               "@type": "PostalAddress",
-              "streetAddress": "City Centre",
+              "streetAddress": "MNAV-36, Bengal Ambuja St, near jora hath Circle, Bengal Ambuja Housing Complex, City Center",
               "addressLocality": "Durgapur",
               "addressRegion": "West Bengal",
               "postalCode": "713216",

@@ -21,6 +21,7 @@ import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { initializeApp, getApps, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
+import { buildMenuPriceLookup, lookupMenuRate } from './_lib/menuPriceLookup.js'
 
 // NOTE: Staff new-order pushes moved to /api/notify-order, which fires after
 // the order document is persisted (covers COD orders and uses real order data
@@ -69,32 +70,10 @@ async function verifyCartAmount(items, clientAmount) {
   try {
     const db = getFirestore()
     const menuSnap = await db.collection('menu').get()
-    // Build price lookup: lowercase item name → rate
-    const priceLookup = new Map()
-    menuSnap.docs.forEach(catDoc => {
-      const data = catDoc.data()
-      const catItems = Array.isArray(data.items) ? data.items : []
-      catItems.forEach(item => {
-        const name = String(item.name || '').trim().toLowerCase()
-        if (!name) return
-        // Store base rate
-        const rate = Number(item.rate ?? item.price ?? 0)
-        priceLookup.set(name, rate)
-        // Also index variants
-        if (Array.isArray(item.variants)) {
-          item.variants.forEach(v => {
-            const vLabel = String(v.label || v.name || '').trim().toLowerCase()
-            if (vLabel) {
-              priceLookup.set(`${name}::${vLabel}`, Number(v.rate ?? v.price ?? rate))
-            }
-          })
-        }
-      })
-    })
+    const priceLookup = buildMenuPriceLookup(menuSnap.docs)
 
     let serverTotal = 0
     for (const item of items) {
-      const name = String(item.name || '').trim().toLowerCase()
       const rawQty = Number(item.qty)
       if (!Number.isInteger(rawQty) || rawQty < 1 || rawQty > 50) {
         return {
@@ -104,10 +83,7 @@ async function verifyCartAmount(items, clientAmount) {
         }
       }
       const qty = rawQty
-      const variantLabel = String(item.variantLabel || '').trim().toLowerCase()
-      // Look up price: try variant-specific first, then base item
-      let serverRate = variantLabel ? priceLookup.get(`${name}::${variantLabel}`) : undefined
-      if (serverRate === undefined) serverRate = priceLookup.get(name)
+      let serverRate = lookupMenuRate(priceLookup, item.name, item.variantLabel)
       if (serverRate === undefined) {
         return {
           valid: false,

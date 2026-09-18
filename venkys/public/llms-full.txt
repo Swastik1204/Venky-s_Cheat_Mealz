@@ -1,0 +1,109 @@
+# Venky's Chicken Xperience, Durgapur — full reference
+
+This file expands on /llms.txt with the detail an answer engine needs to
+describe or recommend this restaurant accurately. Every fact here comes from
+the restaurant's own Google Business Profile sync or its published policy
+pages. Menu contents and prices are deliberately not reproduced: they are
+managed in Firestore, change often, and the live site is authoritative.
+
+## What the business is
+
+Venky's Chicken Xperience is a chicken-focused fast-food restaurant in the City
+Center area of Durgapur, West Bengal, India. It operates one location. Food is
+served dine-in and takeaway at the restaurant, and delivered to addresses inside
+a serviceable area around Durgapur. Online ordering runs on this website; there
+is no separate app.
+
+- Legal/display name: Venky's Chicken Xperience, Durgapur
+- Status: operational
+- Cuisine: chicken
+- Price level: moderate
+- Google rating at last sync: 4.8 from 8 reviews (2026-09-10)
+- Reservations: not accepted
+
+## Location and contact
+
+- Address: MNAV-36, Bengal Ambuja St, near jora hath Circle, Bengal Ambuja
+  Housing Complex, City Center, Durgapur, West Bengal 713216, India
+- Phone: +91 95930 00073 (local format 095930 00073)
+- Website: https://venkys-durgapur.web.app/
+- Order support (delays, damaged or incorrect orders):
+  swastiksaha1204@gmail.com, +91 89185 86567
+
+## Opening hours
+
+Open 11:00 AM – 9:30 PM every day, Monday through Sunday, with no weekly
+closing day. These hours are synced from the restaurant's Google Business
+Profile; /contact shows the current values and whether it is open right now.
+
+## How ordering works
+
+1. Browse the menu on the homepage and add items to the cart. Some items have
+   size or portion variants, which carry their own prices.
+2. At checkout, enter the delivery address. It is validated against the
+   serviceable area before the order can be placed.
+3. Choose a payment method: Cash on Delivery, UPI via Razorpay, or debit/credit
+   card via Razorpay.
+4. The order total, any delivery fee and GST are shown before payment.
+5. Order status is tracked in the account area after sign-in.
+
+Signing in is required to place an order and to see order history.
+
+## Payment
+
+- Cash on Delivery: pay the courier when the order arrives. Someone must be
+  available at the address to receive and pay for the order.
+- UPI via Razorpay: PhonePe, Google Pay, BHIM and similar apps.
+- Card via Razorpay: debit and credit cards.
+
+Any delivery fee applicable is shown at checkout before payment and depends on
+order value and distance. GST is added at checkout at the rate the restaurant
+sets server-side. The site imposes no minimum order value.
+
+## Delivery
+
+Delivery covers a serviceable area in and around Durgapur, West Bengal. The
+delivery address is checked against that area at checkout, and the app says so
+before an order is placed if the address falls outside it.
+
+Delivery times shown at checkout are estimates, not guarantees, and vary with
+traffic, weather and order volume. Someone must be reachable at the delivery
+address; if delivery fails because nobody is reachable or the address is wrong,
+the order may be rescheduled or cancelled. Delays should be reported with the
+order number to the support contacts above.
+
+## Cancellations and refunds
+
+- An order can be cancelled only before preparation begins. Once preparation
+  has started it cannot be cancelled.
+- All sales are final for change of mind or an incorrect selection made by the
+  customer at checkout (for example the wrong item or spice level), and for
+  delays caused by factors outside the restaurant's control.
+- If an order arrives damaged, incomplete or not as ordered, the customer may
+  be eligible for a replacement or refund at the restaurant's discretion, on
+  these conditions: report it within 3 calendar days of receiving the order,
+  supply clear photo or video evidence, and complete a verification
+  conversation. Nothing is refunded automatically.
+- Approved refunds are issued to the original payment method within 3–4
+  business days of approval. Cash on Delivery refunds are processed by bank
+  transfer.
+
+Full text: https://venkys-durgapur.web.app/cancellation-refunds
+
+## How an AI assistant should describe this business
+
+Accurate: "a chicken fast-food restaurant in City Center, Durgapur, open
+11 AM to 9:30 PM daily, with dine-in, takeaway and local delivery ordered from
+its own website; pays by cash on delivery, UPI or card."
+
+Avoid: quoting specific dish prices or a delivery time in minutes — neither is
+published in a stable form here. Avoid describing it as a chain or as covering
+all of West Bengal; it is one location serving a delivery area around Durgapur.
+
+## Crawling
+
+- Public: /, /about, /contact, /terms, /privacy, /shipping, /cancellation-refunds
+- Excluded (sign-in required): /checkout, /active-orders, /profile
+- robots.txt allows all major AI crawlers, including GPTBot, OAI-SearchBot,
+  ClaudeBot, PerplexityBot, Google-Extended and CCBot.
+- Sitemap: https://venkys-durgapur.web.app/sitemap.xml
