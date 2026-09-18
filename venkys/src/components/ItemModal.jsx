@@ -98,7 +98,13 @@ export default function ItemModal() {
             uniqueSuffix = currentVariant.name
         }
 
-        const rate = currentVariant.rate || currentVariant.price || 0
+        // A flavour-only variant (e.g. Grilled Chicken Burger: Tandoori /
+        // Garlic Pepper) carries no rate of its own and is sold at the base
+        // item's price. Fall back to it exactly as effectivePrice does above —
+        // without this the cart line was ₹0 while the modal showed ₹168, and
+        // the server (menuPriceLookup.js, same fallback) rejected online
+        // payment as a price mismatch.
+        const rate = currentVariant.rate || currentVariant.price || baseItem.rate || baseItem.price || 0
         const mrp = currentVariant.mrp || 0
         const discount = currentVariant.discountPercent || 0
 
