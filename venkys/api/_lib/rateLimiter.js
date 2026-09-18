@@ -438,6 +438,7 @@ async function checkUidRateLimit(uid, routeName) {
 export {
   createRateLimiter,
   checkUidRateLimit,
+  getClientIp,
   RATE_LIMITS,
   KILL_SWITCH_ENABLED,
   RATE_LIMIT_DISABLED

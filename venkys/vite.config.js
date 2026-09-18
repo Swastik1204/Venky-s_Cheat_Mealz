@@ -25,13 +25,14 @@ export default defineConfig(({ mode }) => {
         output: {
           // Better code splitting for faster initial load
           // NOTE: react-icons and recharts are NOT listed here so Vite can tree-shake them
-          manualChunks: {
-            'react-core': ['react', 'react-dom'],
-            'react-router': ['react-router-dom'],
-            'firebase-app': ['firebase/app'],
-            'firebase-auth': ['firebase/auth'],
-            'firebase-firestore': ['firebase/firestore'],
-            'firebase-messaging': ['firebase/messaging'],
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('firebase/auth')) return 'firebase-auth';
+              if (id.includes('firebase/firestore')) return 'firebase-firestore';
+              if (id.includes('firebase/messaging')) return 'firebase-messaging';
+              if (id.includes('firebase')) return 'firebase-app';
+              if (id.includes('react-router')) return 'react-router';
+            }
           }
         }
       },

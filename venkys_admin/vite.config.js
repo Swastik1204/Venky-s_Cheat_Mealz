@@ -42,11 +42,12 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // NOTE: react-icons is NOT listed here so Vite can tree-shake unused icons
-        manualChunks: {
-          react: ['react','react-dom'],
-          firebase: ['firebase/app','firebase/auth','firebase/firestore'],
-          vendor: ['react-router-dom'],
-          charts: ['recharts']
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('recharts')) return 'charts';
+            if (id.includes('firebase')) return 'firebase';
+            if (id.includes('react-router')) return 'vendor';
+          }
         }
       }
     }
