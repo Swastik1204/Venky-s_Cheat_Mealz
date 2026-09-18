@@ -9,7 +9,7 @@
  * operator can supply (registration number, jurisdiction, grievance officer,
  * refund timelines).
  */
-export const UPDATED = '[date]'
+export const UPDATED = '18 September 2026'
 
 export function Fill({ children }) {
   return (
@@ -47,6 +47,7 @@ export function TermsContent() {
         through it, operated by:
         <div className="mt-2 font-semibold text-base-content/90 not-italic">
           FAMILY SHOPPING WORLD<br />
+          A registered sole proprietorship business of Ashis Saha<br />
           GSTIN: 19BKBPS1335J1Z0<br />
           Address: MNAV-36, Bengal Ambuja, City Center, Durgapur, West Bengal 713216, India<br />
           Contact: swastiksaha1204@gmail.com | +91 89185 86567
@@ -61,10 +62,11 @@ export function TermsContent() {
 
       <Section n="1" title="Franchise disclosure">
         <p>
-          This outlet is operated under a franchise arrangement with the
-          Venky's Chicken Xperience brand. Your order contract is with the
-          local franchisee operating this outlet (details above), not with
-          the brand owner directly.
+          This Venky's Chicken Xperience outlet operates under a franchise
+          arrangement with the Venky's Chicken Xperience brand, and is run by
+          FAMILY SHOPPING WORLD, a registered sole proprietorship business of
+          Ashis Saha (details above). Your order contract is with that
+          operator, not with the brand owner directly.
         </p>
       </Section>
 
@@ -240,8 +242,12 @@ export function PrivacyContent() {
       <LegalHeader title="Privacy Policy" />
 
       <p className="text-sm text-base-content/80 mb-6">
-        FAMILY SHOPPING WORLD ("we", "us") operates this website. This policy
-        explains what personal data we collect, why, and how it's handled.
+        FAMILY SHOPPING WORLD, a registered sole proprietorship business of
+        Ashis Saha ("we", "us"), operates this website and the Venky's Chicken
+        Xperience outlet at MNAV-36, Bengal Ambuja, City Center, Durgapur, West
+        Bengal 713216, India, under a franchise arrangement with the Venky's
+        Chicken Xperience brand. This policy explains what personal data we
+        collect, why, and how it's handled.
       </p>
 
       <Section n="1" title="Information we collect">
@@ -252,8 +258,7 @@ export function PrivacyContent() {
           <li>Notifications: if you enable them, we use Firebase Cloud Messaging to send order-status notifications to your device.</li>
           <li>
             Analytics: we use Google Analytics to understand site usage,
-            which sets cookies as described below —{' '}
-            <Fill>pending confirmation of which Analytics properties stay connected; see cookies section</Fill>.
+            which sets cookies as described in the Cookies section below.
           </li>
         </ul>
       </Section>
@@ -280,8 +285,9 @@ export function PrivacyContent() {
       <Section n="4" title="Cookies">
         <p>
           This site uses Google Analytics, which sets cookies to help us
-          understand site traffic.{' '}
-          <Fill>If a second linked Google Analytics property (G-ZW9DXXVZE1) is kept: data is also shared with that second linked property under the same Google account — pending a decision on whether to keep it connected</Fill>.
+          understand site traffic. Usage data is sent to two Google Analytics
+          properties under the same Google account (G-TP0M45QL81 and
+          G-ZW9DXXVZE1).
           You can opt out of Google Analytics tracking using your browser's
           Do Not Track setting or a Google Analytics opt-out extension.
         </p>
