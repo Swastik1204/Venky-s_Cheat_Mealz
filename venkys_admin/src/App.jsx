@@ -27,7 +27,7 @@ const LogCleanupReview = lazy(() => import('./pages/LogCleanupReview'))
 
 // Access denied component for guests/unregistered users
 function AccessDenied() {
-  const { user, logout } = useAuth()
+  const { user, logout, emailUnverified } = useAuth()
   const [signingOut, setSigningOut] = useState(false)
 
   const handleSignOut = async () => {
@@ -45,10 +45,12 @@ function AccessDenied() {
     <div className="min-h-screen flex items-center justify-center bg-base-200">
       <div className="card bg-base-100 shadow-xl max-w-md mx-4">
         <div className="card-body text-center">
-          <div className="text-6xl mb-4">🚫</div>
-          <h2 className="card-title justify-center text-2xl">Access Denied</h2>
+          <div className="text-6xl mb-4">{emailUnverified ? '📧' : '🚫'}</div>
+          <h2 className="card-title justify-center text-2xl">{emailUnverified ? 'Verify your email' : 'Access Denied'}</h2>
           <p className="opacity-70 mt-2">
-            You don't have permission to access the admin panel.
+            {emailUnverified
+              ? 'We sent a verification link to your email. Open it, then sign out and sign in again — staff access only works with a verified email.'
+              : "You don't have permission to access the admin panel."}
           </p>
           {user?.email && (
             <p className="text-sm opacity-60 mt-1">

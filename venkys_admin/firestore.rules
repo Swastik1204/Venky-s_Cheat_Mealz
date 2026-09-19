@@ -61,9 +61,20 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Email is required for role-based access (roles are keyed by email)
+    // Email is required for role-based access (roles are keyed by email).
+    // The email must also be VERIFIED: roles/{email} docs can be created
+    // before that person has an Auth account (invites, direct admin entry),
+    // and the customer app offers email/password signup on the same Auth
+    // project, so an unverified token carrying a staff email would otherwise
+    // inherit that staff/admin role. Google sign-in always yields
+    // email_verified=true; password accounts must confirm via the
+    // verification email the admin app sends. Server mirror:
+    // api/_lib/verifyAuth.js resolveRoleEmail().
     function hasEmail() {
-      return isSignedIn() && request.auth.token.email is string && request.auth.token.email.size() > 0;
+      return isSignedIn()
+        && request.auth.token.email is string
+        && request.auth.token.email.size() > 0
+        && request.auth.token.email_verified == true;
     }
 
     // Check if current user is the super admin

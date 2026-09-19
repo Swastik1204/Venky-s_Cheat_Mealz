@@ -40,6 +40,27 @@ function ensureAdmin() {
 }
 
 /**
+ * The email a caller may use for roles/{email} lookups, or null.
+ *
+ * Mirrors firestore.rules hasEmail(): the token's email counts for role
+ * resolution ONLY when Firebase reports it verified. roles/{email} docs are
+ * routinely created before that person has an Auth account (invites, direct
+ * admin entry), and the customer app offers email/password signup on this
+ * same Auth project — an unverified password account registered with a
+ * staff email must not inherit the role. Google sign-in tokens always carry
+ * email_verified=true; phone-only tokens have no email and resolve to null.
+ *
+ * Every isStaffEmail()/canAccess()/isAdminEmail()/isSuperAdminEmail() call
+ * site must pass auth.roleEmail, never auth.user.email.
+ */
+export function resolveRoleEmail(decoded) {
+  const email = String(decoded?.email || '').trim().toLowerCase()
+  if (!email) return null
+  if (decoded?.email_verified !== true) return null
+  return email
+}
+
+/**
  * Verify the Firebase ID token from the Authorization header.
  * @param {object} req - Vercel request object
  * @returns {{ user?: object, error?: string, status?: number }}
@@ -73,7 +94,7 @@ export async function verifyAuth(req) {
     // This is what actually makes a staff/customer revocation bite on the
     // caller's very next request instead of doing nothing.
     const decoded = await getAuth().verifyIdToken(token, true)
-    return { user: decoded }
+    return { user: decoded, roleEmail: resolveRoleEmail(decoded) }
   } catch (err) {
     // Token was provided but is invalid/expired
     console.error('[verifyAuth] Token verification error:', err)

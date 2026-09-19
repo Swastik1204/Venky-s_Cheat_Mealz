@@ -58,7 +58,7 @@ export default async function handler(req, res) {
   // Verify Firebase Auth token
   const auth = await verifyAuth(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
-  if (!(await canAccess(auth.user?.email, 'biller'))) {
+  if (!(await canAccess(auth.roleEmail, 'biller'))) {
     return res.status(403).json({ error: 'Biller access required' })
   }
 

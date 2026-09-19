@@ -30,7 +30,7 @@ export default async function handler(req, res) {
 
   const auth = await verifyAuth(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
-  if (!(await isStaffEmail(auth.user?.email))) {
+  if (!(await isStaffEmail(auth.roleEmail))) {
     return res.status(403).json({ error: 'Staff access required' })
   }
 
