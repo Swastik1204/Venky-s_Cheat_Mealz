@@ -238,7 +238,7 @@ export default async function handler(req, res) {
     return res.status(auth.status || 401).json({ error: auth.error })
   }
 
-  if (!(await isStaffEmail(auth.user?.email))) {
+  if (!(await isStaffEmail(auth.roleEmail))) {
     return res.status(403).json({ error: 'Admin or staff access required' })
   }
 

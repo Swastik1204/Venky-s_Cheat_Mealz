@@ -58,7 +58,7 @@ async function handleOrder(req, res) {
 
     // Caller must own the order or be staff
     const callerUid = auth.user?.uid || null
-    const callerEmail = auth.user?.email || null
+    const callerEmail = auth.roleEmail || null
     const ownsOrder = callerUid && order.userId === callerUid
     if (!ownsOrder && !(await isStaffEmail(callerEmail))) {
       return res.status(403).json({ error: 'Not allowed to notify for this order' })
@@ -133,7 +133,7 @@ async function handleStatus(req, res) {
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
 
   // Staff only — customers must not be able to trigger pushes to other users
-  if (!(await isStaffEmail(auth.user?.email))) {
+  if (!(await isStaffEmail(auth.roleEmail))) {
     return res.status(403).json({ error: 'Staff access required' })
   }
 
