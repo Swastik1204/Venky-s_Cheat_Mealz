@@ -1,13 +1,15 @@
 // AuthContext — Firebase auth with role-based access control
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
 
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, GoogleAuthProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth'
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, updateProfile, GoogleAuthProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth'
 import { doc, getDoc, terminate, clearIndexedDbPersistence } from 'firebase/firestore'
 
 import { auth, db } from '../lib/firebase'
 import { ensureUserDocument } from '../lib/userData'
 
 const AuthContext = createContext(null)
+
+const NO_ROLE = Object.freeze({ isStaffMember: false, role: null, isSuperAdmin: false, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase()
@@ -65,9 +67,20 @@ export function AuthProvider({ children }) {
   // the legacy adminUsers/{uid} invite-based collection has been retired
   // (verified against live data: no account resolved only through it before
   // removal; every real staff/admin account already lived in roles).
-  const refreshRole = useCallback(async (email) => {
+  const refreshRole = useCallback(async (firebaseUser) => {
+    const email = firebaseUser?.email
     if (!email) {
       setRole(null)
+      setRoleLoading(false)
+      return
+    }
+
+    // firestore.rules hasEmail() and the API's resolveRoleEmail() both
+    // ignore an unverified email for role lookups, so the roles/{email}
+    // read below would be denied anyway. Short-circuit to a distinct
+    // "verify your email" state instead of a generic access-denied.
+    if (!firebaseUser.emailVerified) {
+      setRole({ ...NO_ROLE, emailUnverified: true })
       setRoleLoading(false)
       return
     }
@@ -95,11 +108,11 @@ export function AuthProvider({ children }) {
         })
       } else {
         // No role document = no access
-        setRole({ isStaffMember: false, role: null, isSuperAdmin: false, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
+        setRole(NO_ROLE)
       }
     } catch (err) {
       console.error('[AuthContext] Role check failed:', err)
-      setRole({ isStaffMember: false, role: null, isSuperAdmin: false, isAdmin: false, isStaff: false, isDelivery: false, pages: null, defaultPage: null, name: '' })
+      setRole(NO_ROLE)
     } finally {
       setRoleLoading(false)
     }
@@ -118,7 +131,7 @@ export function AuthProvider({ children }) {
         } catch (e) {
           console.warn('Failed to ensure user doc:', e)
         }
-        await refreshRole(firebaseUser.email)
+        await refreshRole(firebaseUser)
       } else {
         setRole(null)
         setRoleLoading(false)
@@ -132,11 +145,17 @@ export function AuthProvider({ children }) {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     if (displayName) await updateProfile(cred.user, { displayName })
     await ensureUserDocument(cred.user)
+    // Password accounts start unverified, and an unverified email never
+    // resolves a roles/{email} doc (rules + API). Send the link right away.
+    try { await sendEmailVerification(cred.user) } catch (e) { console.warn('sendEmailVerification failed:', e) }
     return cred.user
   }, [])
 
   const login = useCallback(async (email, password) => {
     const cred = await signInWithEmailAndPassword(auth, email, password)
+    if (!cred.user.emailVerified) {
+      try { await sendEmailVerification(cred.user) } catch (e) { console.warn('sendEmailVerification failed:', e) }
+    }
     return cred.user
   }, [])
 
@@ -190,13 +209,14 @@ export function AuthProvider({ children }) {
     roleLoading,
     isSuperAdmin: role?.isSuperAdmin || false,
     isStaffMember: role?.isStaffMember || false,
+    emailUnverified: role?.emailUnverified || false,
     isAdmin: role?.isAdmin || false,
     isStaff: role?.isStaff || false,
     isDelivery: role?.isDelivery || false,
     isCashManager: String(role?.role || '').toLowerCase() === 'staff' && !!role?.pages?.cashManager,
     isOrderMessenger: String(role?.role || '').toLowerCase() === 'staff' && !!role?.pages?.orderMessenger,
     canAccess,
-    refreshRole: () => refreshRole(user?.email),
+    refreshRole: () => refreshRole(user),
     signup,
     login,
     logout,

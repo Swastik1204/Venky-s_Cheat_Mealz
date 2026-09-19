@@ -183,7 +183,7 @@ async function handleDelete(req, res) {
   const auth = await verifyAuth(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
 
-  const callerEmail = String(auth.user?.email || '').trim()
+  const callerEmail = auth.roleEmail || ''
   if (!isSuperAdminEmail(callerEmail)) {
     return res.status(403).json({ error: 'Super admin access required to delete logs' })
   }

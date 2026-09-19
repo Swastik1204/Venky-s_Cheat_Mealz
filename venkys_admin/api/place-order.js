@@ -191,7 +191,7 @@ export default async function handler(req, res) {
     // Staff (POS) extras — gated on the biller page specifically.
     let isBillerStaff = false
     if (isPosRequest) {
-      isBillerStaff = await canAccess(auth.user.email, 'biller')
+      isBillerStaff = await canAccess(auth.roleEmail, 'biller')
       if (!isBillerStaff) {
         return res.status(403).json({ error: 'Biller access required for POS orders' })
       }

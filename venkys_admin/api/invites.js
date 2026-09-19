@@ -135,7 +135,7 @@ async function handleCreate(req, res) {
   const auth = await verifyAuth(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
 
-  const callerEmail = String(auth.user?.email || '').trim()
+  const callerEmail = auth.roleEmail || ''
   if (!(await isAdminEmail(callerEmail))) {
     return res.status(403).json({ error: 'Admin access required to invite staff' })
   }
@@ -282,7 +282,7 @@ async function handleRedeem(req, res) {
     return res.status(400).json({ error: 'This invite has expired' })
   }
 
-  const callerEmail = String(auth.user.email || '').trim().toLowerCase()
+  const callerEmail = auth.roleEmail || ''
   if (callerEmail !== String(invite.email || '').toLowerCase()) {
     return res.status(403).json({ error: 'Signed-in email does not match the invited email', expectedEmail: invite.email })
   }
@@ -326,7 +326,7 @@ async function handleRevoke(req, res) {
   const auth = await verifyAuth(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
 
-  const callerEmail = String(auth.user?.email || '').trim()
+  const callerEmail = auth.roleEmail || ''
   if (!(await isAdminEmail(callerEmail))) {
     return res.status(403).json({ error: 'Admin access required to revoke invites' })
   }
@@ -377,7 +377,7 @@ async function handleUpdateStaff(req, res) {
   const auth = await verifyAuth(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
 
-  const callerEmail = String(auth.user?.email || '').trim()
+  const callerEmail = auth.roleEmail || ''
   if (!(await isAdminEmail(callerEmail))) {
     return res.status(403).json({ error: 'Admin access required to update staff' })
   }
@@ -435,7 +435,7 @@ async function handleRemoveStaff(req, res) {
   const auth = await verifyAuth(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
 
-  const callerEmail = String(auth.user?.email || '').trim()
+  const callerEmail = auth.roleEmail || ''
   if (!(await isAdminEmail(callerEmail))) {
     return res.status(403).json({ error: 'Admin access required to remove staff' })
   }
