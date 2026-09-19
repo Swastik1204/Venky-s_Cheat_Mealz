@@ -1,9 +1,22 @@
 /* eslint-env node */
 // Serverless function to fetch Google Business Profile data via Places API
-// and cache it in Firestore. Gated for admin/staff manual sync and Vercel Cron.
+// and cache it in Firestore.
+//
+//   GET  — scheduled sync. Requires `Authorization: Bearer <CRON_SECRET>`
+//          (Vercel Cron sends it automatically; an external scheduler such as
+//          cron-job.org must be configured with it). A missing or wrong header
+//          is a 401, NOT a 200: this used to fall through to a public cached
+//          read, which made a mis-configured scheduler look like a successful
+//          job while nothing synced.
+//   POST — manual sync, signed-in staff only.
+//
+// The cached profile is not served from here. Both apps read
+// miscellaneous/businessProfile straight from Firestore (public-read rule),
+// and nothing called the old public GET.
 
 import { createRateLimiter } from './_lib/rateLimiter.js'
 import { verifyAuth } from './_lib/verifyAuth.js'
+import { isValidCronAuth } from './_lib/cronAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, isStaffEmail, FieldValue } from './_lib/fcm.js'
 
@@ -80,26 +93,6 @@ function transformPlaceData(data) {
     isOpen: data.currentOpeningHours?.openNow ?? null,
     lastSynced: new Date().toISOString(),
     source: 'google_places_api'
-  }
-}
-
-function filterPublicProfile(profile = {}) {
-  return {
-    name: profile.name || '',
-    address: profile.address || '',
-    phone: profile.phone || '',
-    phoneInternational: profile.phoneInternational || '',
-    website: profile.website || '',
-    mapsUrl: profile.mapsUrl || '',
-    rating: profile.rating ?? null,
-    reviewCount: profile.reviewCount || 0,
-    priceLevel: profile.priceLevel ?? null,
-    businessStatus: profile.businessStatus || 'OPERATIONAL',
-    businessHours: profile.businessHours || {},
-    hoursRaw: profile.hoursRaw || [],
-    currentHoursRaw: profile.currentHoursRaw || [],
-    isOpen: profile.isOpen ?? null,
-    lastSynced: profile.lastSynced || null,
   }
 }
 
@@ -190,43 +183,24 @@ export default async function handler(req, res) {
   }
 
   const db = adminDb()
-  // Cron auth: Vercel automatically sends Authorization: Bearer ${CRON_SECRET}
-  // on cron invocations when CRON_SECRET is set. The x-vercel-cron header alone
-  // is client-spoofable, so it is no longer trusted.
-  const cronSecret = process.env.CRON_SECRET
-  const isCron = !!cronSecret && req.headers.authorization === `Bearer ${cronSecret}`
 
   // ---------------------------------------------------------
-  // GET: Public read of cached business profile, or Vercel Cron sync
+  // GET: scheduled sync, authenticated by CRON_SECRET only
   // ---------------------------------------------------------
   if (req.method === 'GET') {
-    if (isCron) {
-      try {
-        const transformed = await performSync(db, null, 'vercel_cron')
-        return res.status(200).json({
-          success: true,
-          message: 'Business profile synced successfully via cron',
-          data: transformed
-        })
-      } catch (err) {
-        console.error('[sync-business-profile] Cron sync error:', err)
-        return res.status(500).json({ error: err.message || 'Failed to sync business profile' })
-      }
+    if (!isValidCronAuth(req)) {
+      return res.status(401).json({ error: 'Unauthorized: a valid cron Authorization header is required' })
     }
-
-    // Public cached read
     try {
-      const profileDoc = await db.collection('miscellaneous').doc('businessProfile').get()
-      if (!profileDoc.exists) {
-        return res.status(200).json({ success: true, data: null })
-      }
+      const transformed = await performSync(db, null, 'vercel_cron')
       return res.status(200).json({
         success: true,
-        data: filterPublicProfile(profileDoc.data())
+        message: 'Business profile synced successfully via cron',
+        data: transformed
       })
     } catch (err) {
-      console.error('[sync-business-profile] Read profile error:', err)
-      return res.status(500).json({ error: 'Failed to fetch business profile' })
+      console.error('[sync-business-profile] Cron sync error:', err)
+      return res.status(500).json({ error: err.message || 'Failed to sync business profile' })
     }
   }
 

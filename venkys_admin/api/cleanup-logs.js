@@ -12,6 +12,9 @@
 //
 //   __route=scan   (GET)  — cron / X-Internal-Secret: propose old logs, email
 //                           the super admin for review. Never deletes.
+//                           Cron auth is `Authorization: Bearer <CRON_SECRET>`
+//                           only (see _lib/cronAuth.js); the spoofable
+//                           `x-vercel-cron` header is NOT trusted.
 //   __route=delete (POST) — super admin only: delete the approved subset of a
 //                           pending review batch. Body: { token, logIds[] }
 //
@@ -21,6 +24,7 @@ import crypto from 'crypto'
 import nodemailer from 'nodemailer'
 import { createRateLimiter } from './_lib/rateLimiter.js'
 import { verifyAuth, verifyInternalSecret } from './_lib/verifyAuth.js'
+import { isValidCronAuth } from './_lib/cronAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, isSuperAdminEmail, FieldValue } from './_lib/fcm.js'
 
@@ -79,9 +83,8 @@ async function handleScan(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const isCron = req.headers['x-vercel-cron'] === '1' || verifyInternalSecret(req)
-  if (!isCron) {
-    return res.status(403).json({ error: 'This endpoint only runs via Vercel Cron or an internal-secret trigger' })
+  if (!isValidCronAuth(req) && !verifyInternalSecret(req)) {
+    return res.status(401).json({ error: 'Unauthorized: a valid cron Authorization header or internal secret is required' })
   }
 
   try {
