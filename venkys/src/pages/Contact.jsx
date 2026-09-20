@@ -243,7 +243,7 @@ export default function Contact() {
                     <input 
                       type="text" 
                       className="input input-bordered w-full" 
-                      placeholder="John Doe"
+                      placeholder="John Doe" name="name" autoComplete="name"
                       value={formData.name}
                       onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
                       required
@@ -254,7 +254,7 @@ export default function Contact() {
                     <input 
                       type="email" 
                       className="input input-bordered w-full" 
-                      placeholder="john@example.com"
+                      placeholder="john@example.com" name="email" autoComplete="email"
                       value={formData.email}
                       onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
                       required

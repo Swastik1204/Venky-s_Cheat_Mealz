@@ -71,7 +71,7 @@ export default function AuthModal() {
                   <MdPerson className="w-4 h-4 opacity-70" />
                   <input
                     type="text"
-                    placeholder="Full Name"
+                    placeholder="Full Name" name="name" autoComplete="name"
                     className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -84,7 +84,7 @@ export default function AuthModal() {
                   <MdAlternateEmail className="w-4 h-4 opacity-70" />
                   <input
                     type="email"
-                    placeholder="Email"
+                    placeholder="Email" name="email" autoComplete="email"
                     className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -100,7 +100,7 @@ export default function AuthModal() {
                   <MdLock className="w-4 h-4 opacity-70" />
                   <input
                     type="password"
-                    placeholder="Password"
+                    placeholder="Password" name="new-password" autoComplete="new-password"
                     className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -136,7 +136,7 @@ export default function AuthModal() {
                   <MdAlternateEmail className="w-4 h-4 opacity-70" />
                   <input
                     type="email"
-                    placeholder="Email"
+                    placeholder="Email" name="email" autoComplete="username"
                     className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -149,7 +149,7 @@ export default function AuthModal() {
                   <MdLock className="w-4 h-4 opacity-70" />
                   <input
                     type="password"
-                    placeholder="Password"
+                    placeholder="Password" name="password" autoComplete="current-password"
                     className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
