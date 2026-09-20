@@ -677,7 +677,7 @@ export default function Profile() {
                     className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70"
                     value={editForm.displayName}
                     onChange={e => setEditForm(f => ({ ...f, displayName: e.target.value }))}
-                    placeholder="Full Name (required)"
+                    placeholder="Full Name (required)" name="name" autoComplete="name"
                     required
                   />
                 </div>
@@ -689,7 +689,7 @@ export default function Profile() {
                     className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-70 text-gray-400"
                     value={editForm.email}
                     disabled
-                    placeholder="Email (optional)"
+                    placeholder="Email (optional)" name="email" autoComplete="email"
                   />
                 </div>
                 {/* Phone (required) with +91 prefix */}
@@ -701,7 +701,7 @@ export default function Profile() {
                       type="tel"
                       className="input validator tabular-nums w-full rounded-r bg-transparent border-none focus:ring-0 shadow-none text-base"
                       required
-                      placeholder="Phone"
+                      placeholder="Phone" name="phone" autoComplete="tel"
                       pattern="[0-9]*"
                       minLength={10}
                       maxLength={10}
@@ -848,7 +848,7 @@ export default function Profile() {
               <div className="form-control w-full">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdPlace className="w-5 h-5 opacity-50" />
-                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Nearby Landmark (Optional)" value={addrForm.landmark} onChange={(e)=>setAddrForm(f=>({...f,landmark:e.target.value}))} />
+                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Nearby Landmark (Optional)" name="landmark" autoComplete="off" value={addrForm.landmark} onChange={(e)=>setAddrForm(f=>({...f,landmark:e.target.value}))} />
                   </div>
               </div>
 
@@ -856,7 +856,7 @@ export default function Profile() {
               <div className="form-control w-full">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdApartment className="w-5 h-5 opacity-50" />
-                      <input ref={addrLine1Ref} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="House / Flat No., Building" value={addrForm.line1} onChange={(e)=>setAddrForm(f=>({...f,line1:e.target.value}))} required />
+                      <input ref={addrLine1Ref} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="House / Flat No., Building" name="address-line1" autoComplete="address-line1" value={addrForm.line1} onChange={(e)=>setAddrForm(f=>({...f,line1:e.target.value}))} required />
                   </div>
               </div>
 
@@ -864,7 +864,7 @@ export default function Profile() {
               <div className="form-control w-full">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdMap className="w-5 h-5 opacity-50" />
-                      <input ref={addrLine2Ref} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Area / Locality (Auto-filled)" value={addrForm.line2} onChange={(e)=>setAddrForm(f=>({...f,line2:e.target.value}))} />
+                      <input ref={addrLine2Ref} className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Area / Locality (Auto-filled)" name="address-line2" autoComplete="address-line2" value={addrForm.line2} onChange={(e)=>setAddrForm(f=>({...f,line2:e.target.value}))} />
                   </div>
                   <label className="label py-1"><span className="label-text-alt opacity-60">Select from suggestions for best accuracy</span></label>
               </div>
@@ -873,11 +873,11 @@ export default function Profile() {
               <div className="grid grid-cols-2 gap-4">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdPinDrop className="w-5 h-5 opacity-50" />
-                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="PIN Code" value={addrForm.zip} onChange={(e)=>setAddrForm(f=>({...f,zip:e.target.value}))} />
+                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="PIN Code" name="postal-code" autoComplete="postal-code" inputMode="numeric" value={addrForm.zip} onChange={(e)=>setAddrForm(f=>({...f,zip:e.target.value}))} />
                   </div>
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent opacity-70 cursor-not-allowed">
                       <MdLocationCity className="w-5 h-5 opacity-50" />
-                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0" value={RESTAURANT_CONFIG.location.city} readOnly />
+                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0" value={RESTAURANT_CONFIG.location.city} readOnly name="city" autoComplete="address-level2" />
                   </div>
               </div>
 
@@ -885,7 +885,7 @@ export default function Profile() {
               <div className="form-control w-full">
                   <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-base-200/50 border border-transparent focus-within:border-primary/50 focus-within:bg-base-100 transition-all">
                       <MdLocalPhone className="w-5 h-5 opacity-50" />
-                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Phone Number" value={addrForm.phone} onChange={(e)=>setAddrForm(f=>({...f,phone:e.target.value}))} />
+                      <input className="input input-ghost w-full border-none shadow-none focus:outline-none px-0 placeholder:opacity-50" placeholder="Phone Number" name="phone" autoComplete="tel" inputMode="tel" value={addrForm.phone} onChange={(e)=>setAddrForm(f=>({...f,phone:e.target.value}))} />
                   </div>
               </div>
 
