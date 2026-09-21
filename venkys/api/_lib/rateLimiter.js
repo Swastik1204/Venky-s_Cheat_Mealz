@@ -229,16 +229,12 @@ async function logRateLimitViolation(clientId, routeName, reason) {
   }
 
   try {
-    // Dynamically import Firebase Admin (only in Node.js environment)
-    const { getFirestore } = await import('firebase-admin/firestore')
-    const { initializeApp, getApps } = await import('firebase-admin/app')
-    
-    // Initialize Firebase Admin if not already initialized
-    if (!getApps().length) {
-      initializeApp()
-    }
-    
-    const db = getFirestore()
+    // Use the same credentialed Admin app as every other handler. A bare
+    // initializeApp() here had no service account, so on any function that
+    // had not already loaded fcm.js (e.g. /api/public-config) the logs write
+    // failed and the alert email after it was never sent.
+    const { adminDb } = await import('./fcm.js')
+    const db = adminDb()
     await db.collection('logs').add({
       type: 'rate_limit_violation',
       clientId,
