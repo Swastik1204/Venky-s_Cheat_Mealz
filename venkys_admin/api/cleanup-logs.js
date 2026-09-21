@@ -21,12 +21,12 @@
 // Each sub-handler is the verbatim body of its former standalone file.
 
 import crypto from 'crypto'
-import nodemailer from 'nodemailer'
 import { createRateLimiter } from './_lib/rateLimiter.js'
 import { verifyAuth, verifyInternalSecret } from './_lib/verifyAuth.js'
 import { isValidCronAuth } from './_lib/cronAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, isSuperAdminEmail, FieldValue } from './_lib/fcm.js'
+import { sendMail } from './_lib/mail/index.js'
 
 const scanLimiter = createRateLimiter({ routeName: 'cleanup-logs-scan' })
 const deleteLimiter = createRateLimiter({ routeName: 'cleanup-logs-delete' })
@@ -35,41 +35,10 @@ const AGE_THRESHOLD_MS = 60 * 24 * 60 * 60 * 1000 // 2 months (60 days)
 const MAX_CANDIDATES = 300 // keep the review page/email readable; a huge batch just means next week's run catches the rest
 const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'swastiksaha1204@gmail.com').trim().toLowerCase()
 
-const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
 function formatTs(ts) {
   const d = ts?.toDate ? ts.toDate() : (ts ? new Date(ts) : null)
   if (!d || Number.isNaN(d.getTime())) return 'unknown time'
   return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })
-}
-
-function buildReviewEmailHtml({ count, reviewUrl, oldestLabel }) {
-  return `
-<div style="font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #1f2937; max-width: 560px;">
-  <h2 style="margin: 0 0 4px;">${count} old logs are ready for cleanup</h2>
-  <p style="color: #6b7280; margin: 0 0 20px; font-size: 13px;">Weekly audit log review</p>
-
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-    <tr>
-      <td style="padding: 4px 0; color: #6b7280; width: 90px; vertical-align: top;">What</td>
-      <td style="padding: 4px 0;">${count} audit log entries are older than 2 months and are candidates for deletion. Oldest entry: ${esc(oldestLabel)}.</td>
-    </tr>
-  </table>
-
-  <div style="margin: 24px 0;">
-    <a href="${reviewUrl}" style="display: inline-block; background: #f59e0b; color: #1f2937; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 15px;">
-      Review &amp; decide
-    </a>
-  </div>
-
-  <p style="background: #fffbeb; border-left: 3px solid #f59e0b; padding: 10px 14px; margin: 0 0 20px; font-size: 14px;">
-    <strong>Why it matters:</strong> Nothing is deleted automatically. Every entry is pre-selected on the review page, but you choose exactly what stays or goes before anything is removed.
-  </p>
-
-  <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-  <p style="color: #9ca3af; font-size: 11px;">Sent from Venky's Cheat Mealz log maintenance</p>
-</div>
-  `.trim()
 }
 
 // ── __route=scan (was cleanup-logs-scan.js) ──
@@ -142,24 +111,13 @@ async function handleScan(req, res) {
     const appOrigin = (process.env.ADMIN_APP_URL || 'https://venkys-admin.web.app').replace(/\/$/, '')
     const reviewUrl = `${appOrigin}/admin/log-cleanup?token=${token}`
 
-    const emailUser = (process.env.EMAIL_USER || '').trim()
-    const emailPass = (process.env.EMAIL_PASS || '').trim()
-    let emailSent = false
-    if (emailUser && emailPass) {
-      try {
-        const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: emailUser, pass: emailPass } })
-        await transporter.sendMail({
-          from: `"Venky's Alerts" <${emailUser}>`,
-          to: SUPER_ADMIN_EMAIL,
-          subject: `🔔 ${candidates.length} old logs are ready for cleanup`,
-          html: buildReviewEmailHtml({ count: candidates.length, reviewUrl, oldestLabel: candidates[0]?.timestampLabel || 'unknown' }),
-        })
-        emailSent = true
-      } catch (emailErr) {
-        console.error('[cleanup-logs-scan] Email send failed (batch still created):', emailErr)
-      }
-    } else {
-      console.warn('[cleanup-logs-scan] EMAIL_USER/EMAIL_PASS not configured — batch created but no email sent')
+    const mail = await sendMail('log_cleanup_review', {
+      to: SUPER_ADMIN_EMAIL,
+      data: { count: candidates.length, reviewUrl, oldestLabel: candidates[0]?.timestampLabel || 'unknown' },
+    })
+    const emailSent = mail.ok
+    if (!mail.ok) {
+      console.error('[cleanup-logs-scan] Email send failed (batch still created):', mail.code, mail.error)
     }
 
     return res.status(200).json({ ok: true, count: candidates.length, token, emailSent })

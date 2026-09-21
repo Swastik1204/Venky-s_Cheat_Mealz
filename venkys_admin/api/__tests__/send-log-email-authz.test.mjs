@@ -2,9 +2,9 @@
 //
 // Run:  node --test venkys_admin/api/__tests__/send-log-email-authz.test.mjs
 //
-// Dependencies (auth, staff lookup, nodemailer, rate limiter, CORS) are swapped
+// Dependencies (auth, staff lookup, mail module, rate limiter, CORS) are swapped
 // for stubs by fixtures/send-log-email.loader.mjs; the handler file itself is
-// imported unmodified. "Zero email sent" = nodemailer's sendMail never called.
+// imported unmodified. "Zero email sent" = the mail module's sendMail never called.
 
 import { test, before, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -13,9 +13,6 @@ import { register } from 'node:module'
 let handler
 before(async () => {
   register('./fixtures/send-log-email.loader.mjs', import.meta.url)
-  process.env.EMAIL_USER = 'alerts@example.com'
-  process.env.EMAIL_PASS = 'x'
-  process.env.LOG_EMAIL_RECIPIENT = 'owner@example.com'
   ;({ default: handler } = await import('../send-log-email.js'))
 })
 
@@ -55,6 +52,7 @@ test('staff caller still sends exactly one email', async () => {
   assert.equal(res.statusCode, 200)
   assert.equal(__sle.sent.length, 1)
   assert.equal(__sle.sent[0].to, 'owner@example.com')
+  assert.equal(__sle.sent[0].templateId, 'log_alert')
 })
 
 test('internal-secret caller (rate limiter) skips the staff check and still sends', async () => {
