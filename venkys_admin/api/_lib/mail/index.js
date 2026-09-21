@@ -39,7 +39,7 @@ function getMailer() {
   }
   mailer = createMailer({
     smtp,
-    from: `"${DEFAULT_SENDER_NAME}" <${smtp.user}>`,
+    from: smtp.from || `"${DEFAULT_SENDER_NAME}" <${smtp.user}>`,
     templates: TEMPLATES,
     log: firestoreMailLog(adminDb(), FieldValue, { source: 'venkys_admin' }),
   })
@@ -50,7 +50,9 @@ function getMailer() {
 export async function sendMail(templateId, { to, data }) {
   try {
     const m = getMailer()
-    const name = SENDER_NAME[templateId]
+    // SMTP_FROM, when set, is the sender for every template; the per-template
+    // names below are only the fallback when it isn't.
+    const name = smtp.from ? null : SENDER_NAME[templateId]
     return await m.send(templateId, { to, data, ...(name ? { from: `"${name}" <${smtp.user}>` } : {}) })
   } catch (err) {
     console.error('[mail] unexpected failure:', err)
