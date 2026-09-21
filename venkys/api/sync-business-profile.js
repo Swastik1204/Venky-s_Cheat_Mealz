@@ -27,6 +27,7 @@ const PLACES_API_URL = 'https://places.googleapis.com/v1/places'
 const PLACE_FIELDS = [
   'displayName',
   'formattedAddress',
+  'location',
   'nationalPhoneNumber',
   'internationalPhoneNumber',
   'regularOpeningHours',
@@ -58,6 +59,12 @@ async function fetchPlaceDetails(placeId, apiKey) {
   return response.json()
 }
 
+function toGeo(location) {
+  const lat = Number(location?.latitude)
+  const lng = Number(location?.longitude)
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null
+}
+
 function transformPlaceData(data) {
   const hours = data.regularOpeningHours?.weekdayDescriptions || []
   const currentHours = data.currentOpeningHours?.weekdayDescriptions || hours
@@ -79,6 +86,7 @@ function transformPlaceData(data) {
   return {
     name: data.displayName?.text || '',
     address: data.formattedAddress || '',
+    geo: toGeo(data.location),
     phone: data.nationalPhoneNumber || '',
     phoneInternational: data.internationalPhoneNumber || '',
     website: data.websiteUri || '',
@@ -96,11 +104,14 @@ function transformPlaceData(data) {
   }
 }
 
-async function pruneOldSyncLogs(db) {
+const SYNC_EVENT = 'sync_business_profile'
+const SYNC_FAILED_EVENT = 'sync_business_profile_failed'
+
+async function pruneOldSyncLogs(db, event = SYNC_EVENT) {
   try {
     const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
     const oldLogsSnap = await db.collection('logs')
-      .where('metadata.event', '==', 'sync_business_profile')
+      .where('metadata.event', '==', event)
       .where('timestamp', '<', ninetyDaysAgo)
       .limit(50)
       .get()
@@ -112,6 +123,30 @@ async function pruneOldSyncLogs(db) {
     }
   } catch (err) {
     console.warn('[sync-business-profile] Prune old logs failed:', err?.message || err)
+  }
+}
+
+// A failed run used to leave no audit trail (only a console line, which Hobby
+// keeps ~1h), so "cron never ran" and "cron ran and failed" looked identical.
+// Never throws: logging must not mask the original error.
+async function logSyncFailure(db, syncSource, actorEmail, err) {
+  try {
+    await db.collection('logs').add({
+      action: 'update',
+      collection: 'miscellaneous',
+      documentId: 'businessProfile',
+      performedBy: syncSource === 'vercel_cron' ? 'Vercel Cron' : (actorEmail || 'Admin'),
+      userEmail: syncSource === 'vercel_cron' ? 'cron@system' : (actorEmail || 'admin'),
+      timestamp: FieldValue.serverTimestamp(),
+      metadata: {
+        event: SYNC_FAILED_EVENT,
+        syncSource,
+        error: String(err?.message || err || 'unknown error').slice(0, 300),
+      },
+    })
+    await pruneOldSyncLogs(db, SYNC_FAILED_EVENT)
+  } catch (logErr) {
+    console.warn('[sync-business-profile] Failure audit log write failed:', logErr?.message || logErr)
   }
 }
 
@@ -134,8 +169,11 @@ async function performSync(db, placeIdOverride, syncSource, actorEmail = null) {
   const placeData = await fetchPlaceDetails(placeId, apiKey)
   const transformed = transformPlaceData(placeData)
 
+  // A place with no usable location must not blank out a previously good geo.
+  const { geo, ...rest } = transformed
   await db.collection('miscellaneous').doc('businessProfile').set({
-    ...transformed,
+    ...rest,
+    ...(geo ? { geo } : {}),
     placeId,
     updatedAt: FieldValue.serverTimestamp(),
     syncSource,
@@ -200,6 +238,7 @@ export default async function handler(req, res) {
       })
     } catch (err) {
       console.error('[sync-business-profile] Cron sync error:', err)
+      await logSyncFailure(db, 'vercel_cron', null, err)
       return res.status(500).json({ error: err.message || 'Failed to sync business profile' })
     }
   }
@@ -226,6 +265,7 @@ export default async function handler(req, res) {
     })
   } catch (err) {
     console.error('[sync-business-profile] Manual sync error:', err)
+    await logSyncFailure(db, 'manual', auth.user?.email, err)
     return res.status(500).json({ error: err.message || 'Failed to sync business profile' })
   }
 }
