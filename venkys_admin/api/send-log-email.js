@@ -7,6 +7,7 @@
 import { createRateLimiter } from './_lib/rateLimiter.js'
 import { verifyAuth, verifyInternalSecret } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
+import { isStaffEmail } from './_lib/fcm.js'
 import nodemailer from 'nodemailer'
 
 const rateLimiter = createRateLimiter({ routeName: 'send-log-email' })
@@ -144,6 +145,11 @@ export default async function handler(req, res) {
   if (!isInternal) {
     const auth = await verifyAuth(req)
     if (auth.error) return res.status(auth.status).json({ error: auth.error })
+    // Any signed-in user is not enough: this sends mail as the business. Require a
+    // staff/admin role on a verified email (roleEmail is null for unverified tokens).
+    if (!(await isStaffEmail(auth.roleEmail))) {
+      return res.status(403).json({ error: 'Staff access required' })
+    }
   }
 
   const emailUser = (process.env.EMAIL_USER || '').trim()
