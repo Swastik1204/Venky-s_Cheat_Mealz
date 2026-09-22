@@ -11,7 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { createMailer } from 'mailer'
+import { createMailer } from 'mailwright'
 import { logAlert } from '../_lib/mail/logAlert.js'
 import { logCleanupReview } from '../_lib/mail/logCleanupReview.js'
 import { staffInvite } from '../_lib/mail/staffInvite.js'
