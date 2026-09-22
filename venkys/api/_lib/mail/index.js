@@ -10,7 +10,7 @@
 //
 // Every send (success or failure) is written to the `mailLog` collection.
 
-import { createMailer, smtpConfigFromEnv, firestoreMailLog } from 'mailer'
+import { createMailer, smtpConfigFromEnv, firestoreMailLog } from 'mailwright'
 import { adminDb, FieldValue } from '../fcm.js'
 import { logAlert } from './logAlert.js'
 
