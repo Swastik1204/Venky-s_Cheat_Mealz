@@ -1,6 +1,7 @@
 /* eslint-env node */
 import { Redis } from '@upstash/redis'
 import { Ratelimit } from '@upstash/ratelimit'
+import { waitUntil } from '@vercel/functions'
 
 /**
  * VERCEL BILL PROTECTION - Rate Limiter + Kill Switch
@@ -222,7 +223,19 @@ async function sendEmailNotification({ type, message, metadata }) {
 // LOGGING (to Firestore logs collection)
 // ============================================================================
 
-async function logRateLimitViolation(clientId, routeName, reason) {
+// Every caller fires this without awaiting it and sends the 429 straight away.
+// On Vercel, work still running after the response is only guaranteed to
+// finish if it is registered with waitUntil — otherwise an instance that goes
+// idle is suspended and the logs write + alert email are silently dropped
+// (seen on production: a short burst logged 0 of 4 violations). Registering
+// here covers all call sites. Outside Vercel waitUntil is a no-op.
+function logRateLimitViolation(clientId, routeName, reason) {
+  const work = logRateLimitViolationNow(clientId, routeName, reason)
+  waitUntil(work.catch(() => {}))
+  return work
+}
+
+async function logRateLimitViolationNow(clientId, routeName, reason) {
   // Only log in production to avoid dev noise
   if (process.env.NODE_ENV !== 'production' && !process.env.LOG_RATE_LIMITS) {
     return
