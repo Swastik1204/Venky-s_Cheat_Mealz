@@ -197,24 +197,31 @@ function refillTokens(bucket, config, now) {
 // EMAIL NOTIFICATION (sends alert to admin)
 // ============================================================================
 
+// One alert per route per cooldown window, per warm function instance. The old
+// HTTP hop to /api/send-log-email was capped by that endpoint's own limiter;
+// calling the mailer in-process removes that cap, so this replaces it.
+const ALERT_COOLDOWN_MS = 10 * 60 * 1000
+const lastAlertAt = new Map()
+
 async function sendEmailNotification({ type, message, metadata }) {
   try {
-    // Get the base URL from environment or construct it
-    const baseUrl = process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}` 
-      : 'http://localhost:3000'
-    
-    const response = await fetch(`${baseUrl}/api/send-log-email`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(process.env.API_INTERNAL_SECRET ? { 'X-Internal-Secret': process.env.API_INTERNAL_SECRET } : {})
-      },
-      body: JSON.stringify({ type, message, metadata })
-    })
-    
-    if (!response.ok) {
-      console.warn('[rateLimiter] Email notification failed:', response.status)
+    const key = metadata?.routeName || type
+    const now = Date.now()
+    if (now - (lastAlertAt.get(key) || 0) < ALERT_COOLDOWN_MS) return
+    lastAlertAt.set(key, now)
+
+    // In-process send through the shared mailer (was an HTTP call to
+    // ${VERCEL_URL}/api/send-log-email, which Deployment Protection could block).
+    // Imported lazily so the limiter stays free of Firebase/SMTP at load time.
+    const { sendMail, logRecipient } = await import('./mail/index.js')
+    const to = logRecipient()
+    if (!to) {
+      console.warn('[rateLimiter] LOG_EMAIL_RECIPIENT not set — alert not sent')
+      return
+    }
+    const result = await sendMail('log_alert', { to, data: { type, message, metadata } })
+    if (!result.ok) {
+      console.warn('[rateLimiter] Email notification failed:', result.code, result.error)
     }
   } catch (err) {
     console.error('[rateLimiter] Failed to send email:', err.message)
@@ -232,16 +239,12 @@ async function logRateLimitViolation(clientId, routeName, reason) {
   }
 
   try {
-    // Dynamically import Firebase Admin (only in Node.js environment)
-    const { getFirestore } = await import('firebase-admin/firestore')
-    const { initializeApp, getApps } = await import('firebase-admin/app')
-    
-    // Initialize Firebase Admin if not already initialized
-    if (!getApps().length) {
-      initializeApp()
-    }
-    
-    const db = getFirestore()
+    // Use the same credentialed Admin app as every other handler. A bare
+    // initializeApp() here had no service account, so on any function that
+    // had not already loaded fcm.js (e.g. /api/public-config) the logs write
+    // failed and the alert email after it was never sent.
+    const { adminDb } = await import('./fcm.js')
+    const db = adminDb()
     await db.collection('logs').add({
       type: 'rate_limit_violation',
       clientId,

@@ -7,6 +7,7 @@ import { apiClient } from '../utils/apiClient'
 const EMAIL_WORTHY_EVENTS = new Set([
   'roles_create',       // new staff member added
   'roles_delete',       // staff member removed
+  'roles_update',       // staff role / page access changed
   'miscellaneous_update', // settings changed
   'stock_low_alert',    // stock below threshold (sent directly, not through shouldEmailAlert)
 ])

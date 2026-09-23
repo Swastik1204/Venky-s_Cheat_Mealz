@@ -66,11 +66,11 @@
 // the only path that can change or remove an existing staff member's role.
 
 import crypto from 'crypto'
-import nodemailer from 'nodemailer'
 import { createRateLimiter } from './_lib/rateLimiter.js'
 import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, adminAuth, isAdminEmail, isSuperAdminEmail, FieldValue } from './_lib/fcm.js'
+import { sendMail } from './_lib/mail/index.js'
 
 // Kept per-action rate limits distinct (not one shared 'invites' limiter) —
 // these 4 actions have very different risk profiles: 'redeem' is sensitive
@@ -93,42 +93,6 @@ function normalizeRolePages(pages) {
   const out = {}
   for (const [k, v] of Object.entries(pages)) out[k] = !!v
   return out
-}
-
-const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
-function buildInviteEmailHtml({ inviteUrl, role, invitedByName, expiresAt }) {
-  const expiresText = expiresAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })
-  return `
-<div style="font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #1f2937; max-width: 560px;">
-  <h2 style="margin: 0 0 4px;">You're invited to join Venky's staff</h2>
-  <p style="color: #6b7280; margin: 0 0 20px; font-size: 13px;">Sent by ${esc(invitedByName)}</p>
-
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-    <tr>
-      <td style="padding: 4px 0; color: #6b7280; width: 90px; vertical-align: top;">What</td>
-      <td style="padding: 4px 0;">${esc(invitedByName)} added you to the Venky's admin panel as <strong>${esc(role)}</strong>.</td>
-    </tr>
-    <tr>
-      <td style="padding: 4px 0; color: #6b7280; vertical-align: top;">Expires</td>
-      <td style="padding: 4px 0;">${esc(expiresText)} IST — after that you'll need a fresh invite.</td>
-    </tr>
-  </table>
-
-  <div style="margin: 24px 0;">
-    <a href="${inviteUrl}" style="display: inline-block; background: #f59e0b; color: #1f2937; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 15px;">
-      Activate my access
-    </a>
-  </div>
-
-  <p style="background: #fffbeb; border-left: 3px solid #f59e0b; padding: 10px 14px; margin: 0 0 20px; font-size: 14px;">
-    <strong>Why it matters:</strong> This link only works when you sign in with the email address it was sent to. If you weren't expecting this, you can safely ignore it — nothing happens until the link is opened and confirmed.
-  </p>
-
-  <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-  <p style="color: #9ca3af; font-size: 11px;">Sent from Venky's Cheat Mealz staff onboarding</p>
-</div>
-  `.trim()
 }
 
 async function handleCreate(req, res) {
@@ -188,22 +152,12 @@ async function handleCreate(req, res) {
   const appOrigin = (process.env.ADMIN_APP_URL || 'https://venkys-admin.web.app').replace(/\/$/, '')
   const inviteUrl = `${appOrigin}/claim?token=${token}`
 
-  const emailUser = (process.env.EMAIL_USER || '').trim()
-  const emailPass = (process.env.EMAIL_PASS || '').trim()
-  if (emailUser && emailPass) {
-    try {
-      const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: emailUser, pass: emailPass } })
-      await transporter.sendMail({
-        from: `"Venky's Staff" <${emailUser}>`,
-        to: email,
-        subject: "You're invited to join Venky's staff",
-        html: buildInviteEmailHtml({ inviteUrl, role, invitedByName: auth.user?.name || callerEmail, expiresAt }),
-      })
-    } catch (emailErr) {
-      console.error('[invites:create] Email send failed (invite still created):', emailErr)
-    }
-  } else {
-    console.warn('[invites:create] EMAIL_USER/EMAIL_PASS not configured — invite created but no email sent')
+  const mail = await sendMail('staff_invite', {
+    to: email,
+    data: { inviteUrl, role, invitedByName: auth.user?.name || callerEmail, expiresAt },
+  })
+  if (!mail.ok) {
+    console.error('[invites:create] Email send failed (invite still created):', mail.code, mail.error)
   }
 
   await db.collection('logs').add({
