@@ -2,8 +2,7 @@
 // Email notification API for log events
 // POST body: { type: string, message: string, metadata: object }
 // Sends the log_alert template through the shared mailer (_lib/mail).
-// Requires env: SMTP_USER / SMTP_PASS (legacy EMAIL_USER / EMAIL_PASS accepted
-// for one release) and LOG_EMAIL_RECIPIENT. The recipient is always chosen
+// Requires env: SMTP_USER / SMTP_PASS and LOG_EMAIL_RECIPIENT. The recipient is always chosen
 // here on the server — callers never supply an address.
 
 import { createRateLimiter } from './_lib/rateLimiter.js'
