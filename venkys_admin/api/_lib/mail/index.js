@@ -3,10 +3,8 @@
 // transport, retry, [TEST] prefix and logging live in the shared `mailer`
 // package (github:Swastik1204/mailer).
 //
-// Env: SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS. For ONE release,
-// EMAIL_USER / EMAIL_PASS are still accepted when SMTP_* is unset, so a
-// deploy can't break mail before the Vercel envs are renamed. Remove the
-// legacyFallback flag once SMTP_* is set in every environment.
+// Env: SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS (and optional SMTP_FROM).
+// The old EMAIL_USER / EMAIL_PASS names are no longer read.
 //
 // Every send (success or failure) is written to the `mailLog` collection.
 
@@ -33,10 +31,7 @@ let smtp = null
 
 function getMailer() {
   if (mailer) return mailer
-  smtp = smtpConfigFromEnv(process.env, { legacyFallback: true })
-  if (smtp.usedLegacy) {
-    console.warn('[mail] Using legacy EMAIL_USER/EMAIL_PASS — rename to SMTP_USER/SMTP_PASS in Vercel')
-  }
+  smtp = smtpConfigFromEnv(process.env)
   mailer = createMailer({
     smtp,
     from: smtp.from || `"${DEFAULT_SENDER_NAME}" <${smtp.user}>`,
