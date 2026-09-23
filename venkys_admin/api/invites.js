@@ -71,6 +71,7 @@ import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, adminAuth, isAdminEmail, isSuperAdminEmail, FieldValue } from './_lib/fcm.js'
 import { sendMail } from './_lib/mail/index.js'
+import { waitUntil } from '@vercel/functions'
 
 // Kept per-action rate limits distinct (not one shared 'invites' limiter) —
 // these 4 actions have very different risk profiles: 'redeem' is sensitive
@@ -152,13 +153,21 @@ async function handleCreate(req, res) {
   const appOrigin = (process.env.ADMIN_APP_URL || 'https://venkys-admin.web.app').replace(/\/$/, '')
   const inviteUrl = `${appOrigin}/claim?token=${token}`
 
-  const mail = await sendMail('staff_invite', {
-    to: email,
-    data: { inviteUrl, role, invitedByName: auth.user?.name || callerEmail, expiresAt },
-  })
-  if (!mail.ok) {
-    console.error('[invites:create] Email send failed (invite still created):', mail.code, mail.error)
-  }
+  // Send AFTER responding: Gmail SMTP has been seen to take ~30s to accept a
+  // message, longer than the admin UI's 30s request timeout, which then showed
+  // a failure for an invite that had actually been created. waitUntil keeps the
+  // function alive (Fluid compute, 300s limit) until the send and its mailLog
+  // write finish; sendMail never throws and logs failures to mailLog itself.
+  waitUntil(
+    sendMail('staff_invite', {
+      to: email,
+      data: { inviteUrl, role, invitedByName: auth.user?.name || callerEmail, expiresAt },
+    }).then((mail) => {
+      if (!mail.ok) {
+        console.error('[invites:create] Email send failed (invite still created):', mail.code, mail.error)
+      }
+    })
+  )
 
   await db.collection('logs').add({
     action: 'create',
