@@ -11,3 +11,5 @@ export async function sendMail(templateId, msg) { s().mails.push({ templateId, .
 export function initializeApp() { s().bareInitCalls++ }
 export function getApps() { return [] }
 export function cert() { return {} }
+// @vercel/functions surface — records what the limiter hands to waitUntil.
+export function waitUntil(p) { s().waited.push(p) }

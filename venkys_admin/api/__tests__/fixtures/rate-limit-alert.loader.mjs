@@ -5,7 +5,8 @@
 const STUB = new URL('./rate-limit-alert.stubs.mjs', import.meta.url).href
 export async function resolve(specifier, context, next) {
   if (specifier === './fcm.js' || specifier.endsWith('/_lib/fcm.js') ||
-      specifier === './mail/index.js' || specifier === 'firebase-admin/app') {
+      specifier === './mail/index.js' || specifier === 'firebase-admin/app' ||
+      specifier === '@vercel/functions') {
     return { url: STUB, shortCircuit: true }
   }
   return next(specifier, context)

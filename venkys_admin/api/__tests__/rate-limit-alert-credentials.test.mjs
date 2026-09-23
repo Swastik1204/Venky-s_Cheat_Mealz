@@ -16,7 +16,7 @@ import { register } from 'node:module'
 let handler
 before(async () => {
   register('./fixtures/rate-limit-alert.loader.mjs', import.meta.url)
-  globalThis.__rl = { adminDbCalls: 0, bareInitCalls: 0, logWrites: [], mails: [] }
+  globalThis.__rl = { adminDbCalls: 0, bareInitCalls: 0, logWrites: [], mails: [], waited: [] }
   process.env.NODE_ENV = 'production'           // violations are only logged in production
   delete process.env.UPSTASH_REDIS_REST_URL     // in-memory limiter
   delete process.env.UPSTASH_REDIS_REST_TOKEN
@@ -41,7 +41,11 @@ test('public-config violation uses credentialed adminDb and sends the alert', as
   let hit429 = false
   for (let i = 0; i < 400 && !hit429; i++) hit429 = (await call()).statusCode === 429
   assert.ok(hit429, 'expected the limiter to return 429')
-  await new Promise((r) => setTimeout(r, 200))   // violation logging is fire-and-forget
+  // The violation work must be registered with waitUntil — on Vercel, work
+  // left running after the 429 is otherwise dropped when the instance idles.
+  const rl0 = globalThis.__rl
+  assert.ok(rl0.waited.length >= 1, 'violation logging must be handed to waitUntil')
+  await Promise.all(rl0.waited)
 
   const rl = globalThis.__rl
   assert.equal(rl.bareInitCalls, 0, 'must not call a bare, uncredentialed initializeApp()')
