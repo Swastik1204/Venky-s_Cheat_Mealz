@@ -933,6 +933,7 @@ function orderProgressPercent(status) {
   const idx = ORDER_STATUS_FLOW.indexOf(status)
   if (idx === -1) return 0
   if (ORDER_STATUS_FLOW.length === 1) return 100
+  // eslint-disable-next-line no-restricted-syntax -- not money (progress/count percentage or unit scaling)
   return Math.max(0, Math.min(100, Math.round((idx / (ORDER_STATUS_FLOW.length - 1)) * 100)))
 }
 

@@ -144,6 +144,7 @@ export async function appendMenuItems(categoryName, items, performedBy = null) {
     const rate = toMoney(it.rate ?? it.price)
     const mrp = toMoney(it.mrp ?? it.MRP)
     const discountSource = it.discountPercent ?? it.discount
+    // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
     const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
     const discount = toDiscount(discountSource ?? derivedDiscount)
     const item = { name: normalizedName, veg: it.veg === false ? false : true }
@@ -188,6 +189,7 @@ export async function addMenuItems(categoryName, rawItems, performedBy = null) {
     existingNames.add(key)
     const rate = toMoney(r.rate ?? r.price)
     const mrp = toMoney(r.mrp ?? r.MRP)
+    // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
     const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
     const discount = toDiscount(r.discountPercent ?? derivedDiscount)
     const item = { name, veg: r.veg === false ? false : true }
@@ -232,6 +234,7 @@ export async function setMenuItems(categoryName, items, performedBy = null) {
         ...(() => {
           const rate = toMoney(it.rate ?? it.price)
           const mrp = toMoney(it.mrp ?? it.MRP)
+          // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
           const derivedDiscount = mrp !== null && rate !== null && mrp > 0 ? ((mrp - rate) / mrp) * 100 : null
           const discount = toDiscount(it.discountPercent ?? derivedDiscount)
           const base = {}

@@ -445,6 +445,7 @@ export default function Orders() {
     // Review request via WA removed
   }
 
+  // eslint-disable-next-line no-restricted-syntax -- not money (progress/count percentage or unit scaling)
   function progressPercent(s) { const idx = statusFlow.indexOf(s); if (idx === -1) return 0; return ((idx + 1) / statusFlow.length) * 100 }
   function toggleHistory(key, el) { const beforeTop = el?.getBoundingClientRect?.().top; setOpenHistoryKey(prev => (prev === key ? null : key)); requestAnimationFrame(() => { const afterTop = el?.getBoundingClientRect?.().top; if (typeof beforeTop === 'number' && typeof afterTop === 'number') { window.scrollBy({ top: afterTop - beforeTop, left: 0, behavior: 'auto' }) } }) }
 

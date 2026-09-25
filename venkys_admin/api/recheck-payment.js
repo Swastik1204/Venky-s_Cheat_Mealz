@@ -75,12 +75,14 @@ export default async function handler(req, res) {
     const captured = matches.find(p => p.status === 'captured')
 
     if (captured) {
+      // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
       const expectedPaise = Math.round(Number(order.totalAmount || 0) * 100)
       if (Number(captured.amount) !== expectedPaise) {
         // Paid, but not the amount we expected — surface for human judgement, don't auto-mark.
         return res.status(200).json({
           status: 'amount_mismatch',
           updated: false,
+          // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
           paidAmount: Number(captured.amount) / 100,
           expectedAmount: Number(order.totalAmount || 0),
           paymentId: captured.id,

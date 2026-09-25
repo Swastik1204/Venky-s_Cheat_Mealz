@@ -38,6 +38,7 @@ export function getDiscountLabel(originalPrice, currentRate) {
   if (!Number.isFinite(mrp) || !Number.isFinite(rate) || mrp <= rate || mrp <= 0) {
     return null
   }
+  // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
   const percent = Math.round(((mrp - rate) / mrp) * 100)
   return percent > 0 ? `${percent}% OFF` : null
 }

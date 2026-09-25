@@ -114,10 +114,12 @@ export default function Home() {
               let mrpNumber = Number.isFinite(mrpNumberRaw) && mrpNumberRaw > 0 ? Math.round(mrpNumberRaw) : null
               
               if (discountNumber !== null && effectiveRate > 0) {
+                 // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
                  const calculatedMrp = (effectiveRate * 100) / (100 - discountNumber)
                  mrpNumber = Math.round(calculatedMrp)
               } else if (mrpNumber && mrpNumber > effectiveRate) {
                  // Fallback: derive discount if not explicit
+                 // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
                  const derived = ((mrpNumber - effectiveRate) / mrpNumber) * 100
                  if (discountNumber === null) {
                     discountNumber = Math.round(derived)
@@ -178,6 +180,7 @@ export default function Home() {
                         // If discount logic needs to apply to the displayed max price
                         if (cloned.discountPercent) {
                            // Recalc MRP based on this new rate + fixed discount
+                           // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
                            const calcMrp = (cloned.rate * 100) / (100 - cloned.discountPercent)
                            cloned.mrp = Math.round(calcMrp)
                         } else {

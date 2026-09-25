@@ -66,12 +66,15 @@ export async function fetchAndValidateRazorpayPayment({
   }
 
   const capturedPaise = Math.round(Number(payment.amount))
+  // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
   const expectedPaise = Math.round(expectedAmountRupees * 100)
+  // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
   const tolerancePaise = Math.round(toleranceRupees * 100)
   if (!Number.isFinite(capturedPaise) || Math.abs(capturedPaise - expectedPaise) > tolerancePaise) {
     return { ok: false, reason: 'amount_mismatch', capturedPaise, expectedPaise }
   }
 
+  // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
   return { ok: true, amountRupees: capturedPaise / 100 }
 }
 

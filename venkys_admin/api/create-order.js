@@ -86,6 +86,7 @@ export default async function handler(req, res) {
     const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret })
 
     const options = {
+      // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
       amount: Math.round(Number(amount) * 100), // in paise
       currency: 'INR',
       receipt: 'pos_rcpt_' + Date.now(),

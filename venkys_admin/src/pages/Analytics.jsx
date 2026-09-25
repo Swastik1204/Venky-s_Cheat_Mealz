@@ -154,11 +154,13 @@ export default function Analytics() {
     const s = String(o.status || '').toLowerCase()
     return s === 'rejected' || s === 'cancelled'
   }).length, [orders])
+  // eslint-disable-next-line no-restricted-syntax -- not money (progress/count percentage or unit scaling)
   const cancellationRate = totalOrders ? (cancelledCount / totalOrders) * 100 : 0
 
   const revenueChangePct = useMemo(() => {
     if (!prevOrders.length && prevRevenue === 0) return 0
     if (prevRevenue === 0) return totalRevenue > 0 ? 100 : 0
+    // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
     return ((totalRevenue - prevRevenue) / prevRevenue) * 100
   }, [prevOrders.length, prevRevenue, totalRevenue])
 

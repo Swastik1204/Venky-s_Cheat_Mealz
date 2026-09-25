@@ -1077,6 +1077,7 @@ export default function Checkout() {
   const latestOrderStatusIndex = CHECKOUT_ORDER_STATUS_FLOW.indexOf(latestOrderStatus)
   const latestOrderProgressPercent = latestOrderStatusIndex === -1
     ? 0
+    // eslint-disable-next-line no-restricted-syntax -- not money (progress/count percentage or unit scaling)
     : Math.max(0, Math.min(100, Math.round((latestOrderStatusIndex / (CHECKOUT_ORDER_STATUS_FLOW.length - 1)) * 100)))
 
   const handleNext = async () => {

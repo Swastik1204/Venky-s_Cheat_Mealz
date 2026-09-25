@@ -125,6 +125,7 @@ export default async function handler(req, res) {
       // The Razorpay order amount (server-set from the verified cart total in
       // create-order.js) AND the amount actually captured must both equal the
       // Firestore order's persisted total.
+      // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
       const expectedPaise = Math.round(Number(order.totalAmount || 0) * 100)
       if (Number(rzpOrder.amount) !== expectedPaise || Number(paymentEntity.amount) !== expectedPaise) {
         console.error('[razorpay-webhook] Amount mismatch; not marking paid', {

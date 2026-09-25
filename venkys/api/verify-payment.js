@@ -62,6 +62,7 @@ async function recordPaidStatus({ orderNo, razorpayOrderId, paymentId, uid }) {
         key_secret: process.env.RAZORPAY_KEY_SECRET,
       })
       const rzpOrder = await razorpay.orders.fetch(razorpayOrderId)
+      // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
       const expectedPaise = Math.round(Number(order.totalAmount || 0) * 100)
       if (Number(rzpOrder?.amount) !== expectedPaise) {
         console.error('[verify-payment] Amount mismatch on writeback', { orderNo, rzpAmount: rzpOrder?.amount, expectedPaise })

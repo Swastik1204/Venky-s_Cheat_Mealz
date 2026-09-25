@@ -80,6 +80,7 @@ export default async function handler(req, res) {
       const payment = await razorpay.payments.fetch(paymentId)
       return res.status(200).json({
         valid: true,
+        // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
         amount: Number(payment.amount) / 100,
         currency: payment.currency,
         status: payment.status,

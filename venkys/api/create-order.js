@@ -93,6 +93,7 @@ async function verifyCartAmount(items, clientAmount) {
       }
       serverTotal += serverRate * qty
     }
+    // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
     serverTotal = Math.round(serverTotal * 100) / 100
 
     const diff = Math.abs(clientAmount - serverTotal)
@@ -186,6 +187,7 @@ export default async function handler(req, res) {
     }
 
     const options = {
+      // eslint-disable-next-line no-restricted-syntax -- money conversion pending (paise cutover, see money.js)
       amount: Math.round(finalAmount * 100), // in paise
       currency: 'INR',
       receipt: 'rcpt_' + Date.now(),
