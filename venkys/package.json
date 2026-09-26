@@ -9,6 +9,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "test": "node --test api/__tests__/",
+    "test:emulator": "npx --yes firebase-tools@13 emulators:exec --config test-emulator/firebase.json --project demo-venkys-gst --only firestore \"node --test --test-concurrency=1 test-emulator/gst-settings.emulator.test.mjs\"",
     "preview": "vite preview",
     "deploy": "npm run build && npx firebase deploy --only hosting:venkys-durgapur",
     "cleanup-orders": "node scripts/cleanup-order-fields.js",

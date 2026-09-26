@@ -544,6 +544,12 @@ service cloud.firestore {
     // in the same release). Order creation itself is server-owned (see
     // /orders above) and does not consult this document for a pass/fail
     // gate at all.
+    // The GST rate is INTEGER BASIS POINTS (500 = 5%). A float, a string, 0 or > 28% is refused at write time so the owner gets an
+    // immediate error instead of a rate the server would silently ignore (the server also fail-closes to "no tax").
+    function validGstRateBp(data) {
+      return !('gstRateBp' in data) || (data.gstRateBp is int && data.gstRateBp >= 1 && data.gstRateBp <= 2800);
+    }
+
     match /miscellaneous/{docId} {
       // Public read - needed for app settings, appearance, store status
       allow read: if true;
@@ -551,7 +557,7 @@ service cloud.firestore {
       // Write permissions vary by document
       allow create, update: if (
         // Settings - admin, or staff with settings-page access (includes delivery-fee config)
-        (docId == 'settings' && canAccess('settings')) ||
+        (docId == 'settings' && canAccess('settings') && validGstRateBp(request.resource.data)) ||
         // Store status - admin only
         (docId == 'store' && isAdmin()) ||
         // Appearance - admin or staff with appearance access
