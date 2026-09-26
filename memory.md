@@ -173,3 +173,7 @@ export const RESTAURANT_CONFIG = {
 * **Quantity Constraints**: Quantities must be validated as positive integers (`Number.isInteger(qty) && qty >= 1 && qty <= 50`).
 * **Fail-Closed Verification**: If menu lookup fails during payment order creation, the verification must fail closed rather than falling back to client-supplied totals.
 
+
+
+## GST rate as integer basis points (branch feat/venkys-gst-bp — DRAFT, NOT DEPLOYED)
+miscellaneous/settings.gstRateBp (integer, 500 = 5%, 1..2800) replaces the float fraction gstRate. NEW field on purpose: venkys_admin change-history restore does setDoc(merge:false) from old snapshots that carry gstRate 0.05, so an in-place change to 500 would be silently reverted. Old code/data without gstRateBp = no tax (tax also needs gstEnabled:true, which is unset live). Server: api/_lib/gst.js (byte-identical in venkys and venkys_admin) used by both place-order handlers; orders store taxRateBp. Rules (both files, kept identical) refuse a non-integer / out-of-range gstRateBp. Live data step (later, own approval): write gstRateBp:500 next to the untouched gstRate; retire gstRate afterwards. Tests: venkys npm test (pure + differential) and npm run test:emulator (rules RBAC + real place-order handlers).
