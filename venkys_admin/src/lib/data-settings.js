@@ -136,7 +136,7 @@ export async function fetchAppSettings() {
   try {
     const snap = await getDoc(doc(db, 'miscellaneous', 'settings'))
     if (!snap.exists()) return {
-      gstRate: 0.05,
+      gstRateBp: 500,
       adminMobile: '',
       cashManagerPhones: [],
       shopAddress: '',
@@ -158,7 +158,7 @@ export async function fetchAppSettings() {
       if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2)
       return digits.length === 10 ? digits : null
     }
-    const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
+    const gstRateBp = Number.isSafeInteger(d.gstRateBp) && d.gstRateBp >= 1 && d.gstRateBp <= 2800 ? d.gstRateBp : 500
     const adminMobile = d.adminMobile || ''
     const shopAddress = d.shopAddress || ''
     const shopPhone = d.shopPhone || ''
@@ -176,7 +176,7 @@ export async function fetchAppSettings() {
       ? d.cashManagerPhones.map((p) => normalize10(p)).filter(Boolean)
       : []
     return {
-      gstRate,
+      gstRateBp,
       cashManagerPhones,
       adminMobile,
       shopAddress,
@@ -194,7 +194,7 @@ export async function fetchAppSettings() {
     }
   } catch {
     return {
-      gstRate: 0.05,
+      gstRateBp: 500,
       cashManagerPhones: [],
       adminMobile: '',
       shopAddress: '',
@@ -220,7 +220,11 @@ export async function saveAppSettings(partial, performedBy = null) {
     if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2)
     return digits.length === 10 ? digits : ''
   }
-  if (partial.gstRate !== undefined) payload.gstRate = Number(partial.gstRate) || 0
+  if (partial.gstRateBp !== undefined) {
+    // integer basis points (500 = 5%); a fraction or out-of-range value is refused, never coerced
+    if (!Number.isSafeInteger(partial.gstRateBp) || partial.gstRateBp < 1 || partial.gstRateBp > 2800) throw new Error('gstRateBp must be a whole number of basis points between 1 and 2800')
+    payload.gstRateBp = partial.gstRateBp
+  }
   if (partial.adminMobile !== undefined) payload.adminMobile = String(partial.adminMobile || '')
   if (partial.cashManagerPhones !== undefined) {
     payload.cashManagerPhones = Array.isArray(partial.cashManagerPhones)

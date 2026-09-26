@@ -85,29 +85,33 @@ export async function setStoreOpen(open) {
 export async function fetchAppSettings() {
   try {
     const snap = await getDoc(doc(db, 'miscellaneous', 'settings'))
-    if (!snap.exists()) return { gstRate: 0.05, adminMobile: '', cashManagerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
+    if (!snap.exists()) return { gstRateBp: 500, adminMobile: '', cashManagerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '' }
     const d = snap.data()
     const normalize10 = (p) => {
       let digits = String(p || '').replace(/\D/g, '')
       if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2)
       return digits.length === 10 ? digits : null
     }
-    const gstRate = typeof d.gstRate === 'number' ? d.gstRate : (Number(d.gstRate) || 0.05)
+    const gstRateBp = Number.isSafeInteger(d.gstRateBp) && d.gstRateBp >= 1 && d.gstRateBp <= 2800 ? d.gstRateBp : 500
     const adminMobile = d.adminMobile || ''
     let cashManagerPhones = Array.isArray(d.cashManagerPhones) ? d.cashManagerPhones.map(normalize10).filter(Boolean) : []
     const shopAddress = d.shopAddress || ''
     const shopPhone = d.shopPhone || ''
     const chefName = d.chefName || ''
     const googlePlaceId = d.googlePlaceId || ''
-    return { gstRate, adminMobile, cashManagerPhones, shopAddress, shopPhone, chefName, googlePlaceId }
+    return { gstRateBp, adminMobile, cashManagerPhones, shopAddress, shopPhone, chefName, googlePlaceId }
   } catch {
-    return { gstRate: 0.05, adminMobile: '', cashManagerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
+    return { gstRateBp: 500, adminMobile: '', cashManagerPhones: [], shopAddress: '', shopPhone: '', chefName: '', googlePlaceId: '', __error: true }
   }
 }
 
 export async function saveAppSettings(partial) {
   const payload = {}
-  if (partial.gstRate !== undefined) payload.gstRate = Number(partial.gstRate) || 0
+  if (partial.gstRateBp !== undefined) {
+    // integer basis points (500 = 5%); a fraction or out-of-range value is refused, never coerced
+    if (!Number.isSafeInteger(partial.gstRateBp) || partial.gstRateBp < 1 || partial.gstRateBp > 2800) throw new Error('gstRateBp must be a whole number of basis points between 1 and 2800')
+    payload.gstRateBp = partial.gstRateBp
+  }
   if (partial.adminMobile !== undefined) payload.adminMobile = String(partial.adminMobile || '')
   if (partial.shopAddress !== undefined) payload.shopAddress = String(partial.shopAddress || '')
   if (partial.shopPhone !== undefined) payload.shopPhone = String(partial.shopPhone || '')

@@ -36,6 +36,7 @@ import { verifyAuth } from './_lib/verifyAuth.js'
 import { handleCors } from './_lib/cors.js'
 import { adminDb, canAccess } from './_lib/fcm.js'
 import { buildMenuPriceLookup, lookupMenuRate } from './_lib/menuPriceLookup.js'
+import { resolveServerTax } from './_lib/gst.js'
 import { Timestamp, FieldValue } from 'firebase-admin/firestore'
 
 const rateLimiter = createRateLimiter({ routeName: 'place-order' })
@@ -82,25 +83,7 @@ function todayDateKeyIST() {
 // has ever carried tax. Deriving the rate from the stored gstRate (live value:
 // 0.05) without an explicit switch would silently raise every order total by
 // 5% — a pricing change, not a security fix.
-const MAX_GST_RATE = 0.28 // highest Indian GST slab; sanity ceiling on config
-
-async function resolveServerTaxRate(db) {
-  try {
-    const snap = await db.collection('miscellaneous').doc('settings').get()
-    if (!snap.exists) return null
-    const d = snap.data() || {}
-    if (d.gstEnabled !== true) return null
-    const rate = Number(d.gstRate)
-    if (!Number.isFinite(rate) || rate <= 0 || rate > MAX_GST_RATE) return null
-    return rate
-  } catch (err) {
-    // Never fail an order because the settings read failed — fall back to no
-    // tax, which is the recoverable direction (undercharging can be corrected
-    // on the bill; overcharging a customer cannot be taken back).
-    console.warn('[place-order] tax settings read failed, applying no tax:', err?.message)
-    return null
-  }
-}
+// The rate is read by resolveServerTax() from miscellaneous/settings.gstRateBp (integer basis points): see _lib/gst.js.
 
 async function verifyCartAmount(db, items, { isPos = false } = {}) {
   const safeItems = Array.isArray(items) ? items : []
@@ -198,9 +181,8 @@ export default async function handler(req, res) {
     const { normalizedItems, subtotal } = await verifyCartAmount(db, items, { isPos: isPosRequest && isBillerStaff })
 
     // Tax rate is resolved from server-owned settings; body.taxRate is ignored
-    // entirely. See resolveServerTaxRate() above for why.
-    const taxRate = await resolveServerTaxRate(db)
-    const taxAmount = taxRate != null ? Math.round(subtotal * taxRate) : null
+    // entirely. See _lib/gst.js for why.
+    const { taxRateBp, taxAmount } = await resolveServerTax(db, subtotal)
     const totalAmount = Math.round(subtotal + (taxAmount || 0))
 
     const MAX_ORDER_AMOUNT = 50000
@@ -284,7 +266,7 @@ export default async function handler(req, res) {
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       }
-      if (taxRate != null) orderDoc.taxRate = taxRate
+      if (taxRateBp != null) orderDoc.taxRateBp = taxRateBp
       if (taxAmount != null) orderDoc.taxAmount = taxAmount
 
       tx.create(orderRef, orderDoc)
