@@ -410,8 +410,11 @@ jobs:
     # flagged in the gap before deploy-staging ships it.
     name: Firestore Rules Deployed
     needs: [validate, rules-check, deploy-staging, deploy-production]
+    # Dependabot runs get no repository secrets, so this check cannot authenticate there; it is skipped (a skipped
+    # required check passes). It still runs on every other push and PR, and on main after the merge.
     if: >-
       always()
+      && github.actor != 'dependabot[bot]'
       && needs.validate.result == 'success'
       && needs.rules-check.result == 'success'
       && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
